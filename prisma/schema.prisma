@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User / Customer
+// ============================================
+model User {
+  id            String   @id @default(uuid())
+  phone         String   @unique
+  name          String?
+  email         String?
+  bvn           String?
+  nin           String?
+  kycStatus     String   @default("none") // none | pending | verified
+  autorampSubId String?  @unique           // AutoRamp sub-account ID
+  bankAccount   String?                     // linked bank account number
+  bankCode      String?                     // linked bank code
+  bankName      String?
+  status        String   @default("active") // active | flagged | blocked
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions       UserSession[]
+  transactions   Transaction[]
+  virtualAccounts VirtualAccount[]
+}
+
+// ============================================
+// WhatsApp conversation session state
+// ============================================
+model UserSession {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  state        String   @default("idle") // idle | register_bvn | register_email | confirm_register | send_money | confirm_transfer | buy_airtime | check_balance | kyc_verify
+  flowData     Json     @default("{}")   // temporary data for current flow
+  lastActivity DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============================================
+// Transactions (transfers, on-ramp, off-ramp, etc.)
+// ============================================
+model Transaction {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  reference       String   @unique
+  type            String                     // transfer | onramp | offramp | swap
+  amount          Float
+  currency        String   @default("NGN")
+  status          String   @default("pending") // pending | processing | completed | failed
+  description     String?
+  metadata        Json     @default("{}")
+  autorampRef     String?                    // AutoRamp transaction reference
+  bankCode        String?
+  bankAccount     String?
+  bankName        String?
+  accountName     String?
+  recipientPhone  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([reference])
+}
+
+// ============================================
+// Virtual accounts (for receiving payments)
+// ============================================
+model VirtualAccount {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  accountNumber String
+  accountName   String?
+  bankCode      String?
+  bankName      String?
+  reference     String   @unique
+  amount        Float?
+  status        String   @default("active") // active | expired | used
+  expiresAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============================================
+// Webhook event log (idempotency)
+// ============================================
+model WebhookEvent {
+  id        String   @id @default(uuid())
+  source    String                     // whatsapp | autoramp
+  eventType String
+  reference String?
+  payload   Json
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([source, eventType, reference])
+}
