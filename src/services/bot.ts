@@ -39,12 +39,25 @@ export async function handleMessage(
   // ---- Global commands ----
   if (messageText.toLowerCase() === "menu" || messageText.toLowerCase() === "start") {
     await resetSession(user.id);
+    // First time - send welcome with buttons
+    const isNew = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
+    if (isNew && messageText.toLowerCase() === "start") {
+      return whatsapp.sendButtonsMessage(
+        phone,
+        `Welcome to *3rike Pay*! 👋\n\nYour WhatsApp payment assistant.\nSend money, buy airtime, and more — all from here.`,
+        [
+          { id: "send_money", title: "Send Money" },
+          { id: "buy_airtime", title: "Buy Airtime" },
+          { id: "check_balance", title: "Check Balance" },
+        ]
+      );
+    }
     return sendMainMenu(phone);
   }
 
   if (messageText.toLowerCase() === "cancel") {
     await resetSession(user.id);
-    return whatsapp.sendTextMessage(phone, "Session cancelled. Type *menu* to start again.");
+    return whatsapp.sendTextMessage(phone, "Session cancelled. Send *start* to begin again.");
   }
 
   if (messageText.toLowerCase() === "help") {
@@ -236,7 +249,7 @@ async function handleConfirmRegister(phone: string, user: any, action?: string) 
   }
 
   await resetSession(user.id);
-  return whatsapp.sendTextMessage(phone, "Registration cancelled. Type *menu* to start again.");
+  return whatsapp.sendTextMessage(phone, "Registration cancelled. Type *start* to try again.");
 }
 
 // ============================================
@@ -520,7 +533,7 @@ async function sendMainMenu(phone: string) {
 
 async function sendHelp(phone: string) {
   const help = `*3rike Pay Commands*\n\n` +
-    `• *menu* - Open main menu\n` +
+    `• *start* - Open main menu\n` +
     `• *help* - Show this help\n` +
     `• *cancel* - Cancel current action\n\n` +
     `*Features:*\n` +
