@@ -104,6 +104,44 @@ class WhatsAppService {
     }
   }
 
+  async sendFlowMessage(
+    to: string,
+    bodyText: string,
+    flowId: string,
+    buttonText: string
+  ): Promise<boolean> {
+    try {
+      const payload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "interactive",
+        interactive: {
+          type: "flow",
+          body: { text: bodyText },
+          action: {
+            name: "flow",
+            parameters: {
+              flow_id: flowId,
+              flow_cta: buttonText,
+              flow_message_version: "3",
+              flow_action: "navigate",
+            },
+          },
+        },
+      };
+      const { data } = await this.client.post("/", payload);
+      logger.info(`Flow message sent to ${to}`, { messageId: data.messages?.[0]?.id });
+      return true;
+    } catch (error: any) {
+      logger.error("Failed to send flow message", {
+        to,
+        error: error.response?.data || error.message,
+      });
+      return false;
+    }
+  }
+
   async markAsRead(messageId: string): Promise<void> {
     try {
       await this.client.post("/", {

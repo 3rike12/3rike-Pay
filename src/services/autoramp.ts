@@ -250,14 +250,30 @@ class AutoRampService {
 
   // ------- Banks -------
 
-  async listBanks() {
+  private banksCache: any[] = [];
+  private banksCacheExpiry = 0;
+
+  async listBanks(forceRefresh = false): Promise<any[]> {
+    const now = Date.now();
+    if (!forceRefresh && this.banksCache.length > 0 && now < this.banksCacheExpiry) {
+      return this.banksCache;
+    }
+
     try {
       const { data } = await this.client.get("/misc/banks");
-      return data;
+      this.banksCache = Array.isArray(data) ? data : data.banks || data.data || [];
+      this.banksCacheExpiry = now + 24 * 60 * 60 * 1000; // cache 24h
+      logger.info("Banks list refreshed", { count: this.banksCache.length });
+      return this.banksCache;
     } catch (error: any) {
       logger.error("Failed to fetch banks", { error: error.message });
-      return null;
+      return this.banksCache; // return stale cache if available
     }
+  }
+
+  async getBankByCode(code: string): Promise<any | null> {
+    const banks = await this.listBanks();
+    return banks.find((b: any) => b.code === code || b.bankCode === code) || null;
   }
 
   // ------- Webhook Verification -------
