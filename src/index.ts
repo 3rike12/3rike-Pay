@@ -5,6 +5,7 @@ import morgan from "morgan";
 import { config } from "./config";
 import { logger } from "./utils/logger";
 import webhooksRouter from "./routes/webhooks";
+import notifyRouter from "./routes/notify";
 
 const app = express();
 
@@ -37,6 +38,7 @@ app.get("/health", (_req, res) => {
 // Routes
 // ============================================
 app.use("/webhook", webhooksRouter);
+app.use("/webhook/notify", notifyRouter);
 
 // ============================================
 // 404 handler
@@ -63,6 +65,7 @@ async function main() {
     logger.info(`${config.app.name} running on port ${config.port}`);
     logger.info(`WhatsApp webhook: ${config.webhook.path}`);
     logger.info(`AutoRamp webhook: /webhook/autoramp`);
+    logger.info(`Notify webhook: /webhook/notify`);
     logger.info(`Health check: /health`);
   });
 }
