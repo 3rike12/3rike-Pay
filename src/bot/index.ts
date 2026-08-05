@@ -270,51 +270,55 @@ async function handleRegisterEmail(phone: string, user: any, text: string) {
 }
 
 async function handleConfirmRegister(phone: string, user: any, action?: string) {
-  if (action === "confirm_yes") {
-    const session = await getSession(user.id);
-    const flowData = (session.flowData as FlowData) || {};
-    try {
-      const subAccount = await autoramp.createSubAccount({
-        phoneNumber: phone,
-        emailAddress: flowData.email as string,
-        externalReference: generateReference("reg"),
-        identityType: "BVN",
-        identityNumber: flowData.bvn as string,
-      });
-
-      const updatedUser = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          bvn: flowData.bvn as string,
-          email: flowData.email as string,
-          autorampSubId: subAccount?.id || subAccount?.accountId,
-          kycStatus: "verified",
-          bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
-          bankCode: subAccount?.bankCode,
-          bankName: subAccount?.bankName || subAccount?.provider,
-        },
-      });
-
-      // Send bank details
-      const bankName = updatedUser.bankName || "Safe Haven MFB";
-      const accountNumber = updatedUser.bankAccount || "Pending";
-      const userName = (flowData.email as string).split("@")[0] || "there";
-
-      await whatsapp.sendTemplate(
-        phone,
-        TEMPLATES.ACCOUNT_CREATED.NAME,
-        [userName, bankName, accountNumber, userName],
-        TEMPLATES.ACCOUNT_CREATED.LANGUAGE
-      );
-
-      await resetSession(user.id);
-    } catch (error: any) {
-      await resetSession(user.id);
-      return whatsapp.sendTextMessage(phone, `Registration failed: ${error.message}\n\nPlease try again or contact support.`);
-    }
-  } else {
+  if (action !== "confirm_yes") {
     await resetSession(user.id);
     return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
+  }
+
+  const session = await getSession(user.id);
+  const flowData = (session.flowData as FlowData) || {};
+
+  try {
+    // Keep what the user entered, but stay unverified. The AutoRamp
+    // sub-account is only created once the BVN OTP passes in handleKycOtp.
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        bvn: flowData.bvn as string,
+        email: flowData.email as string,
+        kycStatus: "pending",
+      },
+    });
+
+    // BVN must be verified by OTP before an account exists
+    const result = await autoramp.initiateIdentityVerification({
+      type: "BVN",
+      number: flowData.bvn as string,
+    });
+
+    await updateSession(user.id, "kyc_otp", {
+      identityId: result.identityId,
+      bvn: flowData.bvn,
+    });
+
+    const kycUrl = `${process.env.KYC_BASE_URL || "http://localhost:3000"}/kyc?ref=${result.identityId}`;
+    const userName = (flowData.email as string).split("@")[0] || "there";
+
+    await whatsapp.sendTemplateOrText(
+      phone,
+      TEMPLATES.KYC_VERIFY_LINK.NAME,
+      [userName, kycUrl],
+      TEMPLATES.KYC_VERIFY_LINK.LANGUAGE,
+      MESSAGES.FALLBACK.KYC_VERIFY_LINK(kycUrl)
+    );
+
+    return whatsapp.sendTextMessage(
+      phone,
+      `We've sent you a verification link. You can also enter the OTP sent to your BVN phone number below:`
+    );
+  } catch (error: any) {
+    await resetSession(user.id);
+    return whatsapp.sendTextMessage(phone, `Registration failed: ${error.message}\n\nPlease try again or contact support.`);
   }
 }
 
@@ -468,11 +472,12 @@ async function handleKycVerify(phone: string, user: any, text: string) {
     const kycUrl = `${process.env.KYC_BASE_URL || "http://localhost:3000"}/kyc?ref=${result.identityId}`;
     const userName = user.name || "there";
 
-    await whatsapp.sendTemplate(
+    await whatsapp.sendTemplateOrText(
       phone,
       TEMPLATES.KYC_VERIFY_LINK.NAME,
       [userName, kycUrl],
-      TEMPLATES.KYC_VERIFY_LINK.LANGUAGE
+      TEMPLATES.KYC_VERIFY_LINK.LANGUAGE,
+      MESSAGES.FALLBACK.KYC_VERIFY_LINK(kycUrl)
     );
 
     return whatsapp.sendTextMessage(
@@ -525,11 +530,12 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
     const accountNumber = updatedUser.bankAccount || "Pending";
     const userName = user.name || "there";
 
-    await whatsapp.sendTemplate(
+    await whatsapp.sendTemplateOrText(
       phone,
       TEMPLATES.ACCOUNT_CREATED.NAME,
       [userName, bankName, accountNumber, userName],
-      TEMPLATES.ACCOUNT_CREATED.LANGUAGE
+      TEMPLATES.ACCOUNT_CREATED.LANGUAGE,
+      MESSAGES.FALLBACK.ACCOUNT_CREATED(bankName, accountNumber)
     );
 
     await resetSession(user.id);

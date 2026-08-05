@@ -22,11 +22,13 @@ app.use(cors());
 app.use(morgan("combined"));
 app.use(generalLimiter);
 
+// Raw body for AutoRamp webhook signature verification.
+// MUST be registered before express.json() - the first body parser to run wins,
+// and the HMAC is computed over the exact bytes AutoRamp sent.
+app.use("/webhook/autoramp", express.raw({ type: "application/json" }));
+
 // Parse JSON
 app.use(express.json({ limit: "10mb" }));
-
-// Raw body for AutoRamp webhook signature verification
-app.use("/webhook/autoramp", express.raw({ type: "application/json" }));
 
 // ============================================
 // Health check

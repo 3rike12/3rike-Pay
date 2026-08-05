@@ -9,7 +9,7 @@ interface Props {
   onError: (msg: string) => void;
 }
 
-export function OtpVerify({ state, updateState, onSuccess, onError }: Props) {
+export function OtpVerify({ state, updateState, onSuccess }: Props) {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
