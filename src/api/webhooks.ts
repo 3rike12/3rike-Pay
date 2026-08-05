@@ -6,6 +6,8 @@ import { handleMessage } from "@/bot";
 import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
 import { cleanPhone } from "@/utils/helpers";
+import { formatAmount } from "@/utils/helpers";
+import { TEMPLATES } from "@/config/constants";
 
 const router = Router();
 
@@ -220,7 +222,7 @@ async function handleOnrampEvent(event: string, data: any) {
         if (event === "onramp.completed") {
           await whatsapp.sendTextMessage(
             transaction.recipientPhone,
-            `Your payment of ${new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(transaction.amount)} has been completed!`
+            `Your payment of ${formatAmount(transaction.amount)} has been completed!`
           );
         } else if (event === "onramp.failed") {
           await whatsapp.sendTextMessage(
@@ -277,19 +279,25 @@ async function handleTransferEvent(event: string, data: any) {
         },
       });
 
-      // Notify user
       const { whatsapp } = await import("../services/whatsapp");
       const user = await prisma.user.findUnique({ where: { id: transaction.userId } });
       if (user) {
         if (event === "transfer.completed") {
-          await whatsapp.sendTextMessage(
+          await whatsapp.sendTemplate(
             user.phone,
-            `Transfer of ${new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(transaction.amount)} to ${transaction.accountName} has been completed.`
+            TEMPLATES.TRANSFER_COMPLETE.NAME,
+            [
+              formatAmount(transaction.amount),
+              `${transaction.accountName} - ${transaction.bankAccount}`,
+              transaction.bankName || "Bank",
+              transaction.reference,
+            ],
+            TEMPLATES.TRANSFER_COMPLETE.LANGUAGE
           );
         } else {
           await whatsapp.sendTextMessage(
             user.phone,
-            `Transfer of ${new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(transaction.amount)} to ${transaction.accountName} failed. Please try again.`
+            `Transfer of ${formatAmount(transaction.amount)} to ${transaction.accountName} failed. Please try again.`
           );
         }
       }

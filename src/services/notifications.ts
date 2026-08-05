@@ -1,6 +1,7 @@
 import { prisma } from "@/db/prisma";
 import { whatsapp } from "./whatsapp";
 import { logger } from "@/utils/logger";
+import { formatAmount } from "@/utils/helpers";
 
 // ============================================
 // Notification Service
@@ -86,10 +87,10 @@ export async function notifyPayment(
   }
 ): Promise<boolean> {
   const messages: Record<string, string> = {
-    received: `💰 *Payment Received*\n\nAmount: ₦${params.amount.toLocaleString()}\nFrom: ${params.name || "Unknown"}\nRef: ${params.reference}`,
-    sent: `✅ *Payment Sent*\n\nAmount: ₦${params.amount.toLocaleString()}\nTo: ${params.name || "Unknown"}\nBank: ${params.bank || "N/A"}\nRef: ${params.reference}`,
-    completed: `✅ *Transfer Completed*\n\nAmount: ₦${params.amount.toLocaleString()}\nTo: ${params.name || "Unknown"}\nRef: ${params.reference}`,
-    failed: `❌ *Payment Failed*\n\nAmount: ₦${params.amount.toLocaleString()}\nRef: ${params.reference}\n\nPlease try again or contact support.`,
+    received: `*Payment Received*\n\nAmount: ${formatAmount(params.amount)}\nFrom: ${params.name || "Unknown"}\nRef: ${params.reference}`,
+    sent: `*Payment Sent*\n\nAmount: ${formatAmount(params.amount)}\nTo: ${params.name || "Unknown"}\nBank: ${params.bank || "N/A"}\nRef: ${params.reference}`,
+    completed: `*Transfer Completed*\n\nAmount: ${formatAmount(params.amount)}\nTo: ${params.name || "Unknown"}\nRef: ${params.reference}`,
+    failed: `*Payment Failed*\n\nAmount: ${formatAmount(params.amount)}\nRef: ${params.reference}\n\nPlease try again or contact support.`,
   };
 
   return notifyUser({
@@ -106,9 +107,9 @@ export async function notifyKyc(
   status: "verified" | "rejected" | "pending"
 ): Promise<boolean> {
   const messages: Record<string, string> = {
-    verified: `✅ *KYC Verified*\n\nYour identity has been verified. You can now use all features of 3rike Pay.`,
-    rejected: `❌ *KYC Rejected*\n\nYour verification was not successful. Please try again or contact support.`,
-    pending: `⏳ *KYC Pending*\n\nYour verification is being processed. We'll notify you when it's complete.`,
+    verified: `*KYC Verified*\n\nYour identity has been verified. You can now use all features of 3rike Pay.`,
+    rejected: `*KYC Rejected*\n\nYour verification was not successful. Please try again or contact support.`,
+    pending: `*KYC Pending*\n\nYour verification is being processed. We'll notify you when it's complete.`,
   };
 
   return notifyUser({

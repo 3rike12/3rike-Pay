@@ -525,25 +525,12 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
     const accountNumber = updatedUser.bankAccount || "Pending";
     const userName = user.name || "there";
 
-    // Try template first, fall back to text
-    const templateSent = await whatsapp.sendTemplate(
+    await whatsapp.sendTemplate(
       phone,
       TEMPLATES.ACCOUNT_CREATED.NAME,
       [userName, bankName, accountNumber, userName],
       TEMPLATES.ACCOUNT_CREATED.LANGUAGE
     );
-
-    if (!templateSent) {
-      await whatsapp.sendTextMessage(
-        phone,
-        `✅ *Account Created!*\n\n` +
-        `Hi ${userName}, your 3rike Pay sub-account is ready:\n\n` +
-        `🏦 Bank: ${bankName}\n` +
-        `📋 Account Number: ${accountNumber}\n` +
-        `👤 Name: ${userName}\n\n` +
-        `You can now send money, buy airtime, and more.\nType *start* to begin.`
-      );
-    }
 
     await resetSession(user.id);
   } catch (error: any) {

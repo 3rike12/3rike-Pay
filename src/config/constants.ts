@@ -60,7 +60,7 @@ export const TEMPLATES = {
   TRANSFER_COMPLETE: {
     NAME: "transfer_complete",
     LANGUAGE: "en",
-    // {{1}} = user name, {{2}} = amount, {{3}} = to, {{4}} = bank, {{5}} = reference
+    VARIABLES: ["amount", "recipient_name_account", "recipient_bank", "reference"],
   },
   TRANSFER_FAILED: {
     NAME: "transfer_failed",
@@ -88,11 +88,11 @@ export const MESSAGES = {
   },
 
   KYC_COMPLETE: {
-    TEXT: `✅ Identity verified successfully!\n\nYou can now:\n• Send money to any bank\n• Buy airtime & data\n• Check your balance\n\nTap *Start* to begin.`,
+    TEXT: `Identity verified successfully!\n\nYou can now:\n- Send money to any bank\n- Buy airtime & data\n- Check your balance\n\nTap *Start* to begin.`,
   },
 
   KYC_PENDING: {
-    TEXT: `⏳ Your verification is being processed.\n\nWe'll notify you once it's complete. This usually takes a few minutes.`,
+    TEXT: `Your verification is being processed.\n\nWe'll notify you once it's complete. This usually takes a few minutes.`,
   },
 
   MAIN_MENU: {
@@ -123,11 +123,11 @@ export const MESSAGES = {
     PROMPT_BANK: `Select the recipient's bank:`,
     PROMPT_ACCOUNT: `Enter the recipient's account number (10 digits):`,
     CONFIRM: (amount: string, bank: string, account: string, name: string) =>
-      `Confirm transfer:\n\n💰 Amount: ${amount}\n🏦 Bank: ${bank}\n📋 Account: ${account}\n👤 Name: ${name}`,
+      `Confirm transfer:\n\nAmount: ${amount}\nBank: ${bank}\nAccount: ${account}\nName: ${name}`,
     SUCCESS: (amount: string, name: string, ref: string) =>
-      `✅ Transfer of ${amount} to ${name} initiated!\n\nReference: ${ref}\nYou'll receive a confirmation shortly.`,
+      `Transfer of ${amount} to ${name} initiated!\n\nReference: ${ref}\nYou'll receive a confirmation shortly.`,
     FAILED: (reason: string) =>
-      `❌ Transfer failed: ${reason}\n\nPlease try again or contact support.`,
+      `Transfer failed: ${reason}\n\nPlease try again or contact support.`,
   },
 
   BUY_AIRTIME: {
@@ -135,12 +135,12 @@ export const MESSAGES = {
     PROMPT_PHONE: `Enter the phone number to recharge:`,
     PROMPT_AMOUNT: `Enter the airtime amount (e.g. 500):`,
     SUCCESS: (amount: string, phone: string) =>
-      `✅ Airtime of ${amount} sent to ${phone}!\n\nYou'll receive a confirmation shortly.`,
+      `Airtime of ${amount} sent to ${phone}!\n\nYou'll receive a confirmation shortly.`,
   },
 
   CHECK_BALANCE: {
     TEXT: (bank: string, account: string, balance: string) =>
-      `💰 *Your Balance*\n\n🏦 Bank: ${bank}\n📋 Account: ${account}\n💵 Balance: ${balance}`,
+      `*Your Balance*\n\nBank: ${bank}\nAccount: ${account}\nBalance: ${balance}`,
     ERROR: `Could not fetch balance. Please try again later.`,
   },
 
