@@ -281,24 +281,41 @@ async function handleConfirmRegister(phone: string, user: any, action?: string) 
         identityType: "BVN",
         identityNumber: flowData.bvn as string,
       });
-      await prisma.user.update({
+
+      const updatedUser = await prisma.user.update({
         where: { id: user.id },
         data: {
           bvn: flowData.bvn as string,
           email: flowData.email as string,
-          autorampSubId: subAccount?.id,
-          kycStatus: "pending",
+          autorampSubId: subAccount?.id || subAccount?.accountId,
+          kycStatus: "verified",
+          bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
+          bankCode: subAccount?.bankCode,
+          bankName: subAccount?.bankName || subAccount?.provider,
         },
       });
+
+      // Send bank details
+      const bankName = updatedUser.bankName || "Safe Haven MFB";
+      const accountNumber = updatedUser.bankAccount || "Pending";
+      const userName = (flowData.email as string).split("@")[0] || "there";
+
+      await whatsapp.sendTemplate(
+        phone,
+        TEMPLATES.ACCOUNT_CREATED.NAME,
+        [userName, bankName, accountNumber, userName],
+        TEMPLATES.ACCOUNT_CREATED.LANGUAGE
+      );
+
       await resetSession(user.id);
-      return whatsapp.sendTextMessage(phone, MESSAGES.KYC_PENDING.TEXT);
     } catch (error: any) {
       await resetSession(user.id);
       return whatsapp.sendTextMessage(phone, `Registration failed: ${error.message}\n\nPlease try again or contact support.`);
     }
+  } else {
+    await resetSession(user.id);
+    return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
   }
-  await resetSession(user.id);
-  return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
 }
 
 // ============================================
@@ -474,17 +491,61 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
     return whatsapp.sendTextMessage(phone, "Invalid OTP. Please enter the code sent to your phone:");
   }
   try {
+    // Step 1: Verify OTP
     await autoramp.validateIdentityVerification({
       identityId: flowData.identityId as string,
       type: "BVN",
       otp,
     });
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { bvn: flowData.bvn as string, kycStatus: "verified" },
+
+    // Step 2: Create sub-account on AutoRamp
+    const subAccount = await autoramp.createSubAccount({
+      phoneNumber: phone,
+      emailAddress: user.email || `${phone}@3rikepay.com`,
+      externalReference: generateReference("kyc"),
+      identityType: "BVN",
+      identityNumber: flowData.bvn as string,
     });
+
+    // Step 3: Update user in DB
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        bvn: flowData.bvn as string,
+        kycStatus: "verified",
+        autorampSubId: subAccount?.id || subAccount?.accountId,
+        bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
+        bankCode: subAccount?.bankCode,
+        bankName: subAccount?.bankName || subAccount?.provider,
+      },
+    });
+
+    // Step 4: Send bank details to user
+    const bankName = updatedUser.bankName || "Safe Haven MFB";
+    const accountNumber = updatedUser.bankAccount || "Pending";
+    const userName = user.name || "there";
+
+    // Try template first, fall back to text
+    const templateSent = await whatsapp.sendTemplate(
+      phone,
+      TEMPLATES.ACCOUNT_CREATED.NAME,
+      [userName, bankName, accountNumber, userName],
+      TEMPLATES.ACCOUNT_CREATED.LANGUAGE
+    );
+
+    if (!templateSent) {
+      await whatsapp.sendTextMessage(
+        phone,
+        `✅ *Account Created!*\n\n` +
+        `Hi ${userName}, your 3rike Pay sub-account is ready:\n\n` +
+        `🏦 Bank: ${bankName}\n` +
+        `📋 Account Number: ${accountNumber}\n` +
+        `👤 Name: ${userName}\n\n` +
+        `You can now send money, buy airtime, and more.\nType *start* to begin.`
+      );
+    }
+
     await resetSession(user.id);
-    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_COMPLETE.TEXT);
   } catch (error: any) {
     await resetSession(user.id);
     return whatsapp.sendTextMessage(phone, MESSAGES.ERROR.KYC_FAILED + `\n${error.message}`);
