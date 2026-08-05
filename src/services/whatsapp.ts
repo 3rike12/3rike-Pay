@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from "axios";
-import { config } from "../config";
-import { logger } from "../utils/logger";
+import { config } from "@/config";
+import { logger } from "@/utils/logger";
 
 class WhatsAppService {
   private client: AxiosInstance;

@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "../utils/prisma";
-import { logger } from "../utils/logger";
+import { prisma } from "@/db/prisma";
+import { logger } from "@/utils/logger";
 
 export { prisma };
 

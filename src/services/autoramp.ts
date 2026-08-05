@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import crypto from "crypto";
-import { config } from "../config";
-import { logger } from "../utils/logger";
+import { config } from "@/config";
+import { logger } from "@/utils/logger";
 
 // ============================================
 // AutoRamp API Service

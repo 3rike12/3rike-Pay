@@ -1,18 +1,22 @@
 import express from "express";
+import path from "path";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import { config } from "./config";
-import { logger } from "./utils/logger";
-import webhooksRouter from "./routes/webhooks";
-import notifyRouter from "./routes/notify";
+import { config } from "@/config";
+import { logger } from "@/utils/logger";
+import webhooksRouter from "@/api/webhooks";
+import notifyRouter from "@/api/notify";
+import kycRouter from "@/api/kyc";
 
 const app = express();
 
 // ============================================
 // Middleware
 // ============================================
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false, // allow inline scripts for KYC page
+}));
 app.use(cors());
 app.use(morgan("combined"));
 
@@ -21,6 +25,11 @@ app.use(express.json({ limit: "10mb" }));
 
 // Raw body for AutoRamp webhook signature verification
 app.use("/webhook/autoramp", express.raw({ type: "application/json" }));
+
+// ============================================
+// Static files (KYC page)
+// ============================================
+app.use(express.static(path.join(__dirname, "../public")));
 
 // ============================================
 // Health check
@@ -39,6 +48,12 @@ app.get("/health", (_req, res) => {
 // ============================================
 app.use("/webhook", webhooksRouter);
 app.use("/webhook/notify", notifyRouter);
+app.use("/api/kyc", kycRouter);
+
+// KYC page route
+app.get("/kyc", (_req, res) => {
+  res.sendFile(path.join(__dirname, "web/kyc.html"));
+});
 
 // ============================================
 // 404 handler
@@ -63,6 +78,7 @@ async function main() {
 
   app.listen(config.port, () => {
     logger.info(`${config.app.name} running on port ${config.port}`);
+    logger.info(`KYC page: http://localhost:${config.port}/kyc`);
     logger.info(`WhatsApp webhook: ${config.webhook.path}`);
     logger.info(`AutoRamp webhook: /webhook/autoramp`);
     logger.info(`Notify webhook: /webhook/notify`);

@@ -1,6 +1,6 @@
-import { prisma } from "../utils/prisma";
+import { prisma } from "@/db/prisma";
 import { whatsapp } from "./whatsapp";
-import { logger } from "../utils/logger";
+import { logger } from "@/utils/logger";
 
 // ============================================
 // Notification Service

@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
-import { config } from "../config";
-import { logger } from "../utils/logger";
-import { notifyUser, notifyBulk, notifyPayment, notifyKyc } from "../services/notifications";
-import { prisma } from "../utils/prisma";
+import { config } from "@/config";
+import { logger } from "@/utils/logger";
+import { notifyUser, notifyBulk, notifyPayment, notifyKyc } from "@/services/notifications";
+import { prisma } from "@/db/prisma";
 
 const router = Router();
 

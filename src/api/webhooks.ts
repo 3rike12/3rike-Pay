@@ -1,11 +1,11 @@
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
-import { config } from "../config";
-import { logger } from "../utils/logger";
-import { handleMessage } from "../services/bot";
-import { prisma, logWebhookEvent } from "../services/database";
-import { autoramp } from "../services/autoramp";
-import { cleanPhone } from "../utils/helpers";
+import { config } from "@/config";
+import { logger } from "@/utils/logger";
+import { handleMessage } from "@/bot";
+import { prisma, logWebhookEvent } from "@/services/database";
+import { autoramp } from "@/services/autoramp";
+import { cleanPhone } from "@/utils/helpers";
 
 const router = Router();
 

@@ -1,5 +1,5 @@
-import { whatsapp } from "./whatsapp";
-import { autoramp } from "./autoramp";
+import { whatsapp } from "@/services/whatsapp";
+import { autoramp } from "@/services/autoramp";
 import {
   findOrCreateUser,
   getSession,
@@ -8,10 +8,10 @@ import {
   createTransaction,
   updateTransaction,
   prisma,
-} from "./database";
-import { generateReference, formatAmount, extractAmount } from "../utils/helpers";
-import { logger } from "../utils/logger";
-import { TRIGGERS, MESSAGES, FLOWS } from "../config/constants";
+} from "@/services/database";
+import { generateReference, formatAmount, extractAmount } from "@/utils/helpers";
+import { logger } from "@/utils/logger";
+import { TRIGGERS, MESSAGES, FLOWS } from "@/config/constants";
 
 type FlowData = Record<string, unknown>;
 
