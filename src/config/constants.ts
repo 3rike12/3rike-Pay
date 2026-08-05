@@ -60,7 +60,7 @@ export const TEMPLATES = {
   TRANSFER_COMPLETE: {
     NAME: "transfer_complete",
     LANGUAGE: "en",
-    VARIABLES: ["amount", "recipient_name_account", "recipient_bank", "reference"],
+    VARIABLES: ["amount", "recipient_name", "recipient_bank", "recipient_account", "reference"],
   },
   TRANSFER_FAILED: {
     NAME: "transfer_failed",

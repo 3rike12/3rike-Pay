@@ -288,8 +288,9 @@ async function handleTransferEvent(event: string, data: any) {
             TEMPLATES.TRANSFER_COMPLETE.NAME,
             [
               formatAmount(transaction.amount),
-              `${transaction.accountName} - ${transaction.bankAccount}`,
+              transaction.accountName || "Recipient",
               transaction.bankName || "Bank",
+              transaction.bankAccount || "",
               transaction.reference,
             ],
             TEMPLATES.TRANSFER_COMPLETE.LANGUAGE
