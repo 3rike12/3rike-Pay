@@ -21,6 +21,55 @@ export const FLOWS = {
 } as const;
 
 // ============================================
+// WhatsApp Template Names (pre-approved in Meta Business Manager)
+// Variables: {{1}} = username, {{2}} = link
+// ============================================
+export const TEMPLATES = {
+  KYC_VERIFY_LINK: {
+    NAME: "kyc_verify_link",
+    LANGUAGE: "en",
+    // {{1}} = user name, {{2}} = KYC link
+    getUrl: (name: string, link: string) => ({ name, link }),
+  },
+  KYC_OTP: {
+    NAME: "kyc_otp",
+    LANGUAGE: "en",
+    // {{1}} = OTP code
+    getOtp: (otp: string) => ({ otp }),
+  },
+  KYC_APPROVED: {
+    NAME: "kyc_approved",
+    LANGUAGE: "en",
+    // {{1}} = user name
+  },
+  KYC_REJECTED: {
+    NAME: "kyc_rejected",
+    LANGUAGE: "en",
+    // {{1}} = user name, {{2}} = reason
+  },
+  ACCOUNT_CREATED: {
+    NAME: "account_created",
+    LANGUAGE: "en",
+    // {{1}} = user name, {{2}} = bank, {{3}} = account number, {{4}} = account name
+  },
+  PAYMENT_RECEIVED: {
+    NAME: "payment_received",
+    LANGUAGE: "en",
+    // {{1}} = user name, {{2}} = amount, {{3}} = from, {{4}} = reference
+  },
+  TRANSFER_COMPLETE: {
+    NAME: "transfer_complete",
+    LANGUAGE: "en",
+    // {{1}} = user name, {{2}} = amount, {{3}} = to, {{4}} = bank, {{5}} = reference
+  },
+  TRANSFER_FAILED: {
+    NAME: "transfer_failed",
+    LANGUAGE: "en",
+    // {{1}} = user name, {{2}} = amount, {{3}} = to, {{4}} = reason
+  },
+} as const;
+
+// ============================================
 // Messages
 // ============================================
 export const MESSAGES = {

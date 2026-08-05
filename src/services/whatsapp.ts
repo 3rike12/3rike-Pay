@@ -142,6 +142,44 @@ class WhatsAppService {
     }
   }
 
+  async sendTemplate(
+    to: string,
+    templateName: string,
+    params: string[],
+    language: string = "en"
+  ): Promise<boolean> {
+    try {
+      const payload = {
+        messaging_product: "whatsapp",
+        to,
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: language },
+          components: [
+            {
+              type: "body",
+              parameters: params.map((p) => ({ type: "text", text: p })),
+            },
+          ],
+        },
+      };
+      const { data } = await this.client.post("/", payload);
+      logger.info(`Template sent to ${to}`, {
+        template: templateName,
+        messageId: data.messages?.[0]?.id,
+      });
+      return true;
+    } catch (error: any) {
+      logger.error("Failed to send template", {
+        to,
+        template: templateName,
+        error: error.response?.data || error.message,
+      });
+      return false;
+    }
+  }
+
   async markAsRead(messageId: string): Promise<void> {
     try {
       await this.client.post("/", {

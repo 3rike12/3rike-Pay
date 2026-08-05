@@ -11,7 +11,7 @@ import {
 } from "@/services/database";
 import { generateReference, formatAmount, extractAmount } from "@/utils/helpers";
 import { logger } from "@/utils/logger";
-import { TRIGGERS, MESSAGES, FLOWS } from "@/config/constants";
+import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES } from "@/config/constants";
 
 type FlowData = Record<string, unknown>;
 
@@ -446,7 +446,22 @@ async function handleKycVerify(phone: string, user: any, text: string) {
   try {
     const result = await autoramp.initiateIdentityVerification({ type: "BVN", number: bvn });
     await updateSession(user.id, "kyc_otp", { identityId: result.identityId, bvn });
-    return whatsapp.sendTextMessage(phone, "An OTP has been sent to your registered phone number. Enter the OTP to complete verification:");
+
+    // Send KYC link via template
+    const kycUrl = `${process.env.KYC_BASE_URL || "http://localhost:3000"}/kyc?ref=${result.identityId}`;
+    const userName = user.name || "there";
+
+    await whatsapp.sendTemplate(
+      phone,
+      TEMPLATES.KYC_VERIFY_LINK.NAME,
+      [userName, kycUrl],
+      TEMPLATES.KYC_VERIFY_LINK.LANGUAGE
+    );
+
+    return whatsapp.sendTextMessage(
+      phone,
+      `We've sent you a verification link. You can also enter the OTP sent to your BVN phone number below:`
+    );
   } catch (error: any) {
     await resetSession(user.id);
     return whatsapp.sendTextMessage(phone, MESSAGES.ERROR.KYC_FAILED + `\n${error.message}`);
