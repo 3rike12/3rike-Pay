@@ -5,17 +5,26 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc",
+    "dev:web": "cd web && npm run dev",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:web\"",
+    "build": "npm run build:web && tsc",
+    "build:web": "cd web && npm run build",
     "start": "node dist/index.js",
     "lint": "eslint src/ --ext .ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:web": "cd web && npx tsc --noEmit",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "ts-node prisma/seed.ts"
   },
-  "keywords": ["whatsapp", "payment", "bot", "autoramp"],
+  "keywords": [
+    "whatsapp",
+    "payment",
+    "bot",
+    "autoramp"
+  ],
   "license": "ISC",
   "dependencies": {
     "@prisma/client": "^5.20.0",
@@ -23,8 +32,10 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",
+    "express-rate-limit": "^8.6.2",
     "helmet": "^7.1.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

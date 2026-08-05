@@ -8,6 +8,7 @@ import { logger } from "@/utils/logger";
 import webhooksRouter from "@/api/webhooks";
 import notifyRouter from "@/api/notify";
 import kycRouter from "@/api/kyc";
+import { generalLimiter } from "@/api/middleware/rateLimit";
 
 const app = express();
 
@@ -15,21 +16,17 @@ const app = express();
 // Middleware
 // ============================================
 app.use(helmet({
-  contentSecurityPolicy: false, // allow inline scripts for KYC page
+  contentSecurityPolicy: false,
 }));
 app.use(cors());
 app.use(morgan("combined"));
+app.use(generalLimiter);
 
-// Parse JSON for most routes
+// Parse JSON
 app.use(express.json({ limit: "10mb" }));
 
 // Raw body for AutoRamp webhook signature verification
 app.use("/webhook/autoramp", express.raw({ type: "application/json" }));
-
-// ============================================
-// Static files (KYC page)
-// ============================================
-app.use(express.static(path.join(__dirname, "../public")));
 
 // ============================================
 // Health check
@@ -44,22 +41,24 @@ app.get("/health", (_req, res) => {
 });
 
 // ============================================
-// Routes
+// API Routes
 // ============================================
 app.use("/webhook", webhooksRouter);
 app.use("/webhook/notify", notifyRouter);
 app.use("/api/kyc", kycRouter);
 
-// KYC page route
-app.get("/kyc", (_req, res) => {
-  res.sendFile(path.join(__dirname, "web/kyc.html"));
-});
+// ============================================
+// Serve React frontend (built output)
+// ============================================
+const webDist = path.join(__dirname, "../web/dist");
+app.use(express.static(webDist));
 
-// ============================================
-// 404 handler
-// ============================================
-app.use((_req, res) => {
-  res.status(404).json({ error: "Not found" });
+// SPA fallback - serve index.html for all non-API routes
+app.get("*", (req, res) => {
+  if (req.path.startsWith("/api/") || req.path.startsWith("/webhook/") || req.path === "/health") {
+    return res.status(404).json({ error: "Not found" });
+  }
+  res.sendFile(path.join(webDist, "index.html"));
 });
 
 // ============================================
