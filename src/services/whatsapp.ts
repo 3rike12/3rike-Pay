@@ -180,6 +180,30 @@ class WhatsAppService {
     }
   }
 
+  /**
+   * Send a template, falling back to plain text if it fails.
+   *
+   * A template send fails whenever the template is unapproved, paused, or the
+   * parameter count doesn't match its definition. Without a fallback the user
+   * gets nothing at all, so the flow dead-ends silently.
+   */
+  async sendTemplateOrText(
+    to: string,
+    templateName: string,
+    params: string[],
+    language: string,
+    fallbackText: string
+  ): Promise<boolean> {
+    const sent = await this.sendTemplate(to, templateName, params, language);
+    if (sent) return true;
+
+    logger.warn("Template failed, falling back to text message", {
+      to,
+      template: templateName,
+    });
+    return this.sendTextMessage(to, fallbackText);
+  }
+
   async markAsRead(messageId: string): Promise<void> {
     try {
       await this.client.post("/", {

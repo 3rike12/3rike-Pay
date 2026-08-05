@@ -4,10 +4,10 @@
   "description": "WhatsApp payment bot for 3rike Pay powered by AutoRamp",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/index.ts",
     "dev:web": "cd web && npm run dev",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:web\"",
-    "build": "npm run build:web && tsc",
+    "build": "npm run build:web && tsc && tsc-alias",
     "build:web": "cd web && npm run build",
     "start": "node dist/index.js",
     "lint": "eslint src/ --ext .ts",
@@ -44,6 +44,8 @@
     "@types/node": "^20.11.0",
     "prisma": "^5.20.0",
     "ts-node-dev": "^2.0.0",
+    "tsc-alias": "^1.9.1",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.3.0"
   }
 }

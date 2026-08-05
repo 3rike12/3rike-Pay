@@ -1,13 +1,11 @@
 import { Router, Request, Response } from "express";
-import crypto from "crypto";
 import { config } from "@/config";
 import { logger } from "@/utils/logger";
 import { handleMessage } from "@/bot";
 import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
-import { cleanPhone } from "@/utils/helpers";
-import { formatAmount } from "@/utils/helpers";
-import { TEMPLATES } from "@/config/constants";
+import { cleanPhone, formatAmount } from "@/utils/helpers";
+import { TEMPLATES, MESSAGES } from "@/config/constants";
 
 const router = Router();
 
@@ -115,7 +113,10 @@ router.post("/autoramp", async (req: Request, res: Response) => {
     return res.status(401).json({ error: "Missing signature" });
   }
 
-  const rawBody = JSON.stringify(req.body);
+  // express.raw() gives us the untouched bytes AutoRamp signed
+  const rawBody: Buffer = Buffer.isBuffer(req.body)
+    ? req.body
+    : Buffer.from(JSON.stringify(req.body));
 
   try {
     const isValid = autoramp.verifyWebhookSignature(rawBody, signature);
@@ -133,7 +134,7 @@ router.post("/autoramp", async (req: Request, res: Response) => {
 
   // Process async
   try {
-    const payload = req.body;
+    const payload = JSON.parse(rawBody.toString("utf8"));
     const { event, data } = payload;
 
     await logWebhookEvent("autoramp", event, payload, data?.reference);
@@ -283,17 +284,17 @@ async function handleTransferEvent(event: string, data: any) {
       const user = await prisma.user.findUnique({ where: { id: transaction.userId } });
       if (user) {
         if (event === "transfer.completed") {
-          await whatsapp.sendTemplate(
+          const amount = formatAmount(transaction.amount);
+          const recipient = transaction.accountName || "Recipient";
+          const bank = transaction.bankName || "Bank";
+          const account = transaction.bankAccount || "";
+
+          await whatsapp.sendTemplateOrText(
             user.phone,
             TEMPLATES.TRANSFER_COMPLETE.NAME,
-            [
-              formatAmount(transaction.amount),
-              transaction.accountName || "Recipient",
-              transaction.bankName || "Bank",
-              transaction.bankAccount || "",
-              transaction.reference,
-            ],
-            TEMPLATES.TRANSFER_COMPLETE.LANGUAGE
+            [amount, recipient, bank, account, transaction.reference],
+            TEMPLATES.TRANSFER_COMPLETE.LANGUAGE,
+            MESSAGES.FALLBACK.TRANSFER_COMPLETE(amount, recipient, bank, account, transaction.reference)
           );
         } else {
           await whatsapp.sendTextMessage(

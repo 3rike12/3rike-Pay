@@ -278,15 +278,20 @@ class AutoRampService {
 
   // ------- Webhook Verification -------
 
-  verifyWebhookSignature(body: string, signature: string): boolean {
+  verifyWebhookSignature(body: string | Buffer, signature: string): boolean {
     const expected = crypto
       .createHmac("sha256", config.autoramp.webhookSecret)
       .update(body)
       .digest("hex");
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expected)
-    );
+
+    const received = Buffer.from(signature, "utf8");
+    const computed = Buffer.from(expected, "utf8");
+
+    // timingSafeEqual throws on length mismatch - a mismatched length is
+    // already a failed signature, so compare lengths first.
+    if (received.length !== computed.length) return false;
+
+    return crypto.timingSafeEqual(received, computed);
   }
 }
 

@@ -25,10 +25,13 @@ function authenticateWebhook(req: Request, res: Response, next: Function) {
     return res.status(500).json({ error: "Webhook not configured" });
   }
 
-  const isValid = crypto.timingSafeEqual(
-    Buffer.from(apiKey),
-    Buffer.from(expected)
-  );
+  const received = Buffer.from(apiKey, "utf8");
+  const secret = Buffer.from(expected, "utf8");
+
+  // timingSafeEqual throws on length mismatch, which would surface as a 500
+  // on this publicly-reachable route - a wrong length is just a wrong key.
+  const isValid =
+    received.length === secret.length && crypto.timingSafeEqual(received, secret);
 
   if (!isValid) {
     logger.warn("Invalid webhook API key", { ip: req.ip });

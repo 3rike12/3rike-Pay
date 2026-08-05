@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { KycState, Step } from '../App';
+import type { KycState } from '../App';
 import { api } from '../lib/api';
 import { kycFormSchema } from '../lib/validators';
 

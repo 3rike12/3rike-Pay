@@ -74,7 +74,7 @@ export const TEMPLATES = {
 // ============================================
 export const MESSAGES = {
   WELCOME: {
-    TEXT: `Welcome to *3rike Pay*! 👋\n\nYour WhatsApp payment assistant.\nSend money, buy airtime, and more — all from here.`,
+    TEXT: `Welcome to *3rike Pay*!\n\nYour WhatsApp payment assistant.\nSend money, buy airtime, and more - all from here.`,
     BUTTONS: [
       { id: "btn_kyc", title: "Get Started" },
       { id: "btn_balance", title: "Check Balance" },
@@ -93,6 +93,18 @@ export const MESSAGES = {
 
   KYC_PENDING: {
     TEXT: `Your verification is being processed.\n\nWe'll notify you once it's complete. This usually takes a few minutes.`,
+  },
+
+  // Plain-text equivalents of the WhatsApp templates, used when a template
+  // send fails (unapproved, paused, or parameter mismatch) so the user is
+  // never left with no reply at all.
+  FALLBACK: {
+    ACCOUNT_CREATED: (bank: string, account: string) =>
+      `Identity verified successfully!\n\nYour account details:\nBank: ${bank}\nAccount Number: ${account}\n\nTap *Start* to begin.`,
+    KYC_VERIFY_LINK: (link: string) =>
+      `To complete your registration on 3rike Pay, we need to verify your identity.\n\nOpen this link to finish your KYC:\n${link}\n\nThis link expires in 20 minutes.`,
+    TRANSFER_COMPLETE: (amount: string, name: string, bank: string, account: string, ref: string) =>
+      `Transfer Completed\n\nAmount: ${amount}\nTo: ${name}\nBank: ${bank}\nAccount: ${account}\nReference: ${ref}`,
   },
 
   MAIN_MENU: {
