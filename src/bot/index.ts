@@ -11,7 +11,7 @@ import {
 } from "@/services/database";
 import { generateReference, formatAmount, extractAmount } from "@/utils/helpers";
 import { logger } from "@/utils/logger";
-import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES } from "@/config/constants";
+import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS } from "@/config/constants";
 
 type FlowData = Record<string, unknown>;
 
@@ -19,48 +19,70 @@ type FlowData = Record<string, unknown>;
 // Build bank list rows (live from AutoRamp)
 // ============================================
 
-async function buildBankRows(): Promise<
-  Array<{ title: string; rows: Array<{ id: string; title: string; description?: string }> }>
-> {
+// WhatsApp interactive list limits - a message breaching any of these is
+// rejected outright. See developers.facebook.com interactive-list-messages.
+const LIST_MAX_ROWS = 10;
+const LIST_MAX_TITLE = 24;
+const LIST_MAX_DESCRIPTION = 72;
+
+function truncate(text: string, max: number): string {
+  const trimmed = text.trim();
+  return trimmed.length <= max ? trimmed : trimmed.slice(0, max - 1) + "…";
+}
+
+/**
+ * Find banks matching what the user typed.
+ *
+ * AutoRamp returns ~360 banks, far past the 10-row list cap, so the whole set
+ * can never be shown at once - the user searches instead. Exact and
+ * starts-with matches rank above substring ones so "gtb" surfaces GTBank
+ * rather than an unrelated bank that merely contains the letters.
+ */
+async function searchBanks(
+  query: string
+): Promise<Array<{ code: string; name: string }>> {
   const banks = await autoramp.listBanks();
+  const source = banks.length
+    ? banks.map((b: any) => ({
+        code: String(b.code || b.bankCode || ""),
+        name: String(b.name || b.bankName || b.code || ""),
+      }))
+    : MESSAGES.BANKS.FALLBACK.map((b) => ({ code: b.code, name: b.title }));
 
-  if (banks.length > 0) {
-    // Format live banks from AutoRamp
-    const formatted = banks.map((b: any) => ({
-      id: `bank_${b.code || b.bankCode}`,
-      title: b.name || b.bankName || b.code,
-      description: b.code || b.bankCode,
-    }));
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
 
-    // Split into popular (first 8) and rest
-    const popular = formatted.slice(0, 8);
-    const rest = formatted.slice(8);
-
-    const sections = [
-      { title: "Popular Banks", rows: popular },
-    ];
-    if (rest.length > 0) {
-      sections.push({ title: "Other Banks", rows: rest });
-    }
-    return sections;
+  // AutoRamp codes are 6-digit NIP institution codes (GTBank = 000013), not
+  // the legacy 3-digit CBN ones. Pad so someone dropping leading zeros still
+  // matches; a legacy code simply won't hit and falls through to name search.
+  if (/^\d{1,6}$/.test(q)) {
+    const padded = q.padStart(6, "0");
+    const byCode = source.filter((b) => b.code === q || b.code === padded);
+    if (byCode.length) return byCode;
   }
 
-  // Fallback to hardcoded list
+  return source
+    .map((b) => {
+      const name = b.name.toLowerCase();
+      let rank = -1;
+      if (name === q) rank = 0;
+      else if (name.startsWith(q)) rank = 1;
+      else if (name.includes(q)) rank = 2;
+      return { ...b, rank };
+    })
+    .filter((b) => b.rank >= 0)
+    .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
+    .map(({ code, name }) => ({ code, name }));
+}
+
+function bankResultsToSections(banks: Array<{ code: string; name: string }>) {
   return [
     {
-      title: "Popular Banks",
-      rows: MESSAGES.BANKS.FALLBACK.slice(0, 8).map((b) => ({
-        id: b.id,
-        title: b.title,
-        description: b.code,
-      })),
-    },
-    {
-      title: "Other Banks",
-      rows: MESSAGES.BANKS.FALLBACK.slice(8).map((b) => ({
-        id: b.id,
-        title: b.title,
-        description: b.code,
+      title: "Matching Banks",
+      rows: banks.slice(0, LIST_MAX_ROWS).map((b) => ({
+        id: `bank_${b.code}`,
+        title: truncate(b.name, LIST_MAX_TITLE),
+        description: truncate(b.name.length > LIST_MAX_TITLE ? b.name : `Code ${b.code}`, LIST_MAX_DESCRIPTION),
       })),
     },
   ];
@@ -113,36 +135,50 @@ export async function handleMessage(
   }
 
   // ---- State machine ----
-  switch (state) {
-    case "idle":
-      return handleIdle(phone, user, action, messageText);
-    case "register_bvn":
-      return handleRegisterBVN(phone, user, messageText);
-    case "register_email":
-      return handleRegisterEmail(phone, user, messageText);
-    case "confirm_register":
-      return handleConfirmRegister(phone, user, action);
-    case "send_money":
-      return handleSendMoney(phone, user, flowData, messageText, action);
-    case "select_bank":
-      return handleSelectBank(phone, user, flowData, action, messageText);
-    case "enter_account":
-      return handleEnterAccount(phone, user, flowData, messageText);
-    case "confirm_transfer":
-      return handleConfirmTransfer(phone, user, flowData, action);
-    case "buy_airtime_network":
-      return handleBuyAirtimeNetwork(phone, user, flowData, action);
-    case "buy_airtime_amount":
-      return handleBuyAirtimeAmount(phone, user, flowData, messageText);
-    case "buy_airtime_confirm":
-      return handleBuyAirtimeConfirm(phone, user, flowData, action);
-    case "kyc_verify":
-      return handleKycVerify(phone, user, messageText);
-    case "kyc_otp":
-      return handleKycOtp(phone, user, flowData, messageText);
-    default:
-      await resetSession(user.id);
-      return sendMainMenu(phone);
+  // Anything thrown below would otherwise be swallowed by the webhook's catch,
+  // leaving the user silently stuck mid-flow with no way to tell. Reset and say
+  // so instead.
+  try {
+    switch (state) {
+      case "idle":
+        return await handleIdle(phone, user, action, messageText);
+      case "register_bvn":
+        return await handleRegisterBVN(phone, user, messageText);
+      case "register_email":
+        return await handleRegisterEmail(phone, user, messageText);
+      case "confirm_register":
+        return await handleConfirmRegister(phone, user, action);
+      case "send_money":
+        return await handleSendMoney(phone, user, flowData, messageText);
+      case "select_bank":
+        return await handleSelectBank(phone, user, flowData, action, messageText);
+      case "enter_account":
+        return await handleEnterAccount(phone, user, flowData, messageText);
+      case "confirm_transfer":
+        return await handleConfirmTransfer(phone, user, flowData, action);
+      case "buy_airtime_network":
+        return await handleBuyAirtimeNetwork(phone, user, action);
+      case "buy_airtime_amount":
+        return await handleBuyAirtimeAmount(phone, user, flowData, messageText);
+      case "buy_airtime_confirm":
+        return await handleBuyAirtimeConfirm(phone, user);
+      case "kyc_verify":
+        return await handleKycVerify(phone, user, messageText);
+      case "kyc_otp":
+        return await handleKycOtp(phone, user, flowData, messageText);
+      default:
+        await resetSession(user.id);
+        return await sendMainMenu(phone);
+    }
+  } catch (error: any) {
+    logger.error("Unhandled error in conversation handler", {
+      phone,
+      state,
+      error: error.message,
+      stack: error.stack,
+    });
+    await resetSession(user.id).catch(() => {});
+    return whatsapp.sendTextMessage(phone, MESSAGES.ERROR.GENERIC);
   }
 }
 
@@ -180,14 +216,10 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
   }
 
+  // Kept reachable for anyone tapping an old menu message, but it answers
+  // honestly instead of walking them into a flow that can't complete.
   if (action === "buy_airtime" || action === "buy_data") {
-    await updateSession(user.id, "buy_airtime_network", {});
-    return whatsapp.sendListMessage(
-      phone,
-      MESSAGES.BUY_AIRTIME.PROMPT_NETWORK,
-      "Choose Network",
-      [{ title: "Networks", rows: [...MESSAGES.NETWORKS] }]
-    );
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
   }
 
   if (action === "check_balance" || action === "btn_balance") {
@@ -213,13 +245,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
 
   if (TRIGGERS.AIRTIME.some((t) => (text || "").toLowerCase().includes(t))) {
-    await updateSession(user.id, "buy_airtime_network", {});
-    return whatsapp.sendListMessage(
-      phone,
-      MESSAGES.BUY_AIRTIME.PROMPT_NETWORK,
-      "Choose Network",
-      [{ title: "Networks", rows: [...MESSAGES.NETWORKS] }]
-    );
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
   }
 
   if (TRIGGERS.BALANCE.some((t) => (text || "").toLowerCase().includes(t))) {
@@ -327,16 +353,17 @@ async function handleConfirmRegister(phone: string, user: any, action?: string) 
 // Send Money flow
 // ============================================
 
-async function handleSendMoney(phone: string, user: any, flowData: FlowData, text: string, action?: string) {
+async function handleSendMoney(phone: string, user: any, flowData: FlowData, text: string) {
   if (!flowData.amount) {
     const amount = extractAmount(text);
-    if (!amount || amount < 100) {
-      return whatsapp.sendTextMessage(phone, "Please enter a valid amount (minimum ₦100). Example: 5000");
+    if (!amount || amount < LIMITS.MIN_TRANSFER) {
+      return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.INVALID_AMOUNT);
     }
-    // Fetch banks from AutoRamp
-    const bankSections = await buildBankRows();
+    if (amount > LIMITS.MAX_TRANSFER) {
+      return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.AMOUNT_TOO_LARGE(formatAmount(LIMITS.MAX_TRANSFER)));
+    }
     await updateSession(user.id, "select_bank", { amount });
-    return whatsapp.sendListMessage(phone, `Send ${formatAmount(amount)}\n\nSelect the recipient's bank:`, "Choose Bank", bankSections);
+    return whatsapp.sendTextMessage(phone, `Send ${formatAmount(amount)}\n\n${MESSAGES.SEND_MONEY.PROMPT_BANK}`);
   }
   return sendMainMenu(phone);
 }
@@ -344,14 +371,48 @@ async function handleSendMoney(phone: string, user: any, flowData: FlowData, tex
 async function handleSelectBank(phone: string, user: any, flowData: FlowData, action?: string, text?: string) {
   if (action?.startsWith("bank_")) {
     const bankCode = action.replace("bank_", "");
-    // Resolve bank name from AutoRamp or fallback
-    const bank = await autoramp.getBankByCode(bankCode);
-    const bankName = bank?.name || bank?.bankName || MESSAGES.BANKS.FALLBACK.find((b) => b.code === bankCode)?.title || bankCode;
 
-    await updateSession(user.id, "enter_account", { ...flowData, bankCode, bankName });
-    return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_ACCOUNT);
+    // Names come from the search results we stashed when the list was sent, so
+    // the untruncated name survives even if AutoRamp is unreachable right now.
+    const offered = (flowData.bankChoices as Array<{ code: string; name: string }>) || [];
+    const bankName =
+      offered.find((b) => b.code === bankCode)?.name ||
+      (await autoramp.getBankByCode(bankCode))?.name ||
+      MESSAGES.BANKS.FALLBACK.find((b) => b.code === bankCode)?.title ||
+      bankCode;
+
+    await updateSession(user.id, "enter_account", {
+      ...flowData,
+      bankCode,
+      bankName,
+      bankChoices: undefined,
+    });
+    return whatsapp.sendTextMessage(
+      phone,
+      `Bank: ${bankName}\n\n${MESSAGES.SEND_MONEY.PROMPT_ACCOUNT}`
+    );
   }
-  return whatsapp.sendTextMessage(phone, "Please select a bank from the list:");
+
+  // Typed text is a bank search - the full list is far past WhatsApp's 10-row cap
+  const query = (text || "").trim();
+  if (query.length < 2) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_BANK);
+  }
+
+  const matches = await searchBanks(query);
+  if (matches.length === 0) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.NO_BANK_MATCH(query));
+  }
+
+  const shown = matches.slice(0, LIST_MAX_ROWS);
+  await updateSession(user.id, "select_bank", { ...flowData, bankChoices: shown });
+
+  const body =
+    matches.length > LIST_MAX_ROWS
+      ? MESSAGES.SEND_MONEY.TOO_MANY_MATCHES(matches.length)
+      : MESSAGES.SEND_MONEY.BANK_MATCHES(matches.length);
+
+  return whatsapp.sendListMessage(phone, body, "Choose Bank", bankResultsToSections(shown));
 }
 
 async function handleEnterAccount(phone: string, user: any, flowData: FlowData, text: string) {
@@ -416,7 +477,7 @@ async function handleConfirmTransfer(phone: string, user: any, flowData: FlowDat
 // Buy Airtime flow
 // ============================================
 
-async function handleBuyAirtimeNetwork(phone: string, user: any, flowData: FlowData, action?: string) {
+async function handleBuyAirtimeNetwork(phone: string, user: any, action?: string) {
   if (action?.startsWith("network_")) {
     const network = action.replace("network_", "");
     await updateSession(user.id, "buy_airtime_amount", { network });
@@ -434,10 +495,10 @@ async function handleBuyAirtimeAmount(phone: string, user: any, flowData: FlowDa
   return whatsapp.sendTextMessage(phone, "Please enter a valid phone number:");
 }
 
-async function handleBuyAirtimeConfirm(phone: string, user: any, flowData: FlowData, action?: string) {
+async function handleBuyAirtimeConfirm(phone: string, user: any) {
   // TODO: integrate airtime purchase via AutoRamp VAS
   await resetSession(user.id);
-  return whatsapp.sendTextMessage(phone, "Airtime purchase coming soon! We're integrating with AutoRamp VAS.");
+  return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
 }
 
 // ============================================
@@ -445,14 +506,33 @@ async function handleBuyAirtimeConfirm(phone: string, user: any, flowData: FlowD
 // ============================================
 
 async function handleCheckBalance(phone: string, user: any) {
+  // Without an account of their own there is no balance to show. Falling back
+  // to the merchant account here would leak the company's pooled balance to
+  // every user who typed "balance".
+  if (!user.bankAccount) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.NO_ACCOUNT);
+  }
+
   try {
-    const account = await autoramp.getMerchantAccount();
-    if (account) {
-      return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.TEXT(account.bankName || account.bankCode, account.accountNumber, formatAmount(account.accountBalance)));
+    const account = await autoramp.getSubAccountByReference(user.autorampSubId || "");
+    const bank = user.bankName || user.bankCode || account?.bankName || "Bank";
+    const accountNumber = user.bankAccount || account?.accountNumber || "";
+    const balance = account?.accountBalance ?? account?.balance;
+
+    if (balance === undefined || balance === null) {
+      return whatsapp.sendTextMessage(
+        phone,
+        MESSAGES.CHECK_BALANCE.NO_BALANCE(bank, accountNumber)
+      );
     }
-    return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.ERROR);
+
+    return whatsapp.sendTextMessage(
+      phone,
+      MESSAGES.CHECK_BALANCE.TEXT(bank, accountNumber, formatAmount(Number(balance)))
+    );
   } catch (error: any) {
-    return whatsapp.sendTextMessage(phone, `Error: ${error.message}`);
+    logger.error("Balance check failed", { phone, error: error.message });
+    return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.ERROR);
   }
 }
 
@@ -563,9 +643,4 @@ async function sendMainMenu(phone: string) {
       rows: [...s.rows],
     }))
   );
-}
-
-// Helper: lowercase includes
-function lower(s: string): string {
-  return s.toLowerCase().trim();
 }

@@ -70,11 +70,21 @@ export const TEMPLATES = {
 } as const;
 
 // ============================================
+// Limits
+// ============================================
+export const LIMITS = {
+  /** Below this most Nigerian banks reject the transfer outright. */
+  MIN_TRANSFER: 100,
+  /** Guard against a fat-fingered amount draining an account in one go. */
+  MAX_TRANSFER: 1_000_000,
+} as const;
+
+// ============================================
 // Messages
 // ============================================
 export const MESSAGES = {
   WELCOME: {
-    TEXT: `Welcome to *3rike Pay*!\n\nYour WhatsApp payment assistant.\nSend money, buy airtime, and more - all from here.`,
+    TEXT: `Welcome to *3rike Pay*!\n\nYour WhatsApp payment assistant.\nSend money to any Nigerian bank and check your balance - all from here.`,
     BUTTONS: [
       { id: "btn_kyc", title: "Get Started" },
       { id: "btn_balance", title: "Check Balance" },
@@ -88,7 +98,7 @@ export const MESSAGES = {
   },
 
   KYC_COMPLETE: {
-    TEXT: `Identity verified successfully!\n\nYou can now:\n- Send money to any bank\n- Buy airtime & data\n- Check your balance\n\nTap *Start* to begin.`,
+    TEXT: `Identity verified successfully!\n\nYou can now:\n- Send money to any bank\n- Check your balance\n\nTap *Start* to begin.`,
   },
 
   KYC_PENDING: {
@@ -111,12 +121,13 @@ export const MESSAGES = {
     TEXT: `What would you like to do?`,
     LIST_BUTTON: "Choose Action",
     SECTIONS: [
+      // Airtime and data are deliberately absent: AutoRamp VAS isn't wired up
+      // yet, so offering them would dead-end the user. Restore these rows once
+      // handleBuyAirtimeConfirm actually buys something.
       {
         title: "Payments",
         rows: [
           { id: "send_money", title: "Send Money", description: "Transfer to any bank account" },
-          { id: "buy_airtime", title: "Buy Airtime", description: "Recharge any network" },
-          { id: "buy_data", title: "Buy Data", description: "Purchase data bundle" },
         ],
       },
       {
@@ -132,8 +143,19 @@ export const MESSAGES = {
 
   SEND_MONEY: {
     PROMPT_AMOUNT: `Enter the amount to send (e.g. 5000):`,
-    PROMPT_BANK: `Select the recipient's bank:`,
+    // WhatsApp lists cap at 10 rows, and there are 360+ banks - so the user
+    // types a name or code and picks from the matches instead of scrolling.
+    PROMPT_BANK: `Type the recipient's bank name.\n\nExamples: *GTBank*, *Opay*, *Moniepoint*, *Kuda*`,
     PROMPT_ACCOUNT: `Enter the recipient's account number (10 digits):`,
+    INVALID_AMOUNT: `That doesn't look like a valid amount. Enter a number of at least ₦${LIMITS.MIN_TRANSFER} (e.g. 5000).`,
+    AMOUNT_TOO_LARGE: (max: string) =>
+      `That amount is above the ${max} per-transfer limit. Enter a smaller amount.`,
+    NO_BANK_MATCH: (query: string) =>
+      `No bank matched "${query}".\n\nTry a shorter name - e.g. *zenith*, *kuda*, *opay*, *access*.`,
+    BANK_MATCHES: (count: number) =>
+      `Found ${count} matching bank${count === 1 ? "" : "s"}. Pick the right one:`,
+    TOO_MANY_MATCHES: (count: number) =>
+      `Found ${count} matching banks - showing the closest 10. If yours isn't here, type more of its name.`,
     CONFIRM: (amount: string, bank: string, account: string, name: string) =>
       `Confirm transfer:\n\nAmount: ${amount}\nBank: ${bank}\nAccount: ${account}\nName: ${name}`,
     SUCCESS: (amount: string, name: string, ref: string) =>
@@ -143,6 +165,7 @@ export const MESSAGES = {
   },
 
   BUY_AIRTIME: {
+    COMING_SOON: `Airtime and data top-ups aren't live yet - we're finishing the integration.\n\nFor now you can send money and check your balance. Type *start* for the menu.`,
     PROMPT_NETWORK: `Select your network provider:`,
     PROMPT_PHONE: `Enter the phone number to recharge:`,
     PROMPT_AMOUNT: `Enter the airtime amount (e.g. 500):`,
@@ -153,11 +176,14 @@ export const MESSAGES = {
   CHECK_BALANCE: {
     TEXT: (bank: string, account: string, balance: string) =>
       `*Your Balance*\n\nBank: ${bank}\nAccount: ${account}\nBalance: ${balance}`,
+    NO_ACCOUNT: `You don't have a 3rike Pay account yet.\n\nType *kyc* to verify your identity and get your account number.`,
+    NO_BALANCE: (bank: string, account: string) =>
+      `*Your Account*\n\nBank: ${bank}\nAccount: ${account}\n\nYour balance isn't available right now. Please try again in a moment.`,
     ERROR: `Could not fetch balance. Please try again later.`,
   },
 
   HELP: {
-    TEXT: `*3rike Pay Commands*\n\n• *start* - Open main menu\n• *help* - Show this help\n• *cancel* - Cancel current action\n\n*Features:*\n• Send money to any Nigerian bank\n• Buy airtime & data\n• Check balance\n• KYC verification`,
+    TEXT: `*3rike Pay Commands*\n\n• *start* - Open main menu\n• *help* - Show this help\n• *cancel* - Cancel current action\n\nYou can type *cancel* at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification`,
   },
 
   CANCEL: `Session cancelled. Send *start* to begin again.`,
@@ -168,24 +194,34 @@ export const MESSAGES = {
   },
 
   BANKS: {
-    // Fallback list - bot also fetches live from autoramp.listBanks()
+    // Fallback list, used only when autoramp.listBanks() is unreachable.
+    //
+    // These are AutoRamp/NIP institution codes, NOT the legacy 3-digit CBN
+    // codes (GTBank is 000013 here, not 058). A transfer built with a legacy
+    // code is rejected, so keep these in sync with GET /misc/banks.
     FALLBACK: [
-      { id: "bank_044", title: "Access Bank", code: "044" },
-      { id: "bank_063", title: "Diamond Bank", code: "063" },
-      { id: "bank_050", title: "Ecobank", code: "050" },
-      { id: "bank_011", title: "First Bank", code: "011" },
-      { id: "bank_214", title: "FCMB", code: "214" },
-      { id: "bank_070", title: "Fidelity Bank", code: "070" },
-      { id: "bank_058", title: "GTBank", code: "058" },
-      { id: "bank_030", title: "Heritage Bank", code: "030" },
-      { id: "bank_082", title: "Keystone Bank", code: "082" },
-      { id: "bank_014", title: "UBA", code: "014" },
-      { id: "bank_232", title: "Sterling Bank", code: "232" },
-      { id: "bank_032", title: "Union Bank", code: "032" },
-      { id: "bank_033", title: "Unity Bank", code: "033" },
-      { id: "bank_035", title: "Wema Bank", code: "035" },
-      { id: "bank_057", title: "Zenith Bank", code: "057" },
-      { id: "bank_090286", title: "Safe Haven MFB", code: "090286" },
+      { id: "bank_000014", title: "Access bank", code: "000014" },
+      { id: "bank_000005", title: "Diamond bank", code: "000005" },
+      { id: "bank_000010", title: "Ecobank Nigeria Plc", code: "000010" },
+      { id: "bank_000016", title: "First bank", code: "000016" },
+      { id: "bank_000007", title: "Fidelity bank", code: "000007" },
+      { id: "bank_000013", title: "GTBank", code: "000013" },
+      { id: "bank_000020", title: "Heritage bank", code: "000020" },
+      { id: "bank_000002", title: "Keystone bank", code: "000002" },
+      { id: "bank_000004", title: "United Bank For Africa Plc", code: "000004" },
+      { id: "bank_000001", title: "Sterling bank", code: "000001" },
+      { id: "bank_000018", title: "Union bank", code: "000018" },
+      { id: "bank_000011", title: "Unity Bank Plc", code: "000011" },
+      { id: "bank_000017", title: "Wema bank", code: "000017" },
+      { id: "bank_000015", title: "Zenith bank", code: "000015" },
+      { id: "bank_000012", title: "Stanbic IBTC Bank Ltd.", code: "000012" },
+      { id: "bank_000008", title: "Polaris Bank", code: "000008" },
+      { id: "bank_000023", title: "Providus Bank", code: "000023" },
+      { id: "bank_100004", title: "OPAY", code: "100004" },
+      { id: "bank_100033", title: "PALMPAY", code: "100033" },
+      { id: "bank_090267", title: "Kuda Microfinance Bank", code: "090267" },
+      { id: "bank_090405", title: "Moniepoint Microfinance Bank", code: "090405" },
+      { id: "bank_090286", title: "SAFE HAVEN MICROFINANCE BANK", code: "090286" },
     ],
   } as const,
 

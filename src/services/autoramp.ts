@@ -71,6 +71,33 @@ class AutoRampService {
     }
   }
 
+  /**
+   * Look up one user's sub-account.
+   *
+   * `reference` is the externalReference we passed at creation time (stored on
+   * the user as autorampSubId). Never use getMerchantAccount() for this - that
+   * returns the *company's* pooled account, not the user's.
+   */
+  async getSubAccountByReference(reference: string): Promise<any | null> {
+    if (!reference) return null;
+    try {
+      const data = await this.getSubAccounts();
+      const list: any[] = Array.isArray(data) ? data : data?.data || data?.subAccounts || [];
+      return (
+        list.find(
+          (a) =>
+            a.externalReference === reference ||
+            a.reference === reference ||
+            a.accountId === reference ||
+            a.id === reference
+        ) || null
+      );
+    } catch (error: any) {
+      logger.error("Failed to resolve sub-account", { reference, error: error.message });
+      return null;
+    }
+  }
+
   // ------- Identity Verification -------
 
   async initiateIdentityVerification(params: {
