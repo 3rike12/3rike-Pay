@@ -307,9 +307,10 @@ async function handleConfirmRegister(phone: string, user: any, action?: string) 
     await whatsapp.sendTemplateOrText(
       phone,
       TEMPLATES.KYC_VERIFY_LINK.NAME,
-      [userName, kycUrl],
+      [userName],
       TEMPLATES.KYC_VERIFY_LINK.LANGUAGE,
-      MESSAGES.FALLBACK.KYC_VERIFY_LINK(kycUrl)
+      MESSAGES.FALLBACK.KYC_VERIFY_LINK(kycUrl),
+      result.identityId
     );
 
     return whatsapp.sendTextMessage(
@@ -472,12 +473,15 @@ async function handleKycVerify(phone: string, user: any, text: string) {
     const kycUrl = `${process.env.KYC_BASE_URL || "http://localhost:3000"}/kyc?ref=${result.identityId}`;
     const userName = user.name || "there";
 
+    // The template's body takes only the name; the link is the dynamic suffix
+    // on its "Verify Now" URL button.
     await whatsapp.sendTemplateOrText(
       phone,
       TEMPLATES.KYC_VERIFY_LINK.NAME,
-      [userName, kycUrl],
+      [userName],
       TEMPLATES.KYC_VERIFY_LINK.LANGUAGE,
-      MESSAGES.FALLBACK.KYC_VERIFY_LINK(kycUrl)
+      MESSAGES.FALLBACK.KYC_VERIFY_LINK(kycUrl),
+      result.identityId
     );
 
     return whatsapp.sendTextMessage(

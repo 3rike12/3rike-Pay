@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import { config } from "@/config";
 import { logger } from "@/utils/logger";
+import { toWhatsAppPhone } from "@/utils/helpers";
 
 class WhatsAppService {
   private client: AxiosInstance;
@@ -14,6 +15,30 @@ class WhatsAppService {
       },
       timeout: 15000,
     });
+
+    // Everything stored internally uses the local Nigerian format (0803...),
+    // but the Cloud API needs the international one. Normalising here covers
+    // every send in one place - a local-format recipient still returns 200
+    // with a message id, so this failure is invisible without it.
+    this.client.interceptors.request.use((req) => {
+      if (req.data && typeof req.data === "object" && "to" in req.data) {
+        req.data.to = toWhatsAppPhone(String(req.data.to));
+      }
+      return req;
+    });
+
+    // A real send always echoes back a message id. Anything else (e.g. the
+    // bare {"success":true} returned when posting to the wrong node) means
+    // nothing was delivered, so surface it as an error instead of "sent".
+    this.client.interceptors.response.use((res) => {
+      const sentMessage = res.config.data && String(res.config.data).includes('"type"');
+      if (sentMessage && !res.data?.messages?.[0]?.id) {
+        throw new Error(
+          `WhatsApp accepted the request but returned no message id: ${JSON.stringify(res.data)}`
+        );
+      }
+      return res;
+    });
   }
 
   async sendTextMessage(to: string, text: string): Promise<boolean> {
@@ -25,7 +50,7 @@ class WhatsAppService {
         type: "text",
         text: { preview_url: false, body: text },
       };
-      const { data } = await this.client.post("/", payload);
+      const { data } = await this.client.post("/messages", payload);
       logger.info(`Message sent to ${to}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
@@ -59,7 +84,7 @@ class WhatsAppService {
           },
         },
       };
-      const { data } = await this.client.post("/", payload);
+      const { data } = await this.client.post("/messages", payload);
       logger.info(`Buttons sent to ${to}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
@@ -92,7 +117,7 @@ class WhatsAppService {
           action: { button: buttonText, sections },
         },
       };
-      const { data } = await this.client.post("/", payload);
+      const { data } = await this.client.post("/messages", payload);
       logger.info(`List sent to ${to}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
@@ -130,7 +155,7 @@ class WhatsAppService {
           },
         },
       };
-      const { data } = await this.client.post("/", payload);
+      const { data } = await this.client.post("/messages", payload);
       logger.info(`Flow message sent to ${to}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
@@ -142,13 +167,36 @@ class WhatsAppService {
     }
   }
 
+  /**
+   * @param buttonUrlParam Value for a dynamic URL button, if the template has
+   *   one. WhatsApp treats this as the *suffix* appended to the base URL
+   *   configured on the template, not a full URL. Templates with a dynamic URL
+   *   button are rejected (error 131008) unless this component is supplied.
+   */
   async sendTemplate(
     to: string,
     templateName: string,
     params: string[],
-    language: string = "en"
+    language: string = "en",
+    buttonUrlParam?: string
   ): Promise<boolean> {
     try {
+      const components: any[] = [
+        {
+          type: "body",
+          parameters: params.map((p) => ({ type: "text", text: p })),
+        },
+      ];
+
+      if (buttonUrlParam !== undefined) {
+        components.push({
+          type: "button",
+          sub_type: "url",
+          index: "0",
+          parameters: [{ type: "text", text: buttonUrlParam }],
+        });
+      }
+
       const payload = {
         messaging_product: "whatsapp",
         to,
@@ -156,15 +204,10 @@ class WhatsAppService {
         template: {
           name: templateName,
           language: { code: language },
-          components: [
-            {
-              type: "body",
-              parameters: params.map((p) => ({ type: "text", text: p })),
-            },
-          ],
+          components,
         },
       };
-      const { data } = await this.client.post("/", payload);
+      const { data } = await this.client.post("/messages", payload);
       logger.info(`Template sent to ${to}`, {
         template: templateName,
         messageId: data.messages?.[0]?.id,
@@ -192,9 +235,10 @@ class WhatsAppService {
     templateName: string,
     params: string[],
     language: string,
-    fallbackText: string
+    fallbackText: string,
+    buttonUrlParam?: string
   ): Promise<boolean> {
-    const sent = await this.sendTemplate(to, templateName, params, language);
+    const sent = await this.sendTemplate(to, templateName, params, language, buttonUrlParam);
     if (sent) return true;
 
     logger.warn("Template failed, falling back to text message", {
@@ -206,7 +250,7 @@ class WhatsAppService {
 
   async markAsRead(messageId: string): Promise<void> {
     try {
-      await this.client.post("/", {
+      await this.client.post("/messages", {
         messaging_product: "whatsapp",
         status: "read",
         message_id: messageId,

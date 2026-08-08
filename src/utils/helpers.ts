@@ -12,10 +12,30 @@ export function formatAmount(amount: number): string {
   }).format(amount);
 }
 
+/**
+ * Normalise to local Nigerian format (0803...), which is what the AutoRamp /
+ * Nigerian bank APIs expect.
+ *
+ * Do NOT use this for anything sent back to the WhatsApp Cloud API - it
+ * requires the international form. Use toWhatsAppPhone() there.
+ */
 export function cleanPhone(phone: string): string {
   let cleaned = phone.replace(/[^0-9+]/g, "");
-  if (cleaned.startsWith("234")) cleaned = "0" + cleaned.slice(3);
   if (cleaned.startsWith("+234")) cleaned = "0" + cleaned.slice(4);
+  else if (cleaned.startsWith("234")) cleaned = "0" + cleaned.slice(3);
+  return cleaned;
+}
+
+/**
+ * Normalise to the international format the WhatsApp Cloud API requires
+ * (2348031234567, no leading + or zero).
+ *
+ * Sending a local-format number is silently fatal: the API still answers 200
+ * with a message id, but the message is never delivered.
+ */
+export function toWhatsAppPhone(phone: string): string {
+  let cleaned = phone.replace(/[^0-9+]/g, "").replace(/^\+/, "");
+  if (cleaned.startsWith("0")) cleaned = "234" + cleaned.slice(1);
   return cleaned;
 }
 
