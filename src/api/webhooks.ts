@@ -4,7 +4,7 @@ import { logger } from "@/utils/logger";
 import { handleMessage } from "@/bot";
 import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
-import { cleanPhone, formatAmount } from "@/utils/helpers";
+import { cleanPhone, formatAmount, redactSensitiveText } from "@/utils/helpers";
 import { TEMPLATES, MESSAGES } from "@/config/constants";
 
 const router = Router();
@@ -64,12 +64,13 @@ router.post("/whatsapp", async (req: Request, res: Response) => {
               text = listReply.title;
             }
 
-            // Log webhook event for idempotency
+            // Log webhook event for idempotency. The body is scrubbed first -
+            // this row is persisted, and a KYC step puts a BVN in it.
             await logWebhookEvent("whatsapp", "message", {
               messageId: msg.id,
               from: phone,
               type: msg.type,
-              text,
+              text: redactSensitiveText(text),
             }, msg.id);
 
             // Process message

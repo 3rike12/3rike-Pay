@@ -105,6 +105,15 @@ export const MESSAGES = {
     TEXT: `Your verification is being processed.\n\nWe'll notify you once it's complete. This usually takes a few minutes.`,
   },
 
+  KYC_OTP: {
+    PROMPT: `We've sent a code to the phone number registered to your BVN.\n\nEnter the code here to finish setting up your account.`,
+    INVALID: `That code doesn't look right. Enter the code sent to the phone number registered to your BVN.\n\nType *cancel* to stop.`,
+    RETRY: (left: number) =>
+      `That code wasn't accepted. Check it and try again - ${left} ${left === 1 ? "attempt" : "attempts"} left.\n\nType *cancel* to stop.`,
+    FAILED: (reason: string) =>
+      `We couldn't verify that code: ${reason}\n\nType *kyc* to start over, or *help* if you're stuck.`,
+  },
+
   // Plain-text equivalents of the WhatsApp templates, used when a template
   // send fails (unapproved, paused, or parameter mismatch) so the user is
   // never left with no reply at all.

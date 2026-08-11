@@ -9,7 +9,7 @@ import {
   updateTransaction,
   prisma,
 } from "@/services/database";
-import { generateReference, formatAmount, extractAmount } from "@/utils/helpers";
+import { generateReference, formatAmount, extractAmount, redactSensitiveText } from "@/utils/helpers";
 import { logger } from "@/utils/logger";
 import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS } from "@/config/constants";
 
@@ -24,6 +24,24 @@ type FlowData = Record<string, unknown>;
 const LIST_MAX_ROWS = 10;
 const LIST_MAX_TITLE = 24;
 const LIST_MAX_DESCRIPTION = 72;
+
+/** Wrong codes happen; a typo shouldn't force the user to re-enter their BVN. */
+const KYC_OTP_MAX_ATTEMPTS = 3;
+
+/**
+ * States where the user's message body is a secret (BVN, one-time code).
+ *
+ * Logs get shipped, tailed and pasted into tickets, so these must never be
+ * written out verbatim - a BVN is the single most sensitive identifier a
+ * Nigerian user has.
+ */
+const SENSITIVE_STATES = new Set(["register_bvn", "kyc_verify", "kyc_otp"]);
+
+function redactForLog(state: string, text: string): string {
+  if (SENSITIVE_STATES.has(state)) return `[redacted ${text.trim().length} chars]`;
+  // Catch a BVN typed outside those states too.
+  return redactSensitiveText(text);
+}
 
 function truncate(text: string, max: number): string {
   const trimmed = text.trim();
@@ -104,7 +122,7 @@ export async function handleMessage(
   const state = session.state;
   const flowData = (session.flowData as FlowData) || {};
 
-  logger.info("Incoming message", { phone, state, text: messageText });
+  logger.info("Incoming message", { phone, state, text: redactForLog(state, messageText) });
 
   const action = buttonReply?.id || listReply?.id;
   const lower = messageText.toLowerCase().trim();
@@ -549,25 +567,11 @@ async function handleKycVerify(phone: string, user: any, text: string) {
     const result = await autoramp.initiateIdentityVerification({ type: "BVN", number: bvn });
     await updateSession(user.id, "kyc_otp", { identityId: result.identityId, bvn });
 
-    // Send KYC link via template
-    const kycUrl = `${process.env.KYC_BASE_URL || "http://localhost:3000"}/kyc?ref=${result.identityId}`;
-    const userName = user.name || "there";
-
-    // The template's body takes only the name; the link is the dynamic suffix
-    // on its "Verify Now" URL button.
-    await whatsapp.sendTemplateOrText(
-      phone,
-      TEMPLATES.KYC_VERIFY_LINK.NAME,
-      [userName],
-      TEMPLATES.KYC_VERIFY_LINK.LANGUAGE,
-      MESSAGES.FALLBACK.KYC_VERIFY_LINK(kycUrl),
-      result.identityId
-    );
-
-    return whatsapp.sendTextMessage(
-      phone,
-      `We've sent you a verification link. You can also enter the OTP sent to your BVN phone number below:`
-    );
+    // Deliberately no web link here. Verification finishes in the chat: the
+    // whole point of a WhatsApp bot is that the user never leaves WhatsApp,
+    // and the kyc_verify_link template's URL is fixed to a host we don't
+    // control, so its button can't be pointed at this server anyway.
+    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_OTP.PROMPT);
   } catch (error: any) {
     await resetSession(user.id);
     return whatsapp.sendTextMessage(phone, MESSAGES.ERROR.KYC_FAILED + `\n${error.message}`);
@@ -577,7 +581,7 @@ async function handleKycVerify(phone: string, user: any, text: string) {
 async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: string) {
   const otp = text.replace(/[^0-9]/g, "");
   if (otp.length < 4 || otp.length > 6) {
-    return whatsapp.sendTextMessage(phone, "Invalid OTP. Please enter the code sent to your phone:");
+    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_OTP.INVALID);
   }
   try {
     // Step 1: Verify OTP
@@ -624,8 +628,22 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
 
     await resetSession(user.id);
   } catch (error: any) {
+    // A mistyped code shouldn't cost the user their whole session - re-entering
+    // a BVN to fix one wrong digit is the kind of friction that makes people
+    // give up. Keep them in the OTP state for a few tries.
+    const attempts = Number(flowData.otpAttempts || 0) + 1;
+    logger.warn("KYC OTP validation failed", { phone, attempts, error: error.message });
+
+    if (attempts < KYC_OTP_MAX_ATTEMPTS) {
+      await updateSession(user.id, "kyc_otp", { ...flowData, otpAttempts: attempts });
+      return whatsapp.sendTextMessage(
+        phone,
+        MESSAGES.KYC_OTP.RETRY(KYC_OTP_MAX_ATTEMPTS - attempts)
+      );
+    }
+
     await resetSession(user.id);
-    return whatsapp.sendTextMessage(phone, MESSAGES.ERROR.KYC_FAILED + `\n${error.message}`);
+    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_OTP.FAILED(error.message));
   }
 }
 

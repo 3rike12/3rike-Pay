@@ -39,6 +39,17 @@ export function toWhatsAppPhone(phone: string): string {
   return cleaned;
 }
 
+/**
+ * Strip identifiers that must never be persisted or logged in the clear.
+ *
+ * Currently BVNs (11 consecutive digits). Logs and the webhook event table are
+ * both read by humans and shipped off-box, so anything sensitive has to be
+ * scrubbed at the point it is written, not later.
+ */
+export function redactSensitiveText(text: string): string {
+  return text.replace(/\b\d{11}\b/g, "[redacted]");
+}
+
 export function extractAmount(text: string): number | null {
   const cleaned = text.replace(/[₦NGN,\s]/g, "");
   const match = cleaned.match(/^(\d+(\.\d{1,2})?)$/);
