@@ -12,6 +12,13 @@ import { generalLimiter } from "@/api/middleware/rateLimit";
 
 const app = express();
 
+// Requests reach us through a proxy (ngrok in dev, whatever terminates TLS in
+// prod), which sets X-Forwarded-For. Without this express-rate-limit refuses to
+// key off that header and throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every
+// request - including Meta's webhook deliveries. One hop is all we trust, so a
+// client can't spoof its way around the limiter by forging the header.
+app.set("trust proxy", 1);
+
 // ============================================
 // Middleware
 // ============================================
