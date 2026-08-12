@@ -1,0 +1,220 @@
+import { Router, Request, Response } from "express";
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { logger } from "@/utils/logger";
+import { autoramp } from "@/services/autoramp";
+import { prisma, updateSession, resetSession } from "@/services/database";
+import { generateReference } from "@/utils/helpers";
+import { MESSAGES } from "@/config/constants";
+
+const router = Router();
+
+const PRIVATE_KEY_PATH =
+  process.env.FLOW_PRIVATE_KEY_PATH || path.resolve(process.cwd(), "secrets/flow_private.pem");
+
+let privateKey: crypto.KeyObject | null = null;
+function getPrivateKey(): crypto.KeyObject {
+  if (!privateKey) {
+    privateKey = crypto.createPrivateKey({
+      key: fs.readFileSync(PRIVATE_KEY_PATH, "utf8"),
+      passphrase: process.env.FLOW_PRIVATE_KEY_PASSPHRASE || undefined,
+    });
+  }
+  return privateKey;
+}
+
+const GCM_TAG_LENGTH = 16;
+
+/**
+ * Flows use hybrid encryption: an AES key sealed with our RSA public key, and
+ * the payload itself under AES-GCM. The response must reuse the same AES key
+ * with a bitwise-inverted IV - that inversion is not optional, WhatsApp will
+ * reject anything else.
+ */
+function decryptRequest(body: any) {
+  const { encrypted_flow_data, encrypted_aes_key, initial_vector } = body;
+
+  const aesKey = crypto.privateDecrypt(
+    { key: getPrivateKey(), padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
+    Buffer.from(encrypted_aes_key, "base64")
+  );
+
+  const flowData = Buffer.from(encrypted_flow_data, "base64");
+  const iv = Buffer.from(initial_vector, "base64");
+  const body_ = flowData.subarray(0, -GCM_TAG_LENGTH);
+  const tag = flowData.subarray(-GCM_TAG_LENGTH);
+
+  const decipher = crypto.createDecipheriv(`aes-${aesKey.length * 8}-gcm` as any, aesKey, iv);
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(body_), decipher.final()]).toString("utf8");
+
+  return { decrypted: JSON.parse(decrypted), aesKey, iv };
+}
+
+function encryptResponse(response: any, aesKey: Buffer, iv: Buffer): string {
+  const flippedIv = Buffer.from(iv.map((b) => ~b));
+  const cipher = crypto.createCipheriv(`aes-${aesKey.length * 8}-gcm` as any, aesKey, flippedIv);
+  return Buffer.concat([
+    cipher.update(JSON.stringify(response), "utf8"),
+    cipher.final(),
+    cipher.getAuthTag(),
+  ]).toString("base64");
+}
+
+/** Screen payloads. `error_message` renders inline so the user can correct and retry. */
+function screen(name: string, data: Record<string, unknown> = {}) {
+  return { screen: name, data };
+}
+
+async function handleIdentity(userId: string, data: any) {
+  const idType = String(data.id_type || "").toUpperCase();
+  const idNumber = String(data.id_number || "").replace(/[^0-9]/g, "");
+
+  if (!["NIN", "BVN"].includes(idType)) {
+    return screen("IDENTITY", { error_message: "Choose either NIN or BVN." });
+  }
+  if (idNumber.length !== 11) {
+    return screen("IDENTITY", { error_message: "That number must be exactly 11 digits." });
+  }
+
+  const result = await autoramp.initiateIdentityVerification({
+    type: idType as "NIN" | "BVN",
+    number: idNumber,
+  });
+
+  // Held server-side for the OTP step. The number never travels back to the
+  // client and never appears in the chat transcript.
+  await updateSession(userId, "kyc_flow", {
+    identityId: result.identityId,
+    idType,
+    idNumber,
+  });
+
+  return screen("OTP", {
+    message: `We sent a code to the phone number registered to your ${idType}. Enter it below to finish.`,
+  });
+}
+
+async function handleOtp(userId: string, data: any) {
+  const otp = String(data.otp || "").replace(/[^0-9]/g, "");
+  if (otp.length < 4 || otp.length > 8) {
+    return screen("OTP", { message: "Enter the code we sent you.", error_message: "That code looks too short." });
+  }
+
+  const session = await prisma.userSession.findFirst({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+  });
+  const flowData = (session?.flowData as any) || {};
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !flowData.identityId) {
+    return screen("OTP", { message: "Something went wrong.", error_message: "Session expired - close this and type kyc to restart." });
+  }
+
+  await autoramp.validateIdentityVerification({
+    identityId: flowData.identityId,
+    type: flowData.idType,
+    otp,
+  });
+
+  const subAccount = await autoramp.createSubAccount({
+    phoneNumber: user.phone,
+    emailAddress: user.email || `${user.phone}@3rikepay.com`,
+    externalReference: generateReference("kyc"),
+    identityType: flowData.idType,
+    identityNumber: flowData.idNumber,
+  });
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(flowData.idType === "BVN" ? { bvn: flowData.idNumber } : { nin: flowData.idNumber }),
+      kycStatus: "verified",
+      autorampSubId: subAccount?.id || subAccount?.accountId,
+      bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
+      bankCode: subAccount?.bankCode,
+      bankName: subAccount?.bankName || subAccount?.provider,
+    },
+  });
+
+  await resetSession(userId);
+
+  return screen("SUCCESS", {
+    heading: "Your 3rike Pay account is ready",
+    details: `Bank: ${updated.bankName || "Safe Haven MFB"}\nAccount number: ${updated.bankAccount || "being created"}\nName: ${updated.name || "-"}`,
+  });
+}
+
+router.post("/", async (req: Request, res: Response) => {
+  let aesKey: Buffer;
+  let iv: Buffer;
+  let payload: any;
+
+  try {
+    const decoded = decryptRequest(req.body);
+    payload = decoded.decrypted;
+    aesKey = decoded.aesKey;
+    iv = decoded.iv;
+  } catch (error: any) {
+    // 421 tells WhatsApp our key is stale so it re-fetches instead of retrying
+    // the same undecryptable payload forever.
+    logger.error("Flow request decryption failed", { error: error.message });
+    return res.status(421).send();
+  }
+
+  const { action, screen: currentScreen, data, flow_token } = payload;
+  logger.info("Flow request", { action, screen: currentScreen });
+
+  try {
+    // Health check - must answer or WhatsApp marks the endpoint unhealthy.
+    if (action === "ping") {
+      return res.send(encryptResponse({ data: { status: "active" } }, aesKey, iv));
+    }
+
+    if (data?.error_message) {
+      logger.warn("Flow client error", { error: data.error_message });
+      return res.send(encryptResponse({ data: { acknowledged: true } }, aesKey, iv));
+    }
+
+    const userId = String(flow_token || "");
+    if (!userId) {
+      return res.send(
+        encryptResponse(screen("IDENTITY", { error_message: "Session expired. Type kyc to restart." }), aesKey, iv)
+      );
+    }
+
+    if (action === "INIT") {
+      return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
+    }
+
+    if (action === "data_exchange") {
+      const next =
+        currentScreen === "IDENTITY"
+          ? await handleIdentity(userId, data || {})
+          : currentScreen === "OTP"
+          ? await handleOtp(userId, data || {})
+          : screen("IDENTITY");
+      return res.send(encryptResponse(next, aesKey, iv));
+    }
+
+    return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
+  } catch (error: any) {
+    // Surface the real reason on the current screen instead of dead-ending -
+    // "BVN not found" is actionable, a blank screen is not.
+    logger.error("Flow handler error", { action, screen: currentScreen, error: error.message });
+    const failing = currentScreen === "OTP" ? "OTP" : "IDENTITY";
+    return res.send(
+      encryptResponse(
+        screen(failing, {
+          ...(failing === "OTP" ? { message: MESSAGES.KYC_OTP.PROMPT } : {}),
+          error_message: error.message?.slice(0, 120) || "Something went wrong. Try again.",
+        }),
+        aesKey,
+        iv
+      )
+    );
+  }
+});
+
+export default router;

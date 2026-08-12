@@ -35,7 +35,7 @@ const KYC_OTP_MAX_ATTEMPTS = 3;
  * written out verbatim - a BVN is the single most sensitive identifier a
  * Nigerian user has.
  */
-const SENSITIVE_STATES = new Set(["register_bvn", "kyc_verify", "kyc_otp"]);
+const SENSITIVE_STATES = new Set(["register_bvn", "kyc_verify", "kyc_otp", "kyc_flow"]);
 
 function redactForLog(state: string, text: string): string {
   if (SENSITIVE_STATES.has(state)) return `[redacted ${text.trim().length} chars]`;
@@ -180,8 +180,10 @@ export async function handleMessage(
         return await handleBuyAirtimeAmount(phone, user, flowData, messageText);
       case "buy_airtime_confirm":
         return await handleBuyAirtimeConfirm(phone, user);
+      case "kyc_choose_id":
+        return await handleKycChooseId(phone, user, action, messageText);
       case "kyc_verify":
-        return await handleKycVerify(phone, user, messageText);
+        return await handleKycVerify(phone, user, flowData, messageText);
       case "kyc_otp":
         return await handleKycOtp(phone, user, flowData, messageText);
       default:
@@ -206,21 +208,7 @@ export async function handleMessage(
 
 async function handleIdle(phone: string, user: any, action?: string, text?: string) {
   if (action === "btn_kyc" || action === "kyc") {
-    if (user.kycStatus === "verified") {
-      return whatsapp.sendTextMessage(phone, MESSAGES.KYC_COMPLETE.TEXT);
-    }
-    // Send KYC prompt with WhatsApp Flow button
-    if (FLOWS.KYC_ONBOARDING) {
-      return whatsapp.sendFlowMessage(
-        phone,
-        MESSAGES.KYC_PROMPT.TEXT,
-        FLOWS.KYC_ONBOARDING,
-        MESSAGES.KYC_PROMPT.FLOW_BUTTON
-      );
-    }
-    // Fallback: manual BVN entry
-    await updateSession(user.id, "kyc_verify", {});
-    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_PROMPT.TEXT + "\n\nEnter your BVN (11 digits):");
+    return startKyc(phone, user);
   }
 
   if (action === "send_money") {
@@ -255,8 +243,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   // Check for trigger words in free text
   if (TRIGGERS.SEND_MONEY.some((t) => (text || "").toLowerCase().includes(t))) {
     if (!user.bankAccount) {
-      await updateSession(user.id, "kyc_verify", {});
-      return whatsapp.sendTextMessage(phone, MESSAGES.KYC_PROMPT.TEXT + "\n\nEnter your BVN (11 digits):");
+      return startKyc(phone, user);
     }
     await updateSession(user.id, "send_money", {});
     return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
@@ -271,11 +258,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
 
   if (TRIGGERS.KYC.some((t) => (text || "").toLowerCase().includes(t))) {
-    if (user.kycStatus === "verified") {
-      return whatsapp.sendTextMessage(phone, MESSAGES.KYC_COMPLETE.TEXT);
-    }
-    await updateSession(user.id, "kyc_verify", {});
-    return whatsapp.sendTextMessage(phone, "Enter your BVN (11 digits) for verification:");
+    return startKyc(phone, user);
   }
 
   return sendMainMenu(phone);
@@ -558,14 +541,61 @@ async function handleCheckBalance(phone: string, user: any) {
 // KYC Verification
 // ============================================
 
-async function handleKycVerify(phone: string, user: any, text: string) {
-  const bvn = text.replace(/[^0-9]/g, "");
-  if (bvn.length !== 11) {
-    return whatsapp.sendTextMessage(phone, "Invalid BVN. Please enter exactly 11 digits:");
+/**
+ * Start identity verification.
+ *
+ * The Flow is the real path: the ID number is typed into WhatsApp's own
+ * encrypted form and posted straight to our endpoint, so it never becomes a
+ * message in the chat the way a typed reply does. Chat entry is only a
+ * fallback for when the Flow can't be delivered.
+ */
+async function startKyc(phone: string, user: any) {
+  if (user.kycStatus === "verified") {
+    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_COMPLETE.TEXT);
+  }
+
+  if (FLOWS.KYC_ONBOARDING) {
+    const sent = await whatsapp.sendFlowMessage(
+      phone,
+      MESSAGES.KYC_PROMPT.TEXT,
+      FLOWS.KYC_ONBOARDING,
+      MESSAGES.KYC_PROMPT.FLOW_BUTTON,
+      user.id,
+      "IDENTITY"
+    );
+    if (sent) return true;
+    logger.warn("KYC flow send failed, falling back to chat entry", { phone });
+  }
+
+  await updateSession(user.id, "kyc_choose_id", {});
+  return whatsapp.sendButtonsMessage(phone, MESSAGES.KYC_CHOOSE_ID.TEXT, [
+    ...MESSAGES.KYC_CHOOSE_ID.BUTTONS,
+  ]);
+}
+
+async function handleKycChooseId(phone: string, user: any, action?: string, text?: string) {
+  const choice = (action || text || "").toUpperCase();
+  const idType = choice.includes("NIN") ? "NIN" : choice.includes("BVN") ? "BVN" : null;
+
+  if (!idType) {
+    return whatsapp.sendButtonsMessage(phone, MESSAGES.KYC_CHOOSE_ID.TEXT, [
+      ...MESSAGES.KYC_CHOOSE_ID.BUTTONS,
+    ]);
+  }
+
+  await updateSession(user.id, "kyc_verify", { idType });
+  return whatsapp.sendTextMessage(phone, MESSAGES.KYC_CHOOSE_ID.PROMPT_NUMBER(idType));
+}
+
+async function handleKycVerify(phone: string, user: any, flowData: FlowData, text: string) {
+  const idType = (flowData.idType as "NIN" | "BVN") || "BVN";
+  const idNumber = text.replace(/[^0-9]/g, "");
+  if (idNumber.length !== 11) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_CHOOSE_ID.INVALID_NUMBER(idType));
   }
   try {
-    const result = await autoramp.initiateIdentityVerification({ type: "BVN", number: bvn });
-    await updateSession(user.id, "kyc_otp", { identityId: result.identityId, bvn });
+    const result = await autoramp.initiateIdentityVerification({ type: idType, number: idNumber });
+    await updateSession(user.id, "kyc_otp", { identityId: result.identityId, idType, idNumber });
 
     // Deliberately no web link here. Verification finishes in the chat: the
     // whole point of a WhatsApp bot is that the user never leaves WhatsApp,
@@ -587,7 +617,7 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
     // Step 1: Verify OTP
     await autoramp.validateIdentityVerification({
       identityId: flowData.identityId as string,
-      type: "BVN",
+      type: ((flowData.idType as string) || "BVN") as "BVN" | "NIN",
       otp,
     });
 
@@ -596,15 +626,17 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
       phoneNumber: phone,
       emailAddress: user.email || `${phone}@3rikepay.com`,
       externalReference: generateReference("kyc"),
-      identityType: "BVN",
-      identityNumber: flowData.bvn as string,
+      identityType: (flowData.idType as string) || "BVN",
+      identityNumber: flowData.idNumber as string,
     });
 
     // Step 3: Update user in DB
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: {
-        bvn: flowData.bvn as string,
+        ...(flowData.idType === "NIN"
+          ? { nin: flowData.idNumber as string }
+          : { bvn: flowData.idNumber as string }),
         kycStatus: "verified",
         autorampSubId: subAccount?.id || subAccount?.accountId,
         bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,

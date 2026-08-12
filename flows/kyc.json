@@ -1,0 +1,128 @@
+{
+  "version": "7.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "IDENTITY": ["OTP"],
+    "OTP": ["SUCCESS"],
+    "SUCCESS": []
+  },
+  "screens": [
+    {
+      "id": "IDENTITY",
+      "title": "Verify your identity",
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Choose an ID to verify with. What you type here stays private - it is never shown in the chat."
+          },
+          {
+            "type": "Form",
+            "name": "identity_form",
+            "children": [
+              {
+                "type": "RadioButtonsGroup",
+                "name": "id_type",
+                "label": "ID type",
+                "required": true,
+                "data-source": [
+                  { "id": "NIN", "title": "NIN", "description": "National Identification Number" },
+                  { "id": "BVN", "title": "BVN", "description": "Bank Verification Number" }
+                ]
+              },
+              {
+                "type": "TextInput",
+                "name": "id_number",
+                "label": "ID number",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "11 digits"
+              },
+              {
+                "type": "Footer",
+                "label": "Continue",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "id_type": "${form.id_type}",
+                    "id_number": "${form.id_number}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "OTP",
+      "title": "Enter your code",
+      "data": {
+        "message": {
+          "type": "string",
+          "__example__": "We sent a code to the phone number registered to your ID."
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "${data.message}" },
+          {
+            "type": "Form",
+            "name": "otp_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "otp",
+                "label": "Verification code",
+                "input-type": "number",
+                "required": true
+              },
+              {
+                "type": "Footer",
+                "label": "Verify",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": { "otp": "${form.otp}" }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "SUCCESS",
+      "title": "You're all set",
+      "terminal": true,
+      "success": true,
+      "data": {
+        "heading": { "type": "string", "__example__": "Your 3rike Pay account is ready" },
+        "details": { "type": "string", "__example__": "Bank: Safe Haven MFB\nAccount: 0000000000" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "${data.heading}" },
+          { "type": "TextBody", "text": "${data.details}" },
+          {
+            "type": "Form",
+            "name": "done_form",
+            "children": [
+              {
+                "type": "Footer",
+                "label": "Done",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {}
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

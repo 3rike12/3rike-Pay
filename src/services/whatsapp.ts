@@ -129,11 +129,20 @@ class WhatsAppService {
     }
   }
 
+  /**
+   * @param flowToken Echoed back on every endpoint request for this session -
+   *   it's how the endpoint knows which user it is talking to. Without it the
+   *   endpoint has no way to correlate a submitted form to an account.
+   * @param firstScreen Opening straight on a known screen skips the INIT
+   *   round-trip, so the form renders immediately instead of after a request.
+   */
   async sendFlowMessage(
     to: string,
     bodyText: string,
     flowId: string,
-    buttonText: string
+    buttonText: string,
+    flowToken?: string,
+    firstScreen?: string
   ): Promise<boolean> {
     try {
       const payload = {
@@ -151,6 +160,12 @@ class WhatsAppService {
               flow_cta: buttonText,
               flow_message_version: "3",
               flow_action: "navigate",
+              // A DRAFT flow can only be opened by people with a role on the
+              // app. Lets us exercise the real form before the WABA clears the
+              // checks that publishing requires.
+              ...(process.env.WHATSAPP_FLOW_DRAFT_MODE === "true" ? { mode: "draft" } : {}),
+              ...(flowToken ? { flow_token: flowToken } : {}),
+              ...(firstScreen ? { flow_action_payload: { screen: firstScreen } } : {}),
             },
           },
         },

@@ -8,3 +8,6 @@ web/node_modules/
 *.log
 .DS_Store
 coverage/
+
+# Flow encryption keys - never commit
+secrets/

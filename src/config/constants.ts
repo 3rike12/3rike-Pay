@@ -105,8 +105,22 @@ export const MESSAGES = {
     TEXT: `Your verification is being processed.\n\nWe'll notify you once it's complete. This usually takes a few minutes.`,
   },
 
+  // Chat fallback only. The Flow form is the intended path - an ID number
+  // typed as a chat message lives in the transcript on both devices and in any
+  // backup, which is not somewhere a NIN or BVN should be.
+  KYC_CHOOSE_ID: {
+    TEXT: `Which ID would you like to verify with?`,
+    BUTTONS: [
+      { id: "kyc_nin", title: "NIN" },
+      { id: "kyc_bvn", title: "BVN" },
+    ],
+    PROMPT_NUMBER: (idType: string) => `Enter your ${idType} (11 digits):`,
+    INVALID_NUMBER: (idType: string) =>
+      `A ${idType} is exactly 11 digits. Please check and enter it again:`,
+  },
+
   KYC_OTP: {
-    PROMPT: `We've sent a code to the phone number registered to your BVN.\n\nEnter the code here to finish setting up your account.`,
+    PROMPT: `We've sent a code to the phone number registered to your ID.\n\nEnter the code here to finish setting up your account.`,
     INVALID: `That code doesn't look right. Enter the code sent to the phone number registered to your BVN.\n\nType *cancel* to stop.`,
     RETRY: (left: number) =>
       `That code wasn't accepted. Check it and try again - ${left} ${left === 1 ? "attempt" : "attempts"} left.\n\nType *cancel* to stop.`,
