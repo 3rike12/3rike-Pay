@@ -162,9 +162,6 @@ class WhatsAppService {
               flow_cta: buttonText,
               flow_message_version: "3",
               flow_action: "navigate",
-              // A DRAFT flow can only be opened by people with a role on the
-              // app. Lets us exercise the real form before the WABA clears the
-              // checks that publishing requires.
               ...(process.env.WHATSAPP_FLOW_DRAFT_MODE === "true" ? { mode: "draft" } : {}),
               ...(flowToken ? { flow_token: flowToken } : {}),
               ...(firstScreen ? { flow_action_payload: { screen: firstScreen } } : {}),
