@@ -1,7 +1,9 @@
 import axios, { AxiosInstance } from "axios";
 import { config } from "@/config";
-import { logger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger";
 import { toWhatsAppPhone } from "@/utils/helpers";
+
+const logger = createLogger("whatsapp");
 
 class WhatsAppService {
   private client: AxiosInstance;

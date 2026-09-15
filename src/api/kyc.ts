@@ -2,7 +2,9 @@ import { Router, Request, Response } from "express";
 import { autoramp } from "@/services/autoramp";
 import { prisma } from "@/db/prisma";
 import { generateReference } from "@/utils/helpers";
-import { logger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger";
+
+const logger = createLogger("kyc");
 import { validate } from "./middleware/validate";
 import { kycLimiter } from "./middleware/rateLimit";
 import {

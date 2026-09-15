@@ -1,7 +1,9 @@
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import { config } from "@/config";
-import { logger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger";
+
+const logger = createLogger("notify");
 import { notifyUser, notifyBulk, notifyPayment, notifyKyc, notifyWelcomeCreateWallet } from "@/services/notifications";
 import { prisma } from "@/db/prisma";
 

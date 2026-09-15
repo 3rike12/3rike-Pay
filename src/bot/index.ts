@@ -11,8 +11,10 @@ import {
   prisma,
 } from "@/services/database";
 import { generateReference, formatAmount, extractAmount, redactSensitiveText } from "@/utils/helpers";
-import { logger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger";
 import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS } from "@/config/constants";
+
+const logger = createLogger("bot");
 
 type FlowData = Record<string, unknown>;
 

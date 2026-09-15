@@ -4,7 +4,9 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import { config } from "@/config";
-import { logger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger";
+
+const logger = createLogger("server");
 import webhooksRouter from "@/api/webhooks";
 import notifyRouter from "@/api/notify";
 import kycRouter from "@/api/kyc";

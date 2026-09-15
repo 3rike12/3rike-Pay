@@ -1,6 +1,8 @@
 import { Router, Request, Response } from "express";
 import { config } from "@/config";
-import { logger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger";
+
+const logger = createLogger("webhook");
 import { handleMessage } from "@/bot";
 import { whatsapp } from "@/services/whatsapp";
 import { prisma, logWebhookEvent } from "@/services/database";

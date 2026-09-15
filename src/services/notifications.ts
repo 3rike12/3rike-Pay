@@ -1,6 +1,8 @@
 import { prisma } from "@/db/prisma";
 import { whatsapp } from "./whatsapp";
-import { logger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger";
+
+const logger = createLogger("notifications");
 import { formatAmount, cleanPhone } from "@/utils/helpers";
 import { TEMPLATES } from "@/config/constants";
 import { logWebhookEvent } from "./database";

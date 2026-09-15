@@ -2,11 +2,13 @@ import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { logger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
 import { prisma, updateSession, resetSession } from "@/services/database";
 import { generateReference } from "@/utils/helpers";
 import { MESSAGES } from "@/config/constants";
+
+const logger = createLogger("flow");
 
 const router = Router();
 
