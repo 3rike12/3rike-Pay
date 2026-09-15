@@ -189,7 +189,7 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   const { action, screen: currentScreen, data, flow_token } = payload;
-  logger.info("Flow request decoded", { action, screen: currentScreen, flow_token: flow_token ? "set" : "missing" });
+  logger.info("Flow request decoded", { action, screen: currentScreen, flow_token: flow_token ? "set" : "missing", data: JSON.stringify(data) });
 
   try {
     // Health check - must answer or WhatsApp marks the endpoint unhealthy.
