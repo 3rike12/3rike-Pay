@@ -99,8 +99,8 @@
       "terminal": true,
       "success": true,
       "data": {
-        "heading": { "type": "string", "__example__": "Your 3rike Pay account is ready" },
-        "details": { "type": "string", "__example__": "Bank: Safe Haven MFB\nAccount: 0000000000" }
+        "heading": { "type": "string", "__example__": "" },
+        "details": { "type": "string", "__example__": "" }
       },
       "layout": {
         "type": "SingleColumnLayout",
