@@ -100,19 +100,6 @@ export const MESSAGES = {
     FLOW_BUTTON: "Verify Identity", // opens WhatsApp Flow form
   },
 
-  // The "safe" message for anyone without an account yet: no bank account
-  // has been issued to them, so the main menu (send money, balance, ...) is
-  // all dead ends. Never show the menu here - explain plainly and point at
-  // the one action that unblocks them. Button id is "create_wallet" so the
-  // global tap handler routes it straight into the KYC/wallet flow.
-  NO_ACCOUNT: {
-    TEXT: (name: string) =>
-      `Hi ${name}! You don't have a 3rike Pay account with us yet - no account number has been created for you.\n\nTap *Create wallet* below to verify your identity and get your account number. It takes less than 2 minutes.`,
-    BUTTONS: [
-      { id: "create_wallet", title: "Create wallet" },
-    ],
-  },
-
   KYC_COMPLETE: {
     TEXT: `Identity verified successfully!\n\nYou can now:\n- Send money to any bank\n- Check your balance\n\nTap *Start* to begin.`,
   },

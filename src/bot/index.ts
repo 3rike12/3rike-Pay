@@ -747,13 +747,38 @@ async function sendMenuForUser(phone: string, user: any) {
   return sendMainMenu(phone);
 }
 
-/** Personalized "you don't have an account yet" + Create wallet button. */
+/** Personalized "you don't have an account yet" — sent as the onboarding template. */
 async function sendNoAccountPrompt(phone: string, user: any) {
-  return whatsapp.sendButtonsMessage(
+  const displayName = displayNameOf(user);
+
+  const alreadySent = await prisma.webhookEvent
+    .findFirst({
+      where: { source: "notification", eventType: "welcome_create_wallet", reference: phone },
+    })
+    .catch(() => null);
+  if (alreadySent) {
+    logger.debug("Onboarding template already sent, skipping", { phone });
+    return true;
+  }
+
+  const sent = await whatsapp.sendTemplate(
     phone,
-    MESSAGES.NO_ACCOUNT.TEXT(displayNameOf(user)),
-    [...MESSAGES.NO_ACCOUNT.BUTTONS]
+    TEMPLATES.WELCOME_CREATE_WALLET.NAME,
+    [displayName],
+    TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE
   );
+
+  await logWebhookEvent(
+    "notification",
+    "welcome_create_wallet",
+    { phone, name: displayName, sent, template: TEMPLATES.WELCOME_CREATE_WALLET.NAME, source: "no_account_prompt" },
+    phone
+  ).catch(() => {});
+
+  if (!sent) {
+    logger.warn("Onboarding template failed from no-account prompt", { phone });
+  }
+  return true;
 }
 
 async function sendMainMenu(phone: string) {
