@@ -85,7 +85,7 @@ async function handleIdentity(userId: string, data: any) {
       type: idType as "NIN" | "BVN",
       number: idNumber,
     });
-    logger.info("Identity verification initiated", { userId, identityId: result.identityId });
+    logger.info("Identity verification initiated", { userId, idType });
 
     // Held server-side for the OTP step. The number never travels back to the
     // client and never appears in the chat transcript.
@@ -94,7 +94,7 @@ async function handleIdentity(userId: string, data: any) {
       idType,
       idNumber,
     });
-    logger.info("Session updated for OTP", { userId, identityId: result.identityId });
+    logger.info("Session updated for OTP", { userId });
 
     return screen("OTP", {
       message: `We sent a code to the phone number registered to your ${idType}. Enter it below to finish.`,
@@ -119,18 +119,18 @@ async function handleOtp(userId: string, data: any) {
   const flowData = (session?.flowData as any) || {};
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || !flowData.identityId) {
-    logger.warn("Flow OTP missing session", { userId, hasUser: !!user, hasIdentityId: !!flowData.identityId });
+    logger.warn("Flow OTP missing session", { userId, hasUser: !!user });
     return screen("OTP", { message: "Something went wrong.", error_message: "Session expired - close this and type kyc to restart." });
   }
 
   try {
-    logger.info("Validating identity OTP", { userId, identityId: flowData.identityId, idType: flowData.idType });
+    logger.info("Validating identity OTP", { userId, idType: flowData.idType });
     await autoramp.validateIdentityVerification({
       identityId: flowData.identityId,
       type: flowData.idType,
       otp,
     });
-    logger.info("Identity OTP validated", { userId, identityId: flowData.identityId });
+    logger.info("Identity OTP validated", { userId });
 
     logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
     const subAccount = await autoramp.createSubAccount({
@@ -163,7 +163,7 @@ async function handleOtp(userId: string, data: any) {
       details: `Bank: ${updated.bankName || "Safe Haven MFB"}\nAccount number: ${updated.bankAccount || "being created"}\nName: ${updated.name || "-"}`,
     });
   } catch (error: any) {
-    logger.error("Flow OTP/verification failed", { userId, identityId: flowData.identityId, error: error.message });
+    logger.error("Flow OTP/verification failed", { userId, error: error.message });
     return screen("OTP", {
       message: MESSAGES.KYC_OTP.PROMPT,
       error_message: error.message?.slice(0, 120) || "Verification failed. Try again.",
@@ -189,7 +189,7 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   const { action, screen: currentScreen, data, flow_token } = payload;
-  logger.info("Flow request decoded", { action, screen: currentScreen, flow_token: flow_token ? "set" : "missing", data: JSON.stringify(data) });
+  logger.info("Flow request decoded", { action, screen: currentScreen, flow_token: flow_token ? "set" : "missing" });
 
   try {
     // Health check - must answer or WhatsApp marks the endpoint unhealthy.
