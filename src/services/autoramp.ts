@@ -49,7 +49,7 @@ class AutoRampService {
   }) {
     try {
       const { data } = await this.client.post("/merchants/api/sub-account", params);
-      logger.info("Sub-account created", { reference: params.externalReference });
+      logger.info("Sub-account created", { reference: params.externalReference, response: JSON.stringify(data).slice(0, 500) });
       return data;
     } catch (error: any) {
       logger.error("Failed to create sub-account", {
