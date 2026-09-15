@@ -23,13 +23,25 @@ export const FLOWS = {
 // ============================================
 // WhatsApp Template Names (pre-approved in Meta Business Manager)
 // Variables: {{1}} = username, {{2}} = link
+//
+// WELCOME_CREATE_WALLET is the business-initiated intro (new users only).
+// Create it in Meta Business Manager as UTILITY, e.g. body:
+//   "Hi {{1}}! Welcome to 3rike Pay. 3rike Pay helps you send, receive and "
+//   "manage money easily. Tap Create wallet to create a wallet to get started. "
+//   "Save our contact as 3RIKE PAY. Reply STOP to opt out."
+// Then add ONE quick-reply button with text "Create wallet".
+// The button is defined on the template itself - the API payload only sends
+// the body params, Meta renders the button automatically. Tapping it arrives
+// at POST /webhook/whatsapp as an interactive button_reply which the bot
+// maps to the KYC/wallet flow (see handleIdle create_wallet branch).
+// Do NOT send this as free text: outside the 24h customer-service window
+// only approved templates deliver (Meta policy, error 131047 otherwise).
 // ============================================
 export const TEMPLATES = {
-  KYC_VERIFY_LINK: {
-    NAME: "kyc_verify_link",
+  WELCOME_CREATE_WALLET: {
+    NAME: "welcome_create_wallet",
     LANGUAGE: "en",
-    // {{1}} = user name, {{2}} = KYC link
-    getUrl: (name: string, link: string) => ({ name, link }),
+    // {{1}} = user name
   },
   KYC_OTP: {
     NAME: "kyc_otp",
@@ -83,12 +95,15 @@ export const LIMITS = {
 // Messages
 // ============================================
 export const MESSAGES = {
-  WELCOME: {
-    TEXT: `Welcome to *3rike Pay*!\n\nYour WhatsApp payment assistant.\nSend money to any Nigerian bank and check your balance - all from here.`,
+  // In-chat fallback for the welcome (used only when the approved
+  // welcome_create_wallet template send fails). Mirrors the template wording
+  // so the experience is identical proactive or not.
+  // "Create wallet" starts KYC: the AutoRamp sub-account IS the wallet.
+  WELCOME_NEW_USER: {
+    TEXT: (name: string) =>
+      `Hi ${name}!👋 Welcome to 3rike Pay.\n\n3rike Pay helps you send, receive and manage money easily.\n\nTap *Create wallet* below to create a wallet to get started. Don't forget to save our contact as 3RIKE PAY.`,
     BUTTONS: [
-      { id: "btn_kyc", title: "Get Started" },
-      { id: "btn_balance", title: "Check Balance" },
-      { id: "btn_help", title: "Help" },
+      { id: "create_wallet", title: "Create wallet" },
     ],
   },
 
@@ -97,12 +112,21 @@ export const MESSAGES = {
     FLOW_BUTTON: "Verify Identity", // opens WhatsApp Flow form
   },
 
-  KYC_COMPLETE: {
-    TEXT: `Identity verified successfully!\n\nYou can now:\n- Send money to any bank\n- Check your balance\n\nTap *Start* to begin.`,
+  // The "safe" message for anyone without an account yet: no bank account
+  // has been issued to them, so the main menu (send money, balance, ...) is
+  // all dead ends. Never show the menu here - explain plainly and point at
+  // the one action that unblocks them. Button id is "create_wallet" so the
+  // global tap handler routes it straight into the KYC/wallet flow.
+  NO_ACCOUNT: {
+    TEXT: (name: string) =>
+      `Hi ${name}! You don't have a 3rike Pay account with us yet - no account number has been created for you.\n\nTap *Create wallet* below to verify your identity and get your account number. It takes less than 2 minutes.`,
+    BUTTONS: [
+      { id: "create_wallet", title: "Create wallet" },
+    ],
   },
 
-  KYC_PENDING: {
-    TEXT: `Your verification is being processed.\n\nWe'll notify you once it's complete. This usually takes a few minutes.`,
+  KYC_COMPLETE: {
+    TEXT: `Identity verified successfully!\n\nYou can now:\n- Send money to any bank\n- Check your balance\n\nTap *Start* to begin.`,
   },
 
   // Chat fallback only. The Flow form is the intended path - an ID number
@@ -128,14 +152,19 @@ export const MESSAGES = {
       `We couldn't verify that code: ${reason}\n\nType *kyc* to start over, or *help* if you're stuck.`,
   },
 
+  // Shown only if the user types in the chat while the KYC Flow form is
+  // open. The form itself lives in the Flow endpoint - this just points back
+  // so we never reset their session or blast the main menu mid-verification.
+  KYC_FLOW_WAITING: {
+    TEXT: `Your verification form is still open - please continue there to finish setting up your wallet.\n\nType *cancel* if you want to stop and start over.`,
+  },
+
   // Plain-text equivalents of the WhatsApp templates, used when a template
   // send fails (unapproved, paused, or parameter mismatch) so the user is
   // never left with no reply at all.
   FALLBACK: {
     ACCOUNT_CREATED: (bank: string, account: string) =>
       `Identity verified successfully!\n\nYour account details:\nBank: ${bank}\nAccount Number: ${account}\n\nTap *Start* to begin.`,
-    KYC_VERIFY_LINK: (link: string) =>
-      `To complete your registration on 3rike Pay, we need to verify your identity.\n\nOpen this link to finish your KYC:\n${link}\n\nThis link expires in 20 minutes.`,
     TRANSFER_COMPLETE: (amount: string, name: string, bank: string, account: string, ref: string) =>
       `Transfer Completed\n\nAmount: ${amount}\nTo: ${name}\nBank: ${bank}\nAccount: ${account}\nReference: ${ref}`,
   },
@@ -195,14 +224,16 @@ export const MESSAGES = {
     SUCCESS: (amount: string, phone: string) =>
       `Airtime of ${amount} sent to ${phone}!\n\nYou'll receive a confirmation shortly.`,
   },
-
   CHECK_BALANCE: {
     TEXT: (bank: string, account: string, balance: string) =>
       `*Your Balance*\n\nBank: ${bank}\nAccount: ${account}\nBalance: ${balance}`,
-    NO_ACCOUNT: `You don't have a 3rike Pay account yet.\n\nType *kyc* to verify your identity and get your account number.`,
     NO_BALANCE: (bank: string, account: string) =>
       `*Your Account*\n\nBank: ${bank}\nAccount: ${account}\n\nYour balance isn't available right now. Please try again in a moment.`,
     ERROR: `Could not fetch balance. Please try again later.`,
+  },
+
+  TRANSACTIONS: {
+    TEXT: `Your transaction history isn't available in-chat yet - we're still building it.\n\nType *start* to return to the menu.`,
   },
 
   HELP: {

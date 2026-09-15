@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import { config } from "@/config";
 import { logger } from "@/utils/logger";
-import { notifyUser, notifyBulk, notifyPayment, notifyKyc } from "@/services/notifications";
+import { notifyUser, notifyBulk, notifyPayment, notifyKyc, notifyWelcomeCreateWallet } from "@/services/notifications";
 import { prisma } from "@/db/prisma";
 
 const router = Router();
@@ -133,6 +133,53 @@ router.post("/kyc", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error("KYC notify webhook error", { error: error.message });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ============================================
+// POST /webhook/notify/welcome - New-user intro with "Create wallet" button
+// Body: { "phone": "234803...", "name": "Chibuikem", "optIn": true }
+// Meta rules enforced: optIn must be true (user gave you this number with
+// consent - web form checkbox, click-to-chat, ad, or messaged first), and
+// the send is template-only + deduped so each number gets it once.
+// Auth: x-api-key header.
+// ============================================
+router.post("/welcome", async (req: Request, res: Response) => {
+  try {
+    const { phone, name, optIn } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: "phone is required" });
+    }
+    if (optIn !== true) {
+      return res.status(400).json({
+        error: "optIn: true is required - user must have consented to WhatsApp messages (Meta policy)",
+      });
+    }
+
+    const result = await notifyWelcomeCreateWallet(phone, name || "there");
+
+    if (result.optedOut) {
+      return res.status(200).json({
+        success: false,
+        alreadySent: false,
+        optedOut: true,
+        message: "Number opted out of marketing messages - welcome not sent",
+      });
+    }
+
+    res.status(200).json({
+      success: result.sent,
+      alreadySent: result.alreadySent,
+      message: result.alreadySent
+        ? "Welcome already sent to this number"
+        : result.sent
+          ? "Welcome message sent"
+          : "Failed to send welcome message (check template name/language/params match the approved version)",
+    });
+  } catch (error: any) {
+    logger.error("Welcome notify webhook error", { error: error.message });
     res.status(500).json({ error: "Internal server error" });
   }
 });

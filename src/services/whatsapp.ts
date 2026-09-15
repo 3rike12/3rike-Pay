@@ -30,9 +30,11 @@ class WhatsAppService {
     // A real send always echoes back a message id. Anything else (e.g. the
     // bare {"success":true} returned when posting to the wrong node) means
     // nothing was delivered, so surface it as an error instead of "sent".
+    // Exception: typing_indicator acks with {"success":true} and no message
+    // id - that IS success.
     this.client.interceptors.response.use((res) => {
       const sentMessage = res.config.data && String(res.config.data).includes('"type"');
-      if (sentMessage && !res.data?.messages?.[0]?.id) {
+      if (sentMessage && !res.data?.messages?.[0]?.id && res.data?.success !== true) {
         throw new Error(
           `WhatsApp accepted the request but returned no message id: ${JSON.stringify(res.data)}`
         );
@@ -263,15 +265,29 @@ class WhatsAppService {
     return this.sendTextMessage(to, fallbackText);
   }
 
+  /**
+   * Blue ticks + "typing..." in one request (official Meta format).
+   *
+   * There is no standalone typing message type - a `type: "typing_indicator"`
+   * payload is rejected (error 100). The indicator rides on the read receipt
+   * instead: `status: "read"` + `typing_indicator: { type: "text" }`.
+   * Dismissed automatically once you send a message, or after 25s, whichever
+   * comes first. Only call it when you ARE going to reply.
+   * Fire-and-forget: never let this block or fail the actual reply.
+   */
   async markAsRead(messageId: string): Promise<void> {
     try {
       await this.client.post("/messages", {
         messaging_product: "whatsapp",
         status: "read",
         message_id: messageId,
+        typing_indicator: { type: "text" },
       });
     } catch (error: any) {
-      logger.error("Failed to mark as read", { messageId });
+      logger.warn("Failed to mark as read / show typing", {
+        messageId,
+        error: error.response?.data || error.message,
+      });
     }
   }
 }

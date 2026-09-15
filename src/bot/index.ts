@@ -7,6 +7,7 @@ import {
   resetSession,
   createTransaction,
   updateTransaction,
+  logWebhookEvent,
   prisma,
 } from "@/services/database";
 import { generateReference, formatAmount, extractAmount, redactSensitiveText } from "@/utils/helpers";
@@ -35,7 +36,7 @@ const KYC_OTP_MAX_ATTEMPTS = 3;
  * written out verbatim - a BVN is the single most sensitive identifier a
  * Nigerian user has.
  */
-const SENSITIVE_STATES = new Set(["register_bvn", "kyc_verify", "kyc_otp", "kyc_flow"]);
+const SENSITIVE_STATES = new Set(["kyc_verify", "kyc_otp", "kyc_flow"]);
 
 function redactForLog(state: string, text: string): string {
   if (SENSITIVE_STATES.has(state)) return `[redacted ${text.trim().length} chars]`;
@@ -46,6 +47,16 @@ function redactForLog(state: string, text: string): string {
 function truncate(text: string, max: number): string {
   const trimmed = text.trim();
   return trimmed.length <= max ? trimmed : trimmed.slice(0, max - 1) + "…";
+}
+
+/** "Chibuikem", or "there" when we don't know their name. Never blank. */
+function displayNameOf(user: any, fallback = "there"): string {
+  return (user.name || fallback).trim() || "there";
+}
+
+/** Typed trigger-list check (TRIGGERS entries are readonly tuples). */
+function matchesTrigger(list: readonly string[], value: string): boolean {
+  return list.includes(value);
 }
 
 /**
@@ -126,29 +137,134 @@ export async function handleMessage(
 
   const action = buttonReply?.id || listReply?.id;
   const lower = messageText.toLowerCase().trim();
+  const actionLower = (action || "").toLowerCase();
+  const buttonTitleLower = (buttonReply?.title || "").toLowerCase();
 
-  // ---- Global triggers ----
-  if (TRIGGERS.START.includes(lower as any)) {
-    await resetSession(user.id);
-
-    // First time user (created within last 5 min) - show welcome with buttons
-    const isNew = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
-    if (isNew) {
-      return whatsapp.sendButtonsMessage(
-        phone,
-        MESSAGES.WELCOME.TEXT,
-        [...MESSAGES.WELCOME.BUTTONS]
-      );
-    }
-    return sendMainMenu(phone);
+  // ---- Marketing opt-out (required: welcome_create_wallet is Marketing) ----
+  // STOP / UNSUBSCRIBE must immediately stop promos. Logged so
+  // notifyWelcomeCreateWallet refuses future sends to this number.
+  if (["stop", "unsubscribe", "opt out", "opt-out", "stop promotions"].includes(lower)) {
+    await logWebhookEvent(
+      "notification",
+      "marketing_opt_out",
+      { phone, text: lower },
+      phone
+    ).catch(() => {});
+    await resetSession(user.id).catch(() => {});
+    return whatsapp.sendTextMessage(
+      phone,
+      "You've been opted out of 3rike Pay promotions. You won't receive marketing messages again. If you still need help, reply Hi."
+    );
   }
 
-  if (TRIGGERS.CANCEL.includes(lower as any)) {
+  // ---- "Create wallet" taps ----
+  // Two different buttons share the text "Create wallet":
+  // 1. Our in-chat welcome's plain button (id exactly "create_wallet"). A
+  //    plain-button tap cannot open a Flow by itself, so the bot must send
+  //    the Flow invite message (startKyc) - otherwise the tap does nothing.
+  // 2. The approved welcome_create_wallet TEMPLATE button, now configured in
+  //    WhatsApp Manager to open the Flow directly on the phone. The form is
+  //    already open, so sending the Flow invite again would be a duplicate
+  //    message: just park the session in kyc_flow and stay silent. The
+  //    Flow endpoint (INIT / data_exchange) owns the steps from here.
+  const isCreateWalletTap =
+    (actionLower.includes("create") && actionLower.includes("wallet")) ||
+    buttonTitleLower.includes("create wallet") ||
+    lower.includes("create wallet");
+  if (isCreateWalletTap) {
+    logger.debug("Create wallet tap", {
+      phone,
+      action: action || null,
+      title: buttonReply?.title || listReply?.title || null,
+    });
+    if (action === "create_wallet") {
+      // In-chat button: bot must send the Flow invite (single message).
+      return startKyc(phone, user);
+    }
+    if (action) {
+      // Template button tap (some other payload id): Flow already opened
+      // client-side. Silent ack only - no message back.
+      await updateSession(user.id, "kyc_flow", {}).catch(() => {});
+      return true;
+    }
+    // Plain typed text ("create wallet" with no button tap): nothing is open
+    // on the phone, so the bot still has to send the Flow invite.
+    return startKyc(phone, user);
+  }
+
+  // ---- New-user intro: first message gets the welcome ----
+  // Sent via the approved welcome_create_wallet TEMPLATE (not free text) so
+  // the button the user sees is the template's own - the one configured in
+  // WhatsApp Manager to open the KYC Flow directly. Tapping it opens the
+  // form with no further bot message needed (see the silent template-tap
+  // branch above). Sent once per number: logged as
+  // notification/welcome_create_wallet/{phone}, shared with the POST /welcome
+  // endpoint so a number never gets both.
+  const isNewUser = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
+  if (isNewUser) {
+    const alreadyWelcomed = await prisma.webhookEvent
+      .findFirst({
+        where: { source: "notification", eventType: "welcome_create_wallet", reference: phone },
+      })
+      .catch(() => null);
+    if (!alreadyWelcomed) {
+      await resetSession(user.id).catch(() => {});
+      const displayName = displayNameOf(user, name || "there");
+
+      // Marketing-category template: never fire it at someone who tapped
+      // STOP - they get the plain in-chat welcome instead (a solicited
+      // reply, not a promo).
+      const optedOut = await prisma.webhookEvent
+        .findFirst({
+          where: { source: "notification", eventType: "marketing_opt_out", reference: phone },
+        })
+        .catch(() => null);
+
+      if (!optedOut) {
+        const sent = await whatsapp.sendTemplate(
+          phone,
+          TEMPLATES.WELCOME_CREATE_WALLET.NAME,
+          [displayName],
+          TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE
+        );
+        if (sent) {
+          await logWebhookEvent(
+            "notification",
+            "welcome_create_wallet",
+            { phone, name: displayName, channel: "inchat" },
+            phone
+          ).catch(() => {});
+          return true;
+        }
+        logger.warn("Welcome template failed, falling back to in-chat buttons", { phone });
+      }
+
+      await logWebhookEvent(
+        "notification",
+        "welcome_create_wallet",
+        { phone, name: displayName, channel: "inchat-fallback" },
+        phone
+      ).catch(() => {});
+      return whatsapp.sendButtonsMessage(phone, MESSAGES.WELCOME_NEW_USER.TEXT(displayName), [
+        ...MESSAGES.WELCOME_NEW_USER.BUTTONS,
+      ]);
+    }
+  }
+
+  // ---- Global triggers ----
+  if (matchesTrigger(TRIGGERS.START, lower)) {
+    await resetSession(user.id);
+    // No account yet -> the "safe" info message, not the menu. The menu's
+    // options (send money, balance, ...) all dead-end without an account.
+    return sendMenuForUser(phone, user);
+  }
+
+  if (matchesTrigger(TRIGGERS.CANCEL, lower)) {
     await resetSession(user.id);
     return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
   }
 
-  if (TRIGGERS.HELP.includes(lower as any)) {
+  if (matchesTrigger(TRIGGERS.HELP, lower)) {
     return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
   }
 
@@ -160,12 +276,6 @@ export async function handleMessage(
     switch (state) {
       case "idle":
         return await handleIdle(phone, user, action, messageText);
-      case "register_bvn":
-        return await handleRegisterBVN(phone, user, messageText);
-      case "register_email":
-        return await handleRegisterEmail(phone, user, messageText);
-      case "confirm_register":
-        return await handleConfirmRegister(phone, user, action);
       case "send_money":
         return await handleSendMoney(phone, user, flowData, messageText);
       case "select_bank":
@@ -186,9 +296,13 @@ export async function handleMessage(
         return await handleKycVerify(phone, user, flowData, messageText);
       case "kyc_otp":
         return await handleKycOtp(phone, user, flowData, messageText);
+      case "kyc_flow":
+        // Form is open on the user's phone; the Flow endpoint owns the steps.
+        // Nudge back to the form - never reset, never re-send the menu.
+        return whatsapp.sendTextMessage(phone, MESSAGES.KYC_FLOW_WAITING.TEXT);
       default:
         await resetSession(user.id);
-        return await sendMainMenu(phone);
+        return await sendMenuForUser(phone, user);
     }
   } catch (error: any) {
     logger.error("Unhandled error in conversation handler", {
@@ -207,6 +321,8 @@ export async function handleMessage(
 // ============================================
 
 async function handleIdle(phone: string, user: any, action?: string, text?: string) {
+  const t = (text || "").toLowerCase();
+
   if (action === "btn_kyc" || action === "kyc") {
     return startKyc(phone, user);
   }
@@ -232,16 +348,22 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     return handleCheckBalance(phone, user);
   }
 
+  // The main-menu list has a Transactions row. Answer honestly instead of
+  // falling through and re-sending the same menu (looks like a loop).
+  if (action === "transactions") {
+    return whatsapp.sendTextMessage(phone, MESSAGES.TRANSACTIONS.TEXT);
+  }
+
   if (action === "btn_help") {
     return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
   }
 
   if (action === "btn_menu") {
-    return sendMainMenu(phone);
+    return sendMenuForUser(phone, user);
   }
 
   // Check for trigger words in free text
-  if (TRIGGERS.SEND_MONEY.some((t) => (text || "").toLowerCase().includes(t))) {
+  if (TRIGGERS.SEND_MONEY.some((kw) => t.includes(kw))) {
     if (!user.bankAccount) {
       return startKyc(phone, user);
     }
@@ -249,105 +371,23 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
   }
 
-  if (TRIGGERS.AIRTIME.some((t) => (text || "").toLowerCase().includes(t))) {
+  if (TRIGGERS.AIRTIME.some((kw) => t.includes(kw))) {
     return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
   }
 
-  if (TRIGGERS.BALANCE.some((t) => (text || "").toLowerCase().includes(t))) {
+  if (TRIGGERS.BALANCE.some((kw) => t.includes(kw))) {
     return handleCheckBalance(phone, user);
   }
 
-  if (TRIGGERS.KYC.some((t) => (text || "").toLowerCase().includes(t))) {
+  if (t.includes("transaction") || t.includes("history")) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.TRANSACTIONS.TEXT);
+  }
+
+  if (TRIGGERS.KYC.some((kw) => t.includes(kw))) {
     return startKyc(phone, user);
   }
 
-  return sendMainMenu(phone);
-}
-
-// ============================================
-// Registration flow
-// ============================================
-
-async function handleRegisterBVN(phone: string, user: any, text: string) {
-  const bvn = text.replace(/[^0-9]/g, "");
-  if (bvn.length !== 11) {
-    return whatsapp.sendTextMessage(phone, "Invalid BVN. Please enter exactly 11 digits:");
-  }
-  await updateSession(user.id, "register_email", { bvn });
-  return whatsapp.sendTextMessage(phone, "Enter your email address:");
-}
-
-async function handleRegisterEmail(phone: string, user: any, text: string) {
-  const email = text.trim();
-  if (!email.includes("@") || !email.includes(".")) {
-    return whatsapp.sendTextMessage(phone, "Invalid email. Please enter a valid email address:");
-  }
-  const session = await getSession(user.id);
-  const flowData = (session.flowData as FlowData) || {};
-  await updateSession(user.id, "confirm_register", { ...flowData, email });
-
-  return whatsapp.sendButtonsMessage(
-    phone,
-    `Confirm your registration:\n\nBVN: ${flowData.bvn}\nEmail: ${email}\nPhone: ${phone}`,
-    [
-      { id: "confirm_yes", title: "Confirm" },
-      { id: "cancel", title: "Cancel" },
-    ]
-  );
-}
-
-async function handleConfirmRegister(phone: string, user: any, action?: string) {
-  if (action !== "confirm_yes") {
-    await resetSession(user.id);
-    return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
-  }
-
-  const session = await getSession(user.id);
-  const flowData = (session.flowData as FlowData) || {};
-
-  try {
-    // Keep what the user entered, but stay unverified. The AutoRamp
-    // sub-account is only created once the BVN OTP passes in handleKycOtp.
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        bvn: flowData.bvn as string,
-        email: flowData.email as string,
-        kycStatus: "pending",
-      },
-    });
-
-    // BVN must be verified by OTP before an account exists
-    const result = await autoramp.initiateIdentityVerification({
-      type: "BVN",
-      number: flowData.bvn as string,
-    });
-
-    await updateSession(user.id, "kyc_otp", {
-      identityId: result.identityId,
-      bvn: flowData.bvn,
-    });
-
-    const kycUrl = `${process.env.KYC_BASE_URL || "http://localhost:3000"}/kyc?ref=${result.identityId}`;
-    const userName = (flowData.email as string).split("@")[0] || "there";
-
-    await whatsapp.sendTemplateOrText(
-      phone,
-      TEMPLATES.KYC_VERIFY_LINK.NAME,
-      [userName],
-      TEMPLATES.KYC_VERIFY_LINK.LANGUAGE,
-      MESSAGES.FALLBACK.KYC_VERIFY_LINK(kycUrl),
-      result.identityId
-    );
-
-    return whatsapp.sendTextMessage(
-      phone,
-      `We've sent you a verification link. You can also enter the OTP sent to your BVN phone number below:`
-    );
-  } catch (error: any) {
-    await resetSession(user.id);
-    return whatsapp.sendTextMessage(phone, `Registration failed: ${error.message}\n\nPlease try again or contact support.`);
-  }
+  return sendMenuForUser(phone, user);
 }
 
 // ============================================
@@ -366,7 +406,9 @@ async function handleSendMoney(phone: string, user: any, flowData: FlowData, tex
     await updateSession(user.id, "select_bank", { amount });
     return whatsapp.sendTextMessage(phone, `Send ${formatAmount(amount)}\n\n${MESSAGES.SEND_MONEY.PROMPT_BANK}`);
   }
-  return sendMainMenu(phone);
+  // Unreachable in practice (an amount always moves to select_bank), but never
+  // show the full menu to someone without an account.
+  return sendMenuForUser(phone, user);
 }
 
 async function handleSelectBank(phone: string, user: any, flowData: FlowData, action?: string, text?: string) {
@@ -509,9 +551,9 @@ async function handleBuyAirtimeConfirm(phone: string, user: any) {
 async function handleCheckBalance(phone: string, user: any) {
   // Without an account of their own there is no balance to show. Falling back
   // to the merchant account here would leak the company's pooled balance to
-  // every user who typed "balance".
+  // every user who typed "balance". Same no-account prompt as the menu gate.
   if (!user.bankAccount) {
-    return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.NO_ACCOUNT);
+    return sendNoAccountPrompt(phone, user);
   }
 
   try {
@@ -563,8 +605,23 @@ async function startKyc(phone: string, user: any) {
       user.id,
       "IDENTITY"
     );
-    if (sent) return true;
-    logger.warn("KYC flow send failed, falling back to chat entry", { phone });
+    if (sent) {
+      // WhatsApp has no API to force-open a Flow - the CTA button on this
+      // one message IS what opens the form. Park the session in kyc_flow so
+      // any chat text typed while the form is open gets a gentle nudge back
+      // to the form instead of a fresh main menu (which reads as the bot
+      // "sending another message"). Return immediately: no second send.
+      await updateSession(user.id, "kyc_flow", {}).catch(() => {});
+      return true;
+    }
+    // Most common cause: the Flow is still in DRAFT, which Meta only delivers
+    // to users with a role on the app - every real user falls through to here
+    // and gets chat verification instead. Publish the Flow in WhatsApp Manager
+    // and unset WHATSAPP_FLOW_DRAFT_MODE to fix it for everyone.
+    logger.warn("KYC flow send failed, falling back to chat entry", {
+      phone,
+      draftMode: process.env.WHATSAPP_FLOW_DRAFT_MODE === "true",
+    });
   }
 
   await updateSession(user.id, "kyc_choose_id", {});
@@ -680,8 +737,31 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
 }
 
 // ============================================
-// Main menu
+// Main menu (account-gated)
 // ============================================
+
+/**
+ * The menu only makes sense once a bank account has been issued (KYC done).
+ * Anyone without one gets the plain "you don't have an account yet" message
+ * with the Create wallet button instead - every menu option would dead-end
+ * for them. Once verification issues the account, this same entry point
+ * starts serving them the real menu.
+ */
+async function sendMenuForUser(phone: string, user: any) {
+  if (!user.bankAccount) {
+    return sendNoAccountPrompt(phone, user);
+  }
+  return sendMainMenu(phone);
+}
+
+/** Personalized "you don't have an account yet" + Create wallet button. */
+async function sendNoAccountPrompt(phone: string, user: any) {
+  return whatsapp.sendButtonsMessage(
+    phone,
+    MESSAGES.NO_ACCOUNT.TEXT(displayNameOf(user)),
+    [...MESSAGES.NO_ACCOUNT.BUTTONS]
+  );
+}
 
 async function sendMainMenu(phone: string) {
   return whatsapp.sendListMessage(

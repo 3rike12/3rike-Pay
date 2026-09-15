@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { config } from "@/config";
 import { logger } from "@/utils/logger";
 import { handleMessage } from "@/bot";
+import { whatsapp } from "@/services/whatsapp";
 import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
 import { cleanPhone, formatAmount, redactSensitiveText } from "@/utils/helpers";
@@ -64,6 +65,21 @@ router.post("/whatsapp", async (req: Request, res: Response) => {
               text = listReply.title;
             }
 
+            // Idempotency: Meta retries deliveries (same msg.id). Without this
+            // guard a retried "Hi" or a retried "Create wallet" tap is
+            // processed twice - the user gets the welcome / flow message twice.
+            if (msg.id) {
+              const duplicate = await prisma.webhookEvent
+                .findFirst({
+                  where: { source: "whatsapp", eventType: "message", reference: msg.id },
+                })
+                .catch(() => null);
+              if (duplicate) {
+                logger.info("Skipping duplicate WhatsApp delivery", { messageId: msg.id });
+                continue;
+              }
+            }
+
             // Log webhook event for idempotency. The body is scrubbed first -
             // this row is persisted, and a KYC step puts a BVN in it.
             await logWebhookEvent("whatsapp", "message", {
@@ -72,6 +88,13 @@ router.post("/whatsapp", async (req: Request, res: Response) => {
               type: msg.type,
               text: redactSensitiveText(text),
             }, msg.id);
+
+            // Blue ticks + "typing..." while the bot works. One request does
+            // both (read receipt carrying the typing indicator).
+            // Fire-and-forget: the reply must never depend on this succeeding,
+            // and the indicator auto-dismisses when the reply lands (or after
+            // 25s).
+            void whatsapp.markAsRead(msg.id).catch(() => {});
 
             // Process message
             await handleMessage(

@@ -11,3 +11,8 @@ coverage/
 
 # Flow encryption keys - never commit
 secrets/
+
+# Local sqlite dev DB - never commit
+*.db
+*.db-journal
+prisma/dev.db*
