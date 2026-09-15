@@ -193,13 +193,12 @@ export async function handleMessage(
   }
 
   // ---- New-user intro: first message gets the welcome ----
-  // Sent via the approved welcome_create_wallet TEMPLATE (not free text) so
-  // the button the user sees is the template's own - the one configured in
-  // WhatsApp Manager to open the KYC Flow directly. Tapping it opens the
-  // form with no further bot message needed (see the silent template-tap
-  // branch above). Sent once per number: logged as
-  // notification/welcome_create_wallet/{phone}, shared with the POST /welcome
-  // endpoint so a number never gets both.
+  // Sent via the approved onboarding_message TEMPLATE only. The button on
+  // that template is configured in WhatsApp Manager to open the KYC Flow
+  // directly. Tapping it opens the form with no further bot message needed.
+  // Sent once per number: logged as notification/welcome_create_wallet/{phone}
+  // (kept for dedup compatibility), shared with the POST /welcome endpoint
+  // so a number never gets both.
   const isNewUser = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
   if (isNewUser) {
     const alreadyWelcomed = await prisma.webhookEvent
@@ -211,43 +210,37 @@ export async function handleMessage(
       await resetSession(user.id).catch(() => {});
       const displayName = displayNameOf(user, name || "there");
 
-      // Marketing-category template: never fire it at someone who tapped
-      // STOP - they get the plain in-chat welcome instead (a solicited
-      // reply, not a promo).
+      // Marketing-category template: never fire it at someone who tapped STOP.
       const optedOut = await prisma.webhookEvent
         .findFirst({
           where: { source: "notification", eventType: "marketing_opt_out", reference: phone },
         })
         .catch(() => null);
-
-      if (!optedOut) {
-        const sent = await whatsapp.sendTemplate(
+      if (optedOut) {
+        return whatsapp.sendTextMessage(
           phone,
-          TEMPLATES.WELCOME_CREATE_WALLET.NAME,
-          [displayName],
-          TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE
+          "You've been opted out of 3rike Pay promotions. You won't receive marketing messages again. If you still need help, reply Hi."
         );
-        if (sent) {
-          await logWebhookEvent(
-            "notification",
-            "welcome_create_wallet",
-            { phone, name: displayName, channel: "inchat" },
-            phone
-          ).catch(() => {});
-          return true;
-        }
-        logger.warn("Welcome template failed, falling back to in-chat buttons", { phone });
       }
+
+      const sent = await whatsapp.sendTemplate(
+        phone,
+        TEMPLATES.WELCOME_CREATE_WALLET.NAME,
+        [displayName],
+        TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE
+      );
 
       await logWebhookEvent(
         "notification",
         "welcome_create_wallet",
-        { phone, name: displayName, channel: "inchat-fallback" },
+        { phone, name: displayName, sent, template: TEMPLATES.WELCOME_CREATE_WALLET.NAME },
         phone
       ).catch(() => {});
-      return whatsapp.sendButtonsMessage(phone, MESSAGES.WELCOME_NEW_USER.TEXT(displayName), [
-        ...MESSAGES.WELCOME_NEW_USER.BUTTONS,
-      ]);
+
+      if (!sent) {
+        logger.warn("Onboarding template failed, no fallback sent", { phone });
+      }
+      return true;
     }
   }
 

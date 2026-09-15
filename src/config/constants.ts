@@ -39,7 +39,7 @@ export const FLOWS = {
 // ============================================
 export const TEMPLATES = {
   WELCOME_CREATE_WALLET: {
-    NAME: "welcome_create_wallet",
+    NAME: "onboarding_message",
     LANGUAGE: "en",
     // {{1}} = user name
   },
@@ -95,18 +95,6 @@ export const LIMITS = {
 // Messages
 // ============================================
 export const MESSAGES = {
-  // In-chat fallback for the welcome (used only when the approved
-  // welcome_create_wallet template send fails). Mirrors the template wording
-  // so the experience is identical proactive or not.
-  // "Create wallet" starts KYC: the AutoRamp sub-account IS the wallet.
-  WELCOME_NEW_USER: {
-    TEXT: (name: string) =>
-      `Hi ${name}!👋 Welcome to 3rike Pay.\n\n3rike Pay helps you send, receive and manage money easily.\n\nTap *Create wallet* below to create a wallet to get started. Don't forget to save our contact as 3RIKE PAY.`,
-    BUTTONS: [
-      { id: "create_wallet", title: "Create wallet" },
-    ],
-  },
-
   KYC_PROMPT: {
     TEXT: `To start using 3rike Pay, we need to verify your identity.\n\nThis takes less than 2 minutes. Tap the button below to begin.`,
     FLOW_BUTTON: "Verify Identity", // opens WhatsApp Flow form
