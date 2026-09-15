@@ -70,6 +70,7 @@ function screen(name: string, data: Record<string, unknown> = {}) {
 async function handleIdentity(userId: string, data: any) {
   const idType = String(data.id_type || "").toUpperCase();
   const idNumber = String(data.id_number || "").replace(/[^0-9]/g, "");
+  logger.info("Flow IDENTITY received", { userId, idType, idNumber: idNumber ? "[redacted]" : "empty" });
 
   if (!["NIN", "BVN"].includes(idType)) {
     return screen("IDENTITY", { error_message: "Choose either NIN or BVN." });
@@ -78,26 +79,35 @@ async function handleIdentity(userId: string, data: any) {
     return screen("IDENTITY", { error_message: "That number must be exactly 11 digits." });
   }
 
-  const result = await autoramp.initiateIdentityVerification({
-    type: idType as "NIN" | "BVN",
-    number: idNumber,
-  });
+  try {
+    logger.info("Initiating identity verification", { userId, idType });
+    const result = await autoramp.initiateIdentityVerification({
+      type: idType as "NIN" | "BVN",
+      number: idNumber,
+    });
+    logger.info("Identity verification initiated", { userId, identityId: result.identityId });
 
-  // Held server-side for the OTP step. The number never travels back to the
-  // client and never appears in the chat transcript.
-  await updateSession(userId, "kyc_flow", {
-    identityId: result.identityId,
-    idType,
-    idNumber,
-  });
+    // Held server-side for the OTP step. The number never travels back to the
+    // client and never appears in the chat transcript.
+    await updateSession(userId, "kyc_flow", {
+      identityId: result.identityId,
+      idType,
+      idNumber,
+    });
+    logger.info("Session updated for OTP", { userId, identityId: result.identityId });
 
-  return screen("OTP", {
-    message: `We sent a code to the phone number registered to your ${idType}. Enter it below to finish.`,
-  });
+    return screen("OTP", {
+      message: `We sent a code to the phone number registered to your ${idType}. Enter it below to finish.`,
+    });
+  } catch (error: any) {
+    logger.error("Flow IDENTITY failed", { userId, idType, error: error.message });
+    return screen("IDENTITY", { error_message: error.message?.slice(0, 120) || "Could not start verification. Try again." });
+  }
 }
 
 async function handleOtp(userId: string, data: any) {
   const otp = String(data.otp || "").replace(/[^0-9]/g, "");
+  logger.info("Flow OTP received", { userId, otpLength: otp.length });
   if (otp.length < 4 || otp.length > 8) {
     return screen("OTP", { message: "Enter the code we sent you.", error_message: "That code looks too short." });
   }
@@ -109,41 +119,56 @@ async function handleOtp(userId: string, data: any) {
   const flowData = (session?.flowData as any) || {};
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || !flowData.identityId) {
+    logger.warn("Flow OTP missing session", { userId, hasUser: !!user, hasIdentityId: !!flowData.identityId });
     return screen("OTP", { message: "Something went wrong.", error_message: "Session expired - close this and type kyc to restart." });
   }
 
-  await autoramp.validateIdentityVerification({
-    identityId: flowData.identityId,
-    type: flowData.idType,
-    otp,
-  });
+  try {
+    logger.info("Validating identity OTP", { userId, identityId: flowData.identityId, idType: flowData.idType });
+    await autoramp.validateIdentityVerification({
+      identityId: flowData.identityId,
+      type: flowData.idType,
+      otp,
+    });
+    logger.info("Identity OTP validated", { userId, identityId: flowData.identityId });
 
-  const subAccount = await autoramp.createSubAccount({
-    phoneNumber: user.phone,
-    emailAddress: user.email || `${user.phone}@3rikepay.com`,
-    externalReference: generateReference("kyc"),
-    identityType: flowData.idType,
-    identityNumber: flowData.idNumber,
-  });
+    logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
+    const subAccount = await autoramp.createSubAccount({
+      phoneNumber: user.phone,
+      emailAddress: user.email || `${user.phone}@3rikepay.com`,
+      externalReference: generateReference("kyc"),
+      identityType: flowData.idType,
+      identityNumber: flowData.idNumber,
+    });
+    logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      ...(flowData.idType === "BVN" ? { bvn: flowData.idNumber } : { nin: flowData.idNumber }),
-      kycStatus: "verified",
-      autorampSubId: subAccount?.id || subAccount?.accountId,
-      bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
-      bankCode: subAccount?.bankCode,
-      bankName: subAccount?.bankName || subAccount?.provider,
-    },
-  });
+    logger.info("Updating user record", { userId });
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(flowData.idType === "BVN" ? { bvn: flowData.idNumber } : { nin: flowData.idNumber }),
+        kycStatus: "verified",
+        autorampSubId: subAccount?.id || subAccount?.accountId,
+        bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
+        bankCode: subAccount?.bankCode,
+        bankName: subAccount?.bankName || subAccount?.provider,
+      },
+    });
 
-  await resetSession(userId);
+    await resetSession(userId);
+    logger.info("User verified and session reset", { userId, bankAccount: updated.bankAccount });
 
-  return screen("SUCCESS", {
-    heading: "Your 3rike Pay account is ready",
-    details: `Bank: ${updated.bankName || "Safe Haven MFB"}\nAccount number: ${updated.bankAccount || "being created"}\nName: ${updated.name || "-"}`,
-  });
+    return screen("SUCCESS", {
+      heading: "Your 3rike Pay account is ready",
+      details: `Bank: ${updated.bankName || "Safe Haven MFB"}\nAccount number: ${updated.bankAccount || "being created"}\nName: ${updated.name || "-"}`,
+    });
+  } catch (error: any) {
+    logger.error("Flow OTP/verification failed", { userId, identityId: flowData.identityId, error: error.message });
+    return screen("OTP", {
+      message: MESSAGES.KYC_OTP.PROMPT,
+      error_message: error.message?.slice(0, 120) || "Verification failed. Try again.",
+    });
+  }
 }
 
 router.post("/", async (req: Request, res: Response) => {
@@ -164,7 +189,7 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   const { action, screen: currentScreen, data, flow_token } = payload;
-  logger.info("Flow request", { action, screen: currentScreen });
+  logger.info("Flow request decoded", { action, screen: currentScreen, flow_token: flow_token ? "set" : "missing" });
 
   try {
     // Health check - must answer or WhatsApp marks the endpoint unhealthy.
@@ -195,6 +220,7 @@ router.post("/", async (req: Request, res: Response) => {
           : currentScreen === "OTP"
           ? await handleOtp(userId, data || {})
           : screen("IDENTITY");
+      logger.info("Flow data_exchange response", { userId, currentScreen, nextScreen: next.screen });
       return res.send(encryptResponse(next, aesKey, iv));
     }
 
