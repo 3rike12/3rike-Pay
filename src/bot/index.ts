@@ -348,7 +348,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   // The main-menu list has a Transactions row. Answer honestly instead of
   // falling through and re-sending the same menu (looks like a loop).
   if (action === "transactions") {
-    return whatsapp.sendTextMessage(phone, MESSAGES.TRANSACTIONS.TEXT);
+    return handleTransactions(phone, user);
   }
 
   if (action === "btn_help") {
@@ -377,7 +377,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
 
   if (t.includes("transaction") || t.includes("history")) {
-    return whatsapp.sendTextMessage(phone, MESSAGES.TRANSACTIONS.TEXT);
+    return handleTransactions(phone, user);
   }
 
   if (TRIGGERS.KYC.some((kw) => t.includes(kw))) {
@@ -573,6 +573,42 @@ async function handleCheckBalance(phone: string, user: any) {
   } catch (error: any) {
     logger.error("Balance check failed", { phone, error: error.message });
     return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.ERROR);
+  }
+}
+
+async function handleTransactions(phone: string, user: any) {
+  if (!user.bankAccount) {
+    return sendNoAccountPrompt(phone, user);
+  }
+
+  try {
+    const transactions = await prisma.transaction.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    });
+
+    if (transactions.length === 0) {
+      return whatsapp.sendTextMessage(phone, MESSAGES.TRANSACTIONS.EMPTY);
+    }
+
+    const list = transactions
+      .map((t, i) => {
+        const amount = formatAmount(t.amount);
+        const status = t.status.toUpperCase();
+        const date = new Date(t.createdAt).toLocaleDateString("en-NG");
+        const desc = t.description || t.type;
+        return `${i + 1}. ${amount} - ${desc}\n   Status: ${status}\n   Ref: ${t.reference}\n   Date: ${date}`;
+      })
+      .join("\n\n");
+
+    return whatsapp.sendTextMessage(
+      phone,
+      MESSAGES.TRANSACTIONS.TEXT.replace("{{list}}", list)
+    );
+  } catch (error: any) {
+    logger.error("Transaction history failed", { phone, error: error.message });
+    return whatsapp.sendTextMessage(phone, MESSAGES.TRANSACTIONS.ERROR);
   }
 }
 

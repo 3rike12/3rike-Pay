@@ -159,8 +159,7 @@ export const MESSAGES = {
         title: "Account",
         rows: [
           { id: "check_balance", title: "Check Balance", description: "View your balance" },
-          { id: "kyc", title: "KYC Verify", description: "Complete identity verification" },
-          { id: "transactions", title: "Transactions", description: "View transaction history" },
+          { id: "transactions", title: "Transactions", description: "View recent transactions" },
         ],
       },
     ],
@@ -206,7 +205,11 @@ export const MESSAGES = {
   },
 
   TRANSACTIONS: {
-    TEXT: `Your transaction history isn't available in-chat yet - we're still building it.\n\nType *start* to return to the menu.`,
+    TEXT: `*Your Transactions*
+
+{{list}}\n\nType *start* for menu.`,
+    EMPTY: `You haven't made any transactions yet.\n\nType *start* for menu.`,
+    ERROR: `Could not load transactions. Please try again later.`,
   },
 
   HELP: {
