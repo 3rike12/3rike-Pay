@@ -105,7 +105,10 @@ class AutoRampService {
     number: string;
   }) {
     try {
-      const { data } = await this.client.post("/merchants/api/verify-identity", params);
+      // NIBSS verification can be slow — use 60s instead of the default 30s.
+      const { data } = await this.client.post("/merchants/api/verify-identity", params, {
+        timeout: 60000,
+      });
       logger.info("Identity verification initiated", { type: params.type });
       return data;
     } catch (error: any) {
