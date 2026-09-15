@@ -41,22 +41,13 @@
                 "helper-text": "11 digits"
               },
               {
-                "type": "TextInput",
-                "name": "phone_number",
-                "label": "Phone number",
-                "input-type": "phone_number",
-                "required": true,
-                "helper-text": "Phone linked to this account"
-              },
-              {
                 "type": "Footer",
                 "label": "Continue",
                 "on-click-action": {
                   "name": "data_exchange",
                   "payload": {
                     "id_type": "${form.id_type}",
-                    "id_number": "${form.id_number}",
-                    "phone_number": "${form.phone_number}"
+                    "id_number": "${form.id_number}"
                   }
                 }
               }

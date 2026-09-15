@@ -203,27 +203,10 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     const userId = String(flow_token || "");
-
-    // Template Flow buttons have a static flow_token (often "unused") and no
-    // way to pass dynamic data. Identify the user by the phone number they
-    // enter in the IDENTITY form instead.
-    let resolvedUserId = userId;
-    if (!resolvedUserId || resolvedUserId === "unused") {
-      const phone = String(data?.phone_number || "").replace(/[^0-9]/g, "");
-      if (phone.length >= 10) {
-        const user = await prisma.user.findFirst({
-          where: { phone: { contains: phone } },
-        });
-        if (user) {
-          resolvedUserId = user.id;
-          logger.info("Flow resolved user by phone", { userId: resolvedUserId });
-        }
-      }
-      if (!resolvedUserId || resolvedUserId === "unused") {
-        return res.send(
-          encryptResponse(screen("IDENTITY", { error_message: "Session expired. Type kyc to restart." }), aesKey, iv)
-        );
-      }
+    if (!userId || userId === "unused") {
+      return res.send(
+        encryptResponse(screen("IDENTITY", { error_message: "Session expired. Type kyc to restart." }), aesKey, iv)
+      );
     }
 
     if (action === "INIT") {

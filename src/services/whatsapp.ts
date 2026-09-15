@@ -196,7 +196,7 @@ class WhatsAppService {
     params: string[],
     language: string = "en",
     buttonUrlParam?: string,
-    flowId?: string
+    flowToken?: string
   ): Promise<boolean> {
     try {
       const components: any[] = [
@@ -213,11 +213,19 @@ class WhatsAppService {
           index: "0",
           parameters: [{ type: "text", text: buttonUrlParam }],
         });
-      } else if (flowId) {
+      } else if (flowToken) {
         components.push({
           type: "button",
           sub_type: "flow",
           index: "0",
+          parameters: [
+            {
+              type: "action",
+              action: {
+                flow_token: flowToken,
+              },
+            },
+          ],
         });
       }
 
