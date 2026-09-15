@@ -189,13 +189,17 @@ class WhatsAppService {
    *   one. WhatsApp treats this as the *suffix* appended to the base URL
    *   configured on the template, not a full URL. Templates with a dynamic URL
    *   button are rejected (error 131008) unless this component is supplied.
+   * @param flowId If the template has a Flow button, pass the Flow ID to
+   *   include the button component. Without this, templates with Flow buttons
+   *   fail with error 131009 (Components sub_type invalid).
    */
   async sendTemplate(
     to: string,
     templateName: string,
     params: string[],
     language: string = "en",
-    buttonUrlParam?: string
+    buttonUrlParam?: string,
+    flowId?: string
   ): Promise<boolean> {
     try {
       const components: any[] = [
@@ -211,6 +215,12 @@ class WhatsAppService {
           sub_type: "url",
           index: "0",
           parameters: [{ type: "text", text: buttonUrlParam }],
+        });
+      } else if (flowId) {
+        components.push({
+          type: "button",
+          sub_type: "flow",
+          index: "0",
         });
       }
 

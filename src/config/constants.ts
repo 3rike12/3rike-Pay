@@ -26,14 +26,12 @@ export const FLOWS = {
 //
 // WELCOME_CREATE_WALLET is the business-initiated intro (new users only).
 // Create it in Meta Business Manager as UTILITY, e.g. body:
-//   "Hi {{1}}! Welcome to 3rike Pay. 3rike Pay helps you send, receive and "
-//   "manage money easily. Tap Create wallet to create a wallet to get started. "
-//   "Save our contact as 3RIKE PAY. Reply STOP to opt out."
-// Then add ONE quick-reply button with text "Create wallet".
-// The button is defined on the template itself - the API payload only sends
-// the body params, Meta renders the button automatically. Tapping it arrives
-// at POST /webhook/whatsapp as an interactive button_reply which the bot
-// maps to the KYC/wallet flow (see handleIdle create_wallet branch).
+//   "Hi {{1}}! Welcome to 3rike Pay. Send, receive, and manage your money
+//    with ease. Tap *Create Wallet* to get started."
+// Then add ONE Flow button that opens the KYC Flow directly.
+// The API payload sends the body param + a button component with sub_type
+// "flow" so Meta renders the button. Tapping it opens the Flow form on the
+// phone - no bot message needed (silent ack).
 // Do NOT send this as free text: outside the 24h customer-service window
 // only approved templates deliver (Meta policy, error 131047 otherwise).
 // ============================================

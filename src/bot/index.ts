@@ -227,7 +227,9 @@ export async function handleMessage(
         phone,
         TEMPLATES.WELCOME_CREATE_WALLET.NAME,
         [displayName],
-        TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE
+        TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE,
+        undefined,
+        FLOWS.KYC_ONBOARDING
       );
 
       await logWebhookEvent(
@@ -765,7 +767,9 @@ async function sendNoAccountPrompt(phone: string, user: any) {
     phone,
     TEMPLATES.WELCOME_CREATE_WALLET.NAME,
     [displayName],
-    TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE
+    TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE,
+    undefined,
+    FLOWS.KYC_ONBOARDING
   );
 
   await logWebhookEvent(
