@@ -1,6 +1,7 @@
 import { prisma } from "@/db/prisma";
 import { whatsapp } from "./whatsapp";
 import { createLogger } from "@/utils/logger";
+import { redactPhone } from "@/utils/helpers";
 
 const logger = createLogger("notifications");
 import { formatAmount, cleanPhone } from "@/utils/helpers";
@@ -51,10 +52,10 @@ export async function notifyUser(params: NotifyParams): Promise<boolean> {
       });
     }
 
-    logger.info("Notification sent", { phone: params.phone, type: params.type, sent });
+    logger.info("Notification sent", { phone: redactPhone(params.phone), type: params.type, sent });
     return sent;
   } catch (error: any) {
-    logger.error("Notification failed", { phone: params.phone, error: error.message });
+    logger.error("Notification failed", { phone: redactPhone(params.phone), error: error.message });
     return false;
   }
 }
@@ -137,7 +138,7 @@ export async function notifyWelcomeCreateWallet(
     where: { source: "notification", eventType: "marketing_opt_out", reference: phoneKey },
   });
   if (optOut) {
-    logger.info("Welcome blocked: number opted out of marketing", { phone: phoneKey });
+    logger.info("Welcome blocked: number opted out of marketing", { phone: redactPhone(phoneKey) });
     return { sent: false, alreadySent: false, optedOut: true };
   }
 
@@ -145,7 +146,7 @@ export async function notifyWelcomeCreateWallet(
     where: { source: "notification", eventType: "welcome_create_wallet", reference: phoneKey },
   });
   if (existing) {
-    logger.info("Welcome already sent, skipping", { phone: phoneKey });
+    logger.info("Welcome already sent, skipping", { phone: redactPhone(phoneKey) });
     return { sent: true, alreadySent: true };
   }
 
@@ -164,10 +165,10 @@ export async function notifyWelcomeCreateWallet(
       phoneKey
     ).catch(() => {});
 
-    logger.info("Welcome template sent", { phone: phoneKey, sent });
+    logger.info("Welcome template sent", { phone: redactPhone(phoneKey), sent });
     return { sent, alreadySent: false };
   } catch (error: any) {
-    logger.error("Welcome template failed", { phone, error: error.message });
+    logger.error("Welcome template failed", { phone: redactPhone(phone), error: error.message });
     return { sent: false, alreadySent: false };
   }
 }

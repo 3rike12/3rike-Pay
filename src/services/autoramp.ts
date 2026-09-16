@@ -128,7 +128,7 @@ class AutoRampService {
   }) {
     try {
       const { data } = await this.client.post("/merchants/api/validate-identity", params);
-      logger.info("Identity verified", { identityId: params.identityId });
+      logger.info("Identity verified", { identityId: params.identityId ? "[redacted]" : "" });
       return data;
     } catch (error: any) {
       logger.error("Failed to validate identity", {
@@ -146,7 +146,7 @@ class AutoRampService {
         bankCode,
         accountNumber,
       });
-      logger.info("Name enquiry completed", { bankCode, accountNumber });
+      logger.info("Name enquiry completed", { bankCode, accountNumber: accountNumber.slice(0, 3) + "****" + accountNumber.slice(-2) });
       return data;
     } catch (error: any) {
       logger.error("Name enquiry failed", {

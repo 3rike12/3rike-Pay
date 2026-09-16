@@ -50,6 +50,12 @@ export function redactSensitiveText(text: string): string {
   return text.replace(/\b\d{11}\b/g, "[redacted]");
 }
 
+export function redactPhone(phone: string): string {
+  if (!phone) return "";
+  const last4 = phone.replace(/[^0-9]/g, "").slice(-4);
+  return `****${last4 || ""}`;
+}
+
 export function extractAmount(text: string): number | null {
   const cleaned = text.replace(/[₦NGN,\s]/g, "");
   const match = cleaned.match(/^(\d+(\.\d{1,2})?)$/);

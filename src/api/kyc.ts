@@ -3,6 +3,7 @@ import { autoramp } from "@/services/autoramp";
 import { prisma } from "@/db/prisma";
 import { generateReference } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
+import { redactPhone } from "@/utils/helpers";
 
 const logger = createLogger("kyc");
 import { validate } from "./middleware/validate";
@@ -113,7 +114,7 @@ router.post(
         },
       });
 
-      logger.info("Sub-account created", { phone, userId: user.id });
+      logger.info("Sub-account created", { phone: redactPhone(phone), userId: user.id });
 
       res.status(200).json({
         success: true,

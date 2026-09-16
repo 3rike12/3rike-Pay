@@ -10,7 +10,7 @@ import {
   logWebhookEvent,
   prisma,
 } from "@/services/database";
-import { generateReference, formatAmount, extractAmount, redactSensitiveText } from "@/utils/helpers";
+import { generateReference, formatAmount, extractAmount, redactSensitiveText, redactPhone } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
 import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS } from "@/config/constants";
 
@@ -135,7 +135,7 @@ export async function handleMessage(
   const state = session.state;
   const flowData = (session.flowData as FlowData) || {};
 
-  logger.info("Incoming message", { phone, state, text: redactForLog(state, messageText) });
+  logger.info("Incoming message", { phone: redactPhone(phone), state, text: redactForLog(state, messageText) });
 
   const action = buttonReply?.id || listReply?.id;
   const lower = messageText.toLowerCase().trim();
@@ -241,9 +241,9 @@ export async function handleMessage(
         phone
       ).catch(() => {});
 
-      if (!sent) {
-        logger.warn("Onboarding template failed, no fallback sent", { phone });
-      }
+  if (!sent) {
+    logger.warn("Onboarding template failed, no fallback sent", { phone: redactPhone(phone) });
+  }
       return true;
     }
   }
@@ -571,7 +571,7 @@ async function handleCheckBalance(phone: string, user: any) {
       MESSAGES.CHECK_BALANCE.TEXT(bank, accountNumber, formatAmount(Number(balance)))
     );
   } catch (error: any) {
-    logger.error("Balance check failed", { phone, error: error.message });
+    logger.error("Balance check failed", { phone: redactPhone(phone), error: error.message });
     return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.ERROR);
   }
 }
@@ -607,7 +607,7 @@ async function handleTransactions(phone: string, user: any) {
       MESSAGES.TRANSACTIONS.TEXT.replace("{{list}}", list)
     );
   } catch (error: any) {
-    logger.error("Transaction history failed", { phone, error: error.message });
+    logger.error("Transaction history failed", { phone: redactPhone(phone), error: error.message });
     return whatsapp.sendTextMessage(phone, MESSAGES.TRANSACTIONS.ERROR);
   }
 }
@@ -754,7 +754,7 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
     // a BVN to fix one wrong digit is the kind of friction that makes people
     // give up. Keep them in the OTP state for a few tries.
     const attempts = Number(flowData.otpAttempts || 0) + 1;
-    logger.warn("KYC OTP validation failed", { phone, attempts, error: error.message });
+    logger.warn("KYC OTP validation failed", { phone: redactPhone(phone), attempts, error: error.message });
 
     if (attempts < KYC_OTP_MAX_ATTEMPTS) {
       await updateSession(user.id, "kyc_otp", { ...flowData, otpAttempts: attempts });
@@ -797,7 +797,7 @@ async function sendNoAccountPrompt(phone: string, user: any) {
     })
     .catch(() => null);
   if (alreadySent) {
-    logger.debug("Onboarding template already sent, skipping", { phone });
+    logger.debug("Onboarding template already sent, skipping", { phone: redactPhone(phone) });
     return true;
   }
 
@@ -818,7 +818,7 @@ async function sendNoAccountPrompt(phone: string, user: any) {
   ).catch(() => {});
 
   if (!sent) {
-    logger.warn("Onboarding template failed from no-account prompt", { phone });
+    logger.warn("Onboarding template failed from no-account prompt", { phone: redactPhone(phone) });
   }
   return true;
 }

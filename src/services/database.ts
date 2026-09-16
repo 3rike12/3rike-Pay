@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { createLogger } from "@/utils/logger";
+import { redactPhone } from "@/utils/helpers";
 
 const logger = createLogger("database");
 
@@ -14,7 +15,7 @@ export async function findOrCreateUser(phone: string, name?: string) {
     user = await prisma.user.create({
       data: { phone, name: name || null },
     });
-    logger.info("New user created", { phone, userId: user.id });
+    logger.info("New user created", { phone: redactPhone(phone), userId: user.id });
   } else if (name && user.name !== name) {
     user = await prisma.user.update({
       where: { id: user.id },
