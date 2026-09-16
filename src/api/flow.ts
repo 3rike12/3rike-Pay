@@ -103,7 +103,18 @@ async function handleIdentity(userId: string, data: any) {
     });
   } catch (error: any) {
     logger.error("Flow IDENTITY failed", { userId, idType, error: error.message });
-    return screen("IDENTITY", { error_message: error.message?.slice(0, 120) || "Could not start verification. Try again." });
+
+    const msg = (error.message || "").toLowerCase();
+    let errorMessage = error.message?.slice(0, 120) || "Could not start verification. Try again.";
+    if (msg.includes("record") || msg.includes("not found") || msg.includes("fetch")) {
+      errorMessage = "We couldn't find that ID record. Please check the number and try again.";
+    } else if (msg.includes("phone")) {
+      errorMessage = "The phone number on this ID doesn't match. Please use the phone number linked to your ID.";
+    } else if (msg.includes("network") || msg.includes("timeout")) {
+      errorMessage = "Network issue. Please try again in a moment.";
+    }
+
+    return screen("IDENTITY", { error_message: errorMessage });
   }
 }
 
@@ -124,6 +135,8 @@ async function handleOtp(userId: string, data: any) {
     logger.warn("Flow OTP missing session", { userId, hasUser: !!user });
     return screen("OTP", { message: "Something went wrong.", error_message: "Session expired - close this and type kyc to restart." });
   }
+
+  const attempts = (flowData.otpAttempts || 0) + 1;
 
   try {
     logger.info("Validating identity OTP", { userId, idType: flowData.idType });
@@ -166,9 +179,29 @@ async function handleOtp(userId: string, data: any) {
     });
   } catch (error: any) {
     logger.error("Flow OTP/verification failed", { userId, error: error.message });
+
+    const msg = error.message?.toLowerCase?.() || "";
+    let errorMessage = "Verification failed. Try again.";
+    if (msg.includes("otp") || msg.includes("code") || msg.includes("invalid")) {
+      errorMessage = "The code you entered is incorrect. Please try again.";
+    } else if (msg.includes("timeout") || msg.includes("network")) {
+      errorMessage = "Network issue. Please try again in a moment.";
+    } else if (msg.includes("identity")) {
+      errorMessage = "Could not verify your identity. Please restart.";
+    }
+
+    if (attempts < 3) {
+      await updateSession(userId, "kyc_flow", { ...flowData, otpAttempts: attempts });
+      return screen("OTP", {
+        message: MESSAGES.KYC_OTP.PROMPT,
+        error_message: errorMessage,
+      });
+    }
+
+    await resetSession(userId);
     return screen("OTP", {
       message: MESSAGES.KYC_OTP.PROMPT,
-      error_message: error.message?.slice(0, 120) || "Verification failed. Try again.",
+      error_message: "Too many failed attempts. Type kyc to restart.",
     });
   }
 }
