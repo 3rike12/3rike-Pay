@@ -154,14 +154,6 @@ async function handleOtp(userId: string, data: any) {
   const attempts = (flowData.otpAttempts || 0) + 1;
 
   try {
-    logger.info("Validating identity OTP", { userId, idType: flowData.idType });
-    const validationResult = await autoramp.validateIdentityVerification({
-      identityId: flowData.identityId,
-      type: flowData.idType,
-      otp,
-    });
-    logger.info("Identity OTP validated", { userId, validationResult: JSON.stringify(validationResult).slice(0, 200) });
-
     logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
     const subAccount = await autoramp.createSubAccount({
       phoneNumber: user.phone,
@@ -170,6 +162,7 @@ async function handleOtp(userId: string, data: any) {
       identityType: flowData.idType,
       identityNumber: flowData.idNumber,
       identityId: flowData.identityId,
+      otp,
       autoSweep: false,
     });
     logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
