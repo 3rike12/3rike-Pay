@@ -94,6 +94,13 @@ async function handleIdentity(userId: string, data: any) {
       return screen("IDENTITY", { error_message: "Could not start verification. Try again or use a different ID." });
     }
 
+    if (result.status === "FAILED") {
+      logger.error("Identity verification failed", { userId, idType, result: JSON.stringify(result) });
+      return screen("IDENTITY", {
+        error_message: "We couldn't verify that ID. Please check the number and try again.",
+      });
+    }
+
     // Held server-side for the OTP step. The number never travels back to the
     // client and never appears in the chat transcript.
     await updateSession(userId, "kyc_flow", {
@@ -148,12 +155,15 @@ async function handleOtp(userId: string, data: any) {
 
   try {
     logger.info("Validating identity OTP", { userId, idType: flowData.idType });
-    await autoramp.validateIdentityVerification({
+    const validationResult = await autoramp.validateIdentityVerification({
       identityId: flowData.identityId,
       type: flowData.idType,
       otp,
     });
     logger.info("Identity OTP validated", { userId });
+
+    // Use the verified identityId if the API returned one.
+    const verifiedIdentityId = validationResult?.identityId || flowData.identityId;
 
     logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
     const subAccount = await autoramp.createSubAccount({
@@ -162,7 +172,7 @@ async function handleOtp(userId: string, data: any) {
       externalReference: generateReference("kyc"),
       identityType: flowData.idType,
       identityNumber: flowData.idNumber,
-      identityId: flowData.identityId,
+      identityId: verifiedIdentityId,
     });
     logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
 
