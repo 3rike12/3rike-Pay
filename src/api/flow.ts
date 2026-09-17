@@ -170,7 +170,6 @@ async function handleOtp(userId: string, data: any) {
       identityType: flowData.idType,
       identityNumber: flowData.idNumber,
       identityId: flowData.identityId,
-      otp,
       autoSweep: false,
     });
     logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
@@ -208,7 +207,6 @@ async function handleOtp(userId: string, data: any) {
           identityType: flowData.idType,
           identityNumber: flowData.idNumber,
           identityId: flowData.identityId,
-          otp,
           autoSweep: false,
         });
         logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
