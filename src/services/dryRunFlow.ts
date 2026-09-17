@@ -54,5 +54,9 @@ export function handleDryRunFlow(
     });
   }
 
+  if (currentScreen === "SUCCESS") {
+    return screen("DONE", { heading: "Done" });
+  }
+
   return null;
 }

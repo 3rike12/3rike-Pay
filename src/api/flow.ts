@@ -281,7 +281,9 @@ router.post("/", async (req: Request, res: Response) => {
           ? await handleIdentity(userId, data || {})
           : currentScreen === "OTP"
             ? await handleOtp(userId, data || {})
-            : screen("IDENTITY"));
+            : currentScreen === "SUCCESS"
+              ? screen("DONE", { heading: "Done" })
+              : screen("IDENTITY"));
 
       logger.info("Flow data_exchange response", {
         userId,

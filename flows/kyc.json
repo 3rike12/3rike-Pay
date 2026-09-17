@@ -4,7 +4,8 @@
   "routing_model": {
     "IDENTITY": ["OTP"],
     "OTP": ["SUCCESS"],
-    "SUCCESS": []
+    "SUCCESS": ["DONE"],
+    "DONE": []
   },
   "screens": [
     {
@@ -96,8 +97,6 @@
     {
       "id": "SUCCESS",
       "title": "Success",
-      "terminal": true,
-      "success": true,
       "data": {
         "heading": { "type": "string", "__example__": "Success" },
         "details": { "type": "string", "__example__": "Your account details have been sent to you on WhatsApp." }
@@ -109,11 +108,40 @@
           { "type": "TextBody", "text": "${data.details}" },
           {
             "type": "Form",
-            "name": "done_form",
+            "name": "continue_form",
             "children": [
               {
                 "type": "Footer",
-                "label": "Done",
+                "label": "Continue",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {}
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "DONE",
+      "title": "Done",
+      "terminal": true,
+      "success": true,
+      "data": {
+        "heading": { "type": "string", "__example__": "Done" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "${data.heading}" },
+          {
+            "type": "Form",
+            "name": "close_form",
+            "children": [
+              {
+                "type": "Footer",
+                "label": "Close",
                 "on-click-action": {
                   "name": "complete",
                   "payload": {}
