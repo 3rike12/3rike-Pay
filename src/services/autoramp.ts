@@ -46,6 +46,7 @@ class AutoRampService {
     externalReference: string;
     identityType?: string;
     identityNumber?: string;
+    identityId?: string;
     otp?: string;
     callbackUrl?: string;
   }) {
