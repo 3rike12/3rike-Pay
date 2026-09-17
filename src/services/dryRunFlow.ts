@@ -1,5 +1,6 @@
 import { config } from "@/config";
 import { createLogger } from "@/utils/logger";
+import { updateSession } from "@/services/database";
 import { sendAccountCreatedMessage } from "@/services/accountNotification";
 
 const logger = createLogger("dry-run-flow");
@@ -19,12 +20,12 @@ function screen(name: string, data: Record<string, unknown> = {}): Screen {
  * Returns `null` when dry-run is disabled or the request should be handled
  * by the real handler.
  */
-export function handleDryRunFlow(
+export async function handleDryRunFlow(
   action: string,
   currentScreen: string,
   data: Record<string, unknown>,
   userId: string
-): Screen | null {
+): Promise<Screen | null> {
   if (!config.features.kycDryRun) return null;
   if (action !== "data_exchange") return null;
 
@@ -40,11 +41,14 @@ export function handleDryRunFlow(
     }
 
     logger.info("Flow IDENTITY dry-run: skipping identity verification");
-    return screen("OTP", {
-      message: "Dry-run mode: we will not send a real code. Enter any 6 digits to continue.",
+    await updateSession(userId, "kyc_flow", {
       identityId: "dry-run-identity-id",
       idType,
       idNumber,
+    });
+
+    return screen("OTP", {
+      message: "Dry-run mode: we will not send a real code. Enter any 6 digits to continue.",
     });
   }
 
