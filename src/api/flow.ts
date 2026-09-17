@@ -162,18 +162,6 @@ async function handleOtp(userId: string, data: any) {
     });
     logger.info("Identity OTP validated", { userId, validationResult: JSON.stringify(validationResult).slice(0, 200) });
 
-    // Use the verified identityId if the API returned one, and update session.
-    const verifiedIdentityId =
-      validationResult?.identityId ||
-      validationResult?._id ||
-      validationResult?.id ||
-      flowData.identityId;
-
-    if (verifiedIdentityId !== flowData.identityId) {
-      await updateSession(userId, "kyc_flow", { ...flowData, identityId: verifiedIdentityId });
-      logger.info("Updated identityId after validation", { userId });
-    }
-
     logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
     const subAccount = await autoramp.createSubAccount({
       phoneNumber: user.phone,
@@ -181,7 +169,7 @@ async function handleOtp(userId: string, data: any) {
       externalReference: generateReference("kyc"),
       identityType: flowData.idType,
       identityNumber: flowData.idNumber,
-      identityId: verifiedIdentityId,
+      identityId: flowData.identityId,
     });
     logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
 
