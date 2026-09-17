@@ -186,10 +186,10 @@ export const MESSAGES = {
   NETWORKS: messagesJson.NETWORKS,
 
   FLOW: {
-    ACCOUNT_CREATED: (bank: string, account: string, dryRun = false) =>
+    ACCOUNT_CREATED: (bank: string, account: string, accountName: string, dryRun = false) =>
       render(
         dryRun ? messagesJson.FLOW.ACCOUNT_CREATED_DRY_RUN : messagesJson.FLOW.ACCOUNT_CREATED,
-        { bank, account }
+        { bank, account, accountName }
       ),
   },
 } as const;

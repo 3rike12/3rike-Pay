@@ -118,7 +118,7 @@
     { "id": "network_9mobile", "title": "9mobile", "code": "9mobile" }
   ],
   "FLOW": {
-    "ACCOUNT_CREATED": "Your 3rike Pay account is ready\n\nBank: {{bank}}\nAccount Number: {{account}}",
-    "ACCOUNT_CREATED_DRY_RUN": "Dry-run complete — no real account was created.\n\nBank: {{bank}}\nAccount Number: {{account}}"
+    "ACCOUNT_CREATED": "Your 3rike Pay account is ready\n\nAccount Name: {{accountName}}\nBank: {{bank}}\nAccount Number: {{account}}",
+    "ACCOUNT_CREATED_DRY_RUN": "Dry-run complete — no real account was created.\n\nAccount Name: {{accountName}}\nBank: {{bank}}\nAccount Number: {{account}}"
   }
 }

@@ -194,7 +194,8 @@ async function handleOtp(userId: string, data: any) {
 
     const bank = updated.bankName || "Safe Haven MFB";
     const accountNumber = updated.bankAccount || "being created";
-    void sendAccountCreatedMessage(userId, bank, accountNumber, false).catch(() => {});
+    const accountName = subAccount?.accountName || updated.name || "Account Holder";
+    void sendAccountCreatedMessage(userId, bank, accountNumber, accountName, false).catch(() => {});
 
     return screen("END");
   } catch (error: any) {

@@ -14,13 +14,14 @@ export async function sendAccountCreatedMessage(
   userId: string,
   bank: string,
   accountNumber: string,
+  accountName: string,
   dryRun = false
 ) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return;
 
-    const message = MESSAGES.FLOW.ACCOUNT_CREATED(bank, accountNumber, dryRun);
+    const message = MESSAGES.FLOW.ACCOUNT_CREATED(bank, accountNumber, accountName, dryRun);
     await whatsapp.sendButtonsMessage(user.phone, message, [
       { id: "btn_menu", title: "Main Menu" },
       { id: "btn_balance", title: "Check Balance" },

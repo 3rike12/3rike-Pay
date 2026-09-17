@@ -54,7 +54,7 @@ export async function handleDryRunFlow(
 
   if (currentScreen === "OTP") {
     logger.info("Flow OTP dry-run: returning test account details");
-    void sendAccountCreatedMessage(userId, "Safe Haven MFB", "1234567890", true).catch(() => {});
+    void sendAccountCreatedMessage(userId, "Safe Haven MFB", "1234567890", "Test User", true).catch(() => {});
     return screen("END");
   }
 
