@@ -11,24 +11,65 @@ datasource db {
 // User / Customer
 // ============================================
 model User {
-  id            String   @id @default(uuid())
-  phone         String   @unique
-  name          String?
-  email         String?
-  bvn           String?
-  nin           String?
-  kycStatus     String   @default("none") // none | pending | verified
-  autorampSubId String?  @unique           // AutoRamp sub-account ID
-  bankAccount   String?                     // linked bank account number
-  bankCode      String?                     // linked bank code
+  id        String   @id @default(uuid())
+  phone     String   @unique
+  name      String?
+  kycStatus String   @default("none") // none | pending | verified
+  status    String   @default("active") // active | flagged | blocked
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile       UserProfile?
+  bankAccount   BankAccount?
+  credentials   UserCredential?
+  sessions      UserSession[]
+  transactions  Transaction[]
+}
+
+// ============================================
+// User Profile (PII)
+// ============================================
+model UserProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  firstName String?
+  lastName  String?
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// Bank Account (created by AutoRamp)
+// ============================================
+model BankAccount {
+  id            String  @id @default(uuid())
+  userId        String  @unique
+  user          User    @relation(fields: [userId], references: [id])
+  autorampSubId String? @unique
+  reference     String? @unique
+  accountNumber String?
+  accountName   String?
+  bankCode      String?
   bankName      String?
-  status        String   @default("active") // active | flagged | blocked
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
 
-  sessions       UserSession[]
-  transactions   Transaction[]
-  virtualAccounts VirtualAccount[]
+// ============================================
+// User Credentials (PIN + identity verification)
+// ============================================
+model UserCredential {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id])
+  bvn        String?
+  nin        String?
+  identityId String?
+  pin        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 // ============================================
@@ -38,7 +79,7 @@ model UserSession {
   id           String   @id @default(uuid())
   userId       String
   user         User     @relation(fields: [userId], references: [id])
-  state        String   @default("idle") // idle | register_bvn | register_email | confirm_register | send_money | confirm_transfer | buy_airtime | check_balance | kyc_verify
+  state        String   @default("idle")
   flowData     Json     @default("{}")   // temporary data for current flow
   lastActivity DateTime @default(now())
   createdAt    DateTime @default(now())
@@ -72,27 +113,6 @@ model Transaction {
 
   @@index([userId])
   @@index([reference])
-}
-
-// ============================================
-// Virtual accounts (for receiving payments)
-// ============================================
-model VirtualAccount {
-  id            String   @id @default(uuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id])
-  accountNumber String
-  accountName   String?
-  bankCode      String?
-  bankName      String?
-  reference     String   @unique
-  amount        Float?
-  status        String   @default("active") // active | expired | used
-  expiresAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([userId])
 }
 
 // ============================================

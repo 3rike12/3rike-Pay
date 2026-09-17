@@ -2,8 +2,11 @@
   "version": "7.0",
   "data_api_version": "3.0",
   "routing_model": {
-    "IDENTITY": ["OTP", "COMPLETED"],
-    "OTP": ["END"],
+    "IDENTITY": ["EMAIL"],
+    "EMAIL": ["NAME"],
+    "NAME": ["OTP"],
+    "OTP": ["PIN"],
+    "PIN": ["END"],
     "END": [],
     "COMPLETED": []
   },
@@ -58,6 +61,78 @@
       }
     },
     {
+      "id": "EMAIL",
+      "title": "Email address",
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "Enter your email address. We will send account updates here." },
+          {
+            "type": "Form",
+            "name": "email_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "email",
+                "label": "Email",
+                "input-type": "email",
+                "required": true
+              },
+              {
+                "type": "Footer",
+                "label": "Continue",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": { "email": "${form.email}" }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "NAME",
+      "title": "Your name",
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "Enter your first and last name as it appears on your ID." },
+          {
+            "type": "Form",
+            "name": "name_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "first_name",
+                "label": "First name",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "last_name",
+                "label": "Last name",
+                "required": true
+              },
+              {
+                "type": "Footer",
+                "label": "Continue",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "first_name": "${form.first_name}",
+                    "last_name": "${form.last_name}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "OTP",
       "title": "Enter your code",
       "data": {
@@ -87,6 +162,52 @@
                 "on-click-action": {
                   "name": "data_exchange",
                   "payload": { "otp": "${form.otp}" }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "PIN",
+      "title": "Create PIN",
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "Create a 4-digit PIN. You will use it to log in and authorize transactions." },
+          {
+            "type": "Form",
+            "name": "pin_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "pin",
+                "label": "4-digit PIN",
+                "input-type": "number",
+                "required": true,
+                "min-length": 4,
+                "max-length": 4
+              },
+              {
+                "type": "TextInput",
+                "name": "confirm_pin",
+                "label": "Confirm PIN",
+                "input-type": "number",
+                "required": true,
+                "min-length": 4,
+                "max-length": 4
+              },
+              {
+                "type": "Footer",
+                "label": "Create PIN",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "pin": "${form.pin}",
+                    "confirm_pin": "${form.confirm_pin}"
+                  }
                 }
               }
             ]

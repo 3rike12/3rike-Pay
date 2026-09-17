@@ -312,7 +312,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
 
   if (action === "send_money") {
-    if (!user.bankAccount) {
+    if (!user.bankAccount?.accountNumber) {
       return whatsapp.sendButtonsMessage(phone, MESSAGES.KYC_PROMPT.TEXT, [
         { id: "btn_kyc", title: "Verify Now" },
         { id: "btn_menu", title: "Main Menu" },
@@ -348,7 +348,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
 
   // Check for trigger words in free text
   if (TRIGGERS.SEND_MONEY.some((kw) => t.includes(kw))) {
-    if (!user.bankAccount) {
+    if (!user.bankAccount?.accountNumber) {
       return startKyc(phone, user);
     }
     await updateSession(user.id, "send_money", {});
@@ -536,14 +536,14 @@ async function handleCheckBalance(phone: string, user: any) {
   // Without an account of their own there is no balance to show. Falling back
   // to the merchant account here would leak the company's pooled balance to
   // every user who typed "balance". Same no-account prompt as the menu gate.
-  if (!user.bankAccount) {
+  if (!user.bankAccount?.accountNumber) {
     return sendNoAccountPrompt(phone, user);
   }
 
   try {
-    const account = await autoramp.getSubAccountByReference(user.autorampSubId || "");
-    const bank = user.bankName || user.bankCode || account?.bankName || "Bank";
-    const accountNumber = user.bankAccount || account?.accountNumber || "";
+    const account = await autoramp.getSubAccountByReference(user.bankAccount?.autorampSubId || "");
+    const bank = user.bankAccount?.bankName || user.bankAccount?.bankCode || account?.bankName || "Bank";
+    const accountNumber = user.bankAccount?.accountNumber || account?.accountNumber || "";
     const balance = account?.accountBalance ?? account?.balance;
 
     if (balance === undefined || balance === null) {
@@ -564,7 +564,7 @@ async function handleCheckBalance(phone: string, user: any) {
 }
 
 async function handleTransactions(phone: string, user: any) {
-  if (!user.bankAccount) {
+  if (!user.bankAccount?.accountNumber) {
     return sendNoAccountPrompt(phone, user);
   }
 
@@ -654,7 +654,7 @@ async function startKyc(phone: string, user: any) {
  * starts serving them the real menu.
  */
 async function sendMenuForUser(phone: string, user: any) {
-  if (!user.bankAccount) {
+  if (!user.bankAccount?.accountNumber) {
     return sendNoAccountPrompt(phone, user);
   }
   return sendMainMenu(phone);

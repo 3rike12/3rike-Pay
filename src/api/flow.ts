@@ -4,10 +4,19 @@ import fs from "fs";
 import path from "path";
 import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
-import { prisma, updateSession, resetSession } from "@/services/database";
+import {
+  prisma,
+  updateSession,
+  resetSession,
+  createUserProfile,
+  createBankAccount,
+  createUserCredential,
+  getUserWithDetails,
+} from "@/services/database";
 import { generateReference, toWhatsAppPhone, redactPhone } from "@/utils/helpers";
 import { handleDryRunFlow } from "@/services/dryRunFlow";
 import { sendAccountCreatedMessage } from "@/services/accountNotification";
+import { hashPin } from "@/utils/pin";
 import { MESSAGES } from "@/config/constants";
 
 const logger = createLogger("flow");
@@ -30,12 +39,6 @@ function getPrivateKey(): crypto.KeyObject {
 
 const GCM_TAG_LENGTH = 16;
 
-/**
- * Flows use hybrid encryption: an AES key sealed with our RSA public key, and
- * the payload itself under AES-GCM. The response must reuse the same AES key
- * with a bitwise-inverted IV - that inversion is not optional, WhatsApp will
- * reject anything else.
- */
 function decryptRequest(body: any) {
   const { encrypted_flow_data, encrypted_aes_key, initial_vector } = body;
 
@@ -66,9 +69,21 @@ function encryptResponse(response: any, aesKey: Buffer, iv: Buffer): string {
   ]).toString("base64");
 }
 
-/** Screen payloads. `error_message` renders inline so the user can correct and retry. */
 function screen(name: string, data: Record<string, unknown> = {}) {
   return { screen: name, data };
+}
+
+async function getLatestFlowData(userId: string) {
+  const session = await prisma.userSession.findFirst({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+  });
+  return (session?.flowData as any) || {};
+}
+
+async function saveFlowData(userId: string, data: Record<string, unknown>) {
+  const existing = await getLatestFlowData(userId);
+  await updateSession(userId, "kyc_flow", { ...existing, ...data });
 }
 
 async function handleIdentity(userId: string, data: any) {
@@ -98,23 +113,13 @@ async function handleIdentity(userId: string, data: any) {
 
     if (result.status === "FAILED") {
       logger.error("Identity verification failed", { userId, idType, result: JSON.stringify(result) });
-      return screen("IDENTITY", {
-        error_message: "We couldn't verify that ID. Please check the number and try again.",
-      });
+      return screen("IDENTITY", { error_message: "We couldn't verify that ID. Please check the number and try again." });
     }
 
-    // Held server-side for the OTP step. The number never travels back to the
-    // client and never appears in the chat transcript.
-    await updateSession(userId, "kyc_flow", {
-      identityId: result.identityId,
-      idType,
-      idNumber,
-    });
+    await saveFlowData(userId, { identityId: result.identityId, idType, idNumber });
     logger.info("Session updated for OTP", { userId });
 
-    return screen("OTP", {
-      message: `We sent a code to the phone number registered to your ${idType}. Enter it below to finish.`,
-    });
+    return screen("EMAIL");
   } catch (error: any) {
     logger.error("Flow IDENTITY failed", { userId, idType, error: error.message });
 
@@ -137,21 +142,44 @@ async function handleIdentity(userId: string, data: any) {
   }
 }
 
+async function handleEmail(userId: string, data: any) {
+  const email = String(data.email || "").trim();
+  logger.info("Flow EMAIL received", { userId, hasEmail: !!email });
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return screen("EMAIL", { error_message: "Enter a valid email address." });
+  }
+
+  await saveFlowData(userId, { email });
+  return screen("NAME");
+}
+
+async function handleName(userId: string, data: any) {
+  const firstName = String(data.first_name || "").trim();
+  const lastName = String(data.last_name || "").trim();
+  logger.info("Flow NAME received", { userId, hasFirstName: !!firstName, hasLastName: !!lastName });
+
+  if (!firstName || !lastName) {
+    return screen("NAME", { error_message: "Enter both first and last name." });
+  }
+
+  await saveFlowData(userId, { firstName, lastName });
+  return screen("OTP", { message: "We sent a code to the phone number registered to your ID. Enter it below to finish." });
+}
+
 async function handleOtp(userId: string, data: any) {
   const otp = String(data.otp || "").replace(/[^0-9]/g, "");
   logger.info("Flow OTP received", { userId, otpLength: otp.length });
+
   if (otp.length < 4 || otp.length > 8) {
     return screen("OTP", { message: "Enter the code we sent you.", error_message: "That code looks too short." });
   }
 
-  const session = await prisma.userSession.findFirst({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
-  const flowData = (session?.flowData as any) || {};
+  const flowData = await getLatestFlowData(userId);
   const user = await prisma.user.findUnique({ where: { id: userId } });
+
   if (!user || !flowData.identityId) {
-    logger.warn("Flow OTP missing session", { userId, hasUser: !!user });
+    logger.warn("Flow OTP missing session", { userId, hasUser: !!user, hasIdentityId: !!flowData.identityId });
     return screen("IDENTITY", { error_message: "Session expired. Re-enter your ID to continue." });
   }
 
@@ -160,44 +188,59 @@ async function handleOtp(userId: string, data: any) {
   try {
     logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
     const phoneNumber = `+${toWhatsAppPhone(user.phone)}`;
-    logger.info("Sub-account phone formatted", { phone: redactPhone(phoneNumber) });
+    const externalReference = generateReference("kyc");
+
     const subAccount = await autoramp.createSubAccount({
       phoneNumber,
-      emailAddress: user.email || `${user.phone}@3rike.xyz`,
-      externalReference: generateReference("kyc"),
+      emailAddress: flowData.email || `${user.phone}@3rike.xyz`,
+      externalReference,
       identityType: flowData.idType,
       identityNumber: flowData.idNumber,
       identityId: flowData.identityId,
       otp,
       autoSweep: false,
     });
+
     const safeSubAccount = { ...subAccount };
     if (safeSubAccount.accountNumber) safeSubAccount.accountNumber = "[redacted]";
     if (safeSubAccount.accountName) safeSubAccount.accountName = "[redacted]";
     logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(safeSubAccount) });
 
-    logger.info("Updating user record", { userId });
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        ...(flowData.idType === "BVN" ? { bvn: flowData.idNumber } : { nin: flowData.idNumber }),
-        kycStatus: "verified",
+    const bankName = subAccount?.bankName || subAccount?.provider || "Safe Haven MFB";
+    const accountNumber = subAccount?.accountNumber || subAccount?.bankAccount || "being created";
+    const accountName = subAccount?.accountName || `${flowData.firstName || ""} ${flowData.lastName || ""}`.trim() || "Account Holder";
+
+    await Promise.all([
+      createUserProfile(userId, {
+        firstName: flowData.firstName,
+        lastName: flowData.lastName,
+        email: flowData.email,
+      }),
+      createBankAccount(userId, {
         autorampSubId: subAccount?.id || subAccount?.accountId,
-        bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
+        reference: externalReference,
+        accountNumber,
+        accountName,
         bankCode: subAccount?.bankCode,
-        bankName: subAccount?.bankName || subAccount?.provider,
-      },
+        bankName,
+      }),
+      createUserCredential(userId, {
+        bvn: flowData.idType === "BVN" ? flowData.idNumber : undefined,
+        nin: flowData.idType === "NIN" ? flowData.idNumber : undefined,
+        identityId: flowData.identityId,
+      }),
+    ]);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { name: accountName },
     });
 
-    await resetSession(userId);
-    logger.info("User verified and session reset", { userId });
+    logger.info("User verified", { userId });
 
-    const bank = updated.bankName || "Safe Haven MFB";
-    const accountNumber = updated.bankAccount || "being created";
-    const accountName = subAccount?.accountName || updated.name || "Account Holder";
-    void sendAccountCreatedMessage(userId, bank, accountNumber, accountName, false).catch(() => {});
+    void sendAccountCreatedMessage(userId, bankName, accountNumber, accountName, false).catch(() => {});
 
-    return screen("END");
+    return screen("PIN");
   } catch (error: any) {
     logger.error("Flow OTP/verification failed", { userId, error: error.message });
 
@@ -214,19 +257,33 @@ async function handleOtp(userId: string, data: any) {
     }
 
     if (attempts < 3) {
-      await updateSession(userId, "kyc_flow", { ...flowData, otpAttempts: attempts });
-      return screen("OTP", {
-        message: MESSAGES.KYC_OTP.PROMPT,
-        error_message: errorMessage,
-      });
+      await saveFlowData(userId, { ...flowData, otpAttempts: attempts });
+      return screen("OTP", { message: MESSAGES.KYC_OTP.PROMPT, error_message: errorMessage });
     }
 
     await resetSession(userId);
-    return screen("OTP", {
-      message: MESSAGES.KYC_OTP.PROMPT,
-      error_message: "Too many failed attempts. Type kyc to restart.",
-    });
+    return screen("OTP", { message: MESSAGES.KYC_OTP.PROMPT, error_message: "Too many failed attempts. Type kyc to restart." });
   }
+}
+
+async function handlePin(userId: string, data: any) {
+  const pin = String(data.pin || "").replace(/[^0-9]/g, "");
+  const confirmPin = String(data.confirm_pin || "").replace(/[^0-9]/g, "");
+  logger.info("Flow PIN received", { userId, pinLength: pin.length });
+
+  if (pin.length !== 4) {
+    return screen("PIN", { error_message: "PIN must be exactly 4 digits." });
+  }
+  if (pin !== confirmPin) {
+    return screen("PIN", { error_message: "PINs do not match. Try again." });
+  }
+
+  await createUserCredential(userId, { pin: hashPin(pin) });
+  await prisma.user.update({ where: { id: userId }, data: { kycStatus: "verified" } });
+  await resetSession(userId);
+  logger.info("PIN created and session reset", { userId });
+
+  return screen("END");
 }
 
 router.post("/", async (req: Request, res: Response) => {
@@ -240,8 +297,6 @@ router.post("/", async (req: Request, res: Response) => {
     aesKey = decoded.aesKey;
     iv = decoded.iv;
   } catch (error: any) {
-    // 421 tells WhatsApp our key is stale so it re-fetches instead of retrying
-    // the same undecryptable payload forever.
     logger.error("Flow request decryption failed", { error: error.message });
     return res.status(421).send();
   }
@@ -250,7 +305,6 @@ router.post("/", async (req: Request, res: Response) => {
   logger.info("Flow request decoded", { action, screen: currentScreen, flow_token: flow_token ? "set" : "missing" });
 
   try {
-    // Health check - must answer or WhatsApp marks the endpoint unhealthy.
     if (action === "ping") {
       return res.send(encryptResponse({ data: { status: "active" } }, aesKey, iv));
     }
@@ -268,8 +322,9 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (action === "INIT") {
-      const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+      const user = await getUserWithDetails(userId);
       if (user?.kycStatus === "verified") {
+        await resetSession(userId).catch(() => {});
         return res.send(encryptResponse(screen("COMPLETED"), aesKey, iv));
       }
       return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
@@ -279,22 +334,21 @@ router.post("/", async (req: Request, res: Response) => {
       const safePayload = { ...data };
       if (safePayload.id_number) safePayload.id_number = "[redacted]";
       if (safePayload.otp) safePayload.otp = "[redacted]";
+      if (safePayload.pin) safePayload.pin = "[redacted]";
+      if (safePayload.confirm_pin) safePayload.confirm_pin = "[redacted]";
       logger.debug("Flow data_exchange start", { userId, currentScreen, payloadData: safePayload });
 
       const dryRunScreen = await handleDryRunFlow(action, currentScreen, data || {}, userId);
 
-      const next =
-        dryRunScreen ||
-        (currentScreen === "IDENTITY"
-          ? await handleIdentity(userId, data || {})
-          : currentScreen === "OTP"
-            ? await handleOtp(userId, data || {})
-            : screen("IDENTITY"));
+      const handlers: Record<string, (uid: string, d: any) => Promise<{ screen: string; data: Record<string, unknown> }>> = {
+        IDENTITY: handleIdentity,
+        EMAIL: handleEmail,
+        NAME: handleName,
+        OTP: handleOtp,
+        PIN: handlePin,
+      };
 
-      // Clear the Flow session once verification is complete.
-      if (currentScreen === "OTP" && next.screen === "END") {
-        await resetSession(userId).catch(() => { });
-      }
+      const next = dryRunScreen || (await (handlers[currentScreen] || (() => screen("IDENTITY")))(userId, data || {}));
 
       logger.info("Flow data_exchange response", {
         userId,
@@ -308,13 +362,11 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (action === "complete") {
       logger.info("Flow complete", { userId, currentScreen });
-      return res.send(encryptResponse(screen(currentScreen || "SUCCESS"), aesKey, iv));
+      return res.send(encryptResponse(screen(currentScreen || "END"), aesKey, iv));
     }
 
     return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
   } catch (error: any) {
-    // Surface the real reason on the current screen instead of dead-ending -
-    // "BVN not found" is actionable, a blank screen is not.
     logger.error("Flow handler error", { action, screen: currentScreen, error: error.message });
     const failing = currentScreen === "OTP" ? "OTP" : "IDENTITY";
     return res.send(

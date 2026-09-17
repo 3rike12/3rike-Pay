@@ -52,9 +52,24 @@ export async function handleDryRunFlow(
     });
   }
 
+  if (currentScreen === "EMAIL") {
+    logger.info("Flow EMAIL dry-run: skipping");
+    return screen("NAME");
+  }
+
+  if (currentScreen === "NAME") {
+    logger.info("Flow NAME dry-run: skipping");
+    return screen("OTP", { message: "Dry-run mode: we will not send a real code. Enter any 6 digits to continue." });
+  }
+
   if (currentScreen === "OTP") {
     logger.info("Flow OTP dry-run: returning test account details");
     void sendAccountCreatedMessage(userId, "Safe Haven MFB", "1234567890", "Test User", true).catch(() => {});
+    return screen("PIN");
+  }
+
+  if (currentScreen === "PIN") {
+    logger.info("Flow PIN dry-run: skipping");
     return screen("END");
   }
 

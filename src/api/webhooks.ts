@@ -205,20 +205,24 @@ router.post("/autoramp", async (req: Request, res: Response) => {
 async function handleAccountCreated(data: any) {
   logger.info("Account created webhook", { data });
 
-  // Find user by reference and update
+  // Find user by BankAccount reference and update
   if (data.reference) {
-    const user = await prisma.user.findFirst({
-      where: { autorampSubId: data.reference },
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { reference: data.reference },
     });
-    if (user) {
-      await prisma.user.update({
-        where: { id: user.id },
+    if (bankAccount) {
+      await prisma.bankAccount.update({
+        where: { id: bankAccount.id },
         data: {
-          bankAccount: data.accountNumber,
+          accountNumber: data.accountNumber,
+          accountName: data.accountName,
           bankCode: data.bankCode,
           bankName: data.bankName,
-          kycStatus: "verified",
         },
+      });
+      await prisma.user.update({
+        where: { id: bankAccount.userId },
+        data: { kycStatus: "verified" },
       });
     }
   }

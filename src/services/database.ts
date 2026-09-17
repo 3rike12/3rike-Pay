@@ -10,16 +10,21 @@ export { prisma };
 // ------- User helpers -------
 
 export async function findOrCreateUser(phone: string, name?: string) {
-  let user = await prisma.user.findUnique({ where: { phone } });
+  let user = await prisma.user.findUnique({
+    where: { phone },
+    include: { bankAccount: true },
+  });
   if (!user) {
     user = await prisma.user.create({
       data: { phone, name: name || null },
+      include: { bankAccount: true },
     });
     logger.info("New user created", { phone: redactPhone(phone), userId: user.id });
   } else if (name && user.name !== name) {
     user = await prisma.user.update({
       where: { id: user.id },
       data: { name },
+      include: { bankAccount: true },
     });
   }
   return user;
@@ -122,5 +127,64 @@ export async function logWebhookEvent(
   }
   return prisma.webhookEvent.create({
     data: { source, eventType, payload: payload as Prisma.InputJsonValue, reference },
+  });
+}
+
+// ------- User Profile -------
+
+export async function createUserProfile(userId: string, data: { firstName?: string; lastName?: string; email?: string }) {
+  return prisma.userProfile.upsert({
+    where: { userId },
+    update: data,
+    create: { userId, ...data },
+  });
+}
+
+// ------- Bank Account -------
+
+export async function createBankAccount(userId: string, data: {
+  autorampSubId?: string;
+  reference?: string;
+  accountNumber?: string;
+  accountName?: string;
+  bankCode?: string;
+  bankName?: string;
+}) {
+  return prisma.bankAccount.upsert({
+    where: { userId },
+    update: data,
+    create: { userId, ...data },
+  });
+}
+
+// ------- User Credentials -------
+
+export async function createUserCredential(userId: string, data: {
+  bvn?: string;
+  nin?: string;
+  identityId?: string;
+  pin?: string;
+}) {
+  return prisma.userCredential.upsert({
+    where: { userId },
+    update: data,
+    create: { userId, ...data },
+  });
+}
+
+export async function updateUserPin(userId: string, pin: string) {
+  return prisma.userCredential.upsert({
+    where: { userId },
+    update: { pin },
+    create: { userId, pin },
+  });
+}
+
+// ------- User with details -------
+
+export async function getUserWithDetails(userId: string) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    include: { profile: true, bankAccount: true, credentials: true },
   });
 }
