@@ -2,7 +2,7 @@
   "version": "7.0",
   "data_api_version": "3.0",
   "routing_model": {
-    "IDENTITY": ["EMAIL"],
+    "IDENTITY": ["EMAIL", "COMPLETED"],
     "EMAIL": ["NAME"],
     "NAME": ["OTP"],
     "OTP": ["PIN"],
