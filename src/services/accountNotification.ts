@@ -21,7 +21,10 @@ export async function sendAccountCreatedMessage(
     if (!user) return;
 
     const message = MESSAGES.FLOW.ACCOUNT_CREATED(bank, accountNumber, dryRun);
-    await whatsapp.sendTextMessage(user.phone, message);
+    await whatsapp.sendButtonsMessage(user.phone, message, [
+      { id: "btn_menu", title: "Main Menu" },
+      { id: "btn_balance", title: "Check Balance" },
+    ]);
   } catch (error: any) {
     logger.error("Failed to send account created message", { userId, error: error.message });
   }
