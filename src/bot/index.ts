@@ -714,7 +714,7 @@ async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: 
     // Step 2: Create sub-account on AutoRamp
     const subAccount = await autoramp.createSubAccount({
       phoneNumber: phone,
-      emailAddress: user.email || `${phone}@3rikepay.com`,
+      emailAddress: user.email || `${phone}@3rike.xyz`,
       externalReference: generateReference("kyc"),
       identityType: (flowData.idType as string) || "BVN",
       identityNumber: flowData.idNumber as string,

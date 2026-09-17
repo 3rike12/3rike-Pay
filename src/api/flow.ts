@@ -168,7 +168,7 @@ async function handleOtp(userId: string, data: any) {
     logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
     const subAccount = await autoramp.createSubAccount({
       phoneNumber: user.phone,
-      emailAddress: user.email || `${user.phone}@3rikepay.com`,
+      emailAddress: user.email || `${user.phone}@3rike.xyz`,
       externalReference: generateReference("kyc"),
       identityType: flowData.idType,
       identityNumber: flowData.idNumber,
@@ -204,7 +204,7 @@ async function handleOtp(userId: string, data: any) {
       try {
         const subAccount = await autoramp.createSubAccount({
           phoneNumber: user.phone,
-          emailAddress: user.email || `${user.phone}@3rikepay.com`,
+          emailAddress: user.email || `${user.phone}@3rike.xyz`,
           externalReference: generateReference("kyc"),
           identityType: flowData.idType,
           identityNumber: flowData.idNumber,
