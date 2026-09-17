@@ -5,7 +5,7 @@ import path from "path";
 import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
 import { prisma, updateSession, resetSession } from "@/services/database";
-import { generateReference, toWhatsAppPhone } from "@/utils/helpers";
+import { generateReference, toWhatsAppPhone, redactPhone } from "@/utils/helpers";
 import { MESSAGES } from "@/config/constants";
 
 const logger = createLogger("flow");
@@ -155,8 +155,10 @@ async function handleOtp(userId: string, data: any) {
 
   try {
     logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
+    const phoneNumber = `+${toWhatsAppPhone(user.phone)}`;
+    logger.info("Sub-account phone formatted", { phone: redactPhone(phoneNumber) });
     const subAccount = await autoramp.createSubAccount({
-      phoneNumber: `+${toWhatsAppPhone(user.phone)}`,
+      phoneNumber,
       emailAddress: user.email || `${user.phone}@3rike.xyz`,
       externalReference: generateReference("kyc"),
       identityType: flowData.idType,
