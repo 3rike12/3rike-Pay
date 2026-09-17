@@ -3,7 +3,8 @@
   "data_api_version": "3.0",
   "routing_model": {
     "IDENTITY": ["OTP"],
-    "OTP": []
+    "OTP": ["END"],
+    "END": []
   },
   "screens": [
     {
@@ -89,6 +90,19 @@
               }
             ]
           }
+        ]
+      }
+    },
+    {
+      "id": "END",
+      "title": "Done",
+      "terminal": true,
+      "success": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Done" },
+          { "type": "TextBody", "text": "Your account details have been sent to you on WhatsApp." }
         ]
       }
     }

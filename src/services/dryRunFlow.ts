@@ -48,9 +48,7 @@ export function handleDryRunFlow(
   if (currentScreen === "OTP") {
     logger.info("Flow OTP dry-run: returning test account details");
     void sendAccountCreatedMessage(userId, "Safe Haven MFB", "1234567890", true).catch(() => {});
-    return screen("OTP", {
-      message: "Verified. Your account details have been sent to you on WhatsApp. You can close this form.",
-    });
+    return screen("END");
   }
 
   return null;

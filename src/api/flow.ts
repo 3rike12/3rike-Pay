@@ -193,9 +193,7 @@ async function handleOtp(userId: string, data: any) {
     const accountNumber = updated.bankAccount || "being created";
     void sendAccountCreatedMessage(userId, bank, accountNumber, false).catch(() => {});
 
-    return screen("OTP", {
-      message: "Verified. Your account details have been sent to you on WhatsApp. You can close this form.",
-    });
+    return screen("END");
   } catch (error: any) {
     logger.error("Flow OTP/verification failed", { userId, error: error.message });
 
