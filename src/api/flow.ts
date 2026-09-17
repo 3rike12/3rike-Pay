@@ -89,6 +89,11 @@ async function handleIdentity(userId: string, data: any) {
     });
     logger.info("Identity verification initiated", { userId, idType });
 
+    if (!result.identityId) {
+      logger.error("Identity verification returned no identityId", { userId, idType });
+      return screen("IDENTITY", { error_message: "Could not start verification. Try again or use a different ID." });
+    }
+
     // Held server-side for the OTP step. The number never travels back to the
     // client and never appears in the chat transcript.
     await updateSession(userId, "kyc_flow", {
@@ -133,7 +138,7 @@ async function handleOtp(userId: string, data: any) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || !flowData.identityId) {
     logger.warn("Flow OTP missing session", { userId, hasUser: !!user });
-    return screen("OTP", { message: "Something went wrong.", error_message: "Session expired - close this and type kyc to restart." });
+    return screen("IDENTITY", { error_message: "Session expired. Re-enter your ID to continue." });
   }
 
   const attempts = (flowData.otpAttempts || 0) + 1;
