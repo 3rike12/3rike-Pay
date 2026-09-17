@@ -160,10 +160,15 @@ async function handleOtp(userId: string, data: any) {
       type: flowData.idType,
       otp,
     });
-    logger.info("Identity OTP validated", { userId });
+    logger.info("Identity OTP validated", { userId, validationResult: JSON.stringify(validationResult).slice(0, 200) });
 
     // Use the verified identityId if the API returned one.
-    const verifiedIdentityId = validationResult?.identityId || flowData.identityId;
+    // AutoRamp may return it as identityId, _id, or id.
+    const verifiedIdentityId =
+      validationResult?.identityId ||
+      validationResult?._id ||
+      validationResult?.id ||
+      flowData.identityId;
 
     logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
     const subAccount = await autoramp.createSubAccount({
