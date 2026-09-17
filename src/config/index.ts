@@ -38,5 +38,14 @@ export const config = {
     merchantName: process.env.MERCHANT_NAME || "",
   },
 
+  features: {
+    /**
+     * Dry-run KYC mode.
+     * When true, the WhatsApp KYC Flow skips AutoRamp and database writes,
+     * accepts any OTP, and returns a fake test account number.
+     */
+    kycDryRun: process.env.KYC_DRY_RUN === "true",
+  },
+
   logLevel: process.env.LOG_LEVEL || "debug",
 } as const;

@@ -9,7 +9,6 @@ import { createLogger } from "@/utils/logger";
 const logger = createLogger("server");
 import webhooksRouter from "@/api/webhooks";
 import notifyRouter from "@/api/notify";
-import kycRouter from "@/api/kyc";
 import flowRouter from "@/api/flow";
 import { generalLimiter } from "@/api/middleware/rateLimit";
 
@@ -58,7 +57,6 @@ app.get("/health", (_req, res) => {
 app.use("/webhook", webhooksRouter);
 app.use("/webhook/notify", notifyRouter);
 app.use("/webhook/flow", flowRouter);
-app.use("/api/kyc", kycRouter);
 
 // ============================================
 // Serve React frontend (built output)

@@ -203,49 +203,42 @@ export async function handleMessage(
   // so a number never gets both.
   const isNewUser = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
   if (isNewUser) {
-    const alreadyWelcomed = await prisma.webhookEvent
+    await resetSession(user.id).catch(() => {});
+    const displayName = displayNameOf(user, name || "there");
+
+    // Marketing-category template: never fire it at someone who tapped STOP.
+    const optedOut = await prisma.webhookEvent
       .findFirst({
-        where: { source: "notification", eventType: "welcome_create_wallet", reference: phone },
+        where: { source: "notification", eventType: "marketing_opt_out", reference: phone },
       })
       .catch(() => null);
-    if (!alreadyWelcomed) {
-      await resetSession(user.id).catch(() => {});
-      const displayName = displayNameOf(user, name || "there");
-
-      // Marketing-category template: never fire it at someone who tapped STOP.
-      const optedOut = await prisma.webhookEvent
-        .findFirst({
-          where: { source: "notification", eventType: "marketing_opt_out", reference: phone },
-        })
-        .catch(() => null);
-      if (optedOut) {
-        return whatsapp.sendTextMessage(
-          phone,
-          "You've been opted out of 3rike Pay promotions. You won't receive marketing messages again. If you still need help, reply Hi."
-        );
-      }
-
-      const sent = await whatsapp.sendTemplate(
+    if (optedOut) {
+      return whatsapp.sendTextMessage(
         phone,
-        TEMPLATES.WELCOME_CREATE_WALLET.NAME,
-        [displayName],
-        TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE,
-        undefined,
-        user.id
+        "You've been opted out of 3rike Pay promotions. You won't receive marketing messages again. If you still need help, reply Hi."
       );
-
-      await logWebhookEvent(
-        "notification",
-        "welcome_create_wallet",
-        { phone, name: displayName, sent, template: TEMPLATES.WELCOME_CREATE_WALLET.NAME },
-        phone
-      ).catch(() => {});
-
-  if (!sent) {
-    logger.warn("Onboarding template failed, no fallback sent", { phone: redactPhone(phone) });
-  }
-      return true;
     }
+
+    const sent = await whatsapp.sendTemplate(
+      phone,
+      TEMPLATES.WELCOME_CREATE_WALLET.NAME,
+      [displayName],
+      TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE,
+      undefined,
+      user.id
+    );
+
+    await logWebhookEvent(
+      "notification",
+      "welcome_create_wallet",
+      { phone, name: displayName, sent, template: TEMPLATES.WELCOME_CREATE_WALLET.NAME },
+      phone
+    ).catch(() => {});
+
+    if (!sent) {
+      logger.warn("Onboarding template failed, no fallback sent", { phone: redactPhone(phone) });
+    }
+    return true;
   }
 
   // ---- Global triggers ----
@@ -287,12 +280,6 @@ export async function handleMessage(
         return await handleBuyAirtimeAmount(phone, user, flowData, messageText);
       case "buy_airtime_confirm":
         return await handleBuyAirtimeConfirm(phone, user);
-      case "kyc_choose_id":
-        return await handleKycChooseId(phone, user, action, messageText);
-      case "kyc_verify":
-        return await handleKycVerify(phone, user, flowData, messageText);
-      case "kyc_otp":
-        return await handleKycOtp(phone, user, flowData, messageText);
       case "kyc_flow":
         // Form is open on the user's phone; the Flow endpoint owns the steps.
         // Nudge back to the form - never reset, never re-send the menu.
@@ -395,7 +382,7 @@ async function handleSendMoney(phone: string, user: any, flowData: FlowData, tex
   if (!flowData.amount) {
     const amount = extractAmount(text);
     if (!amount || amount < LIMITS.MIN_TRANSFER) {
-      return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.INVALID_AMOUNT);
+      return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.INVALID_AMOUNT(formatAmount(LIMITS.MIN_TRANSFER)));
     }
     if (amount > LIMITS.MAX_TRANSFER) {
       return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.AMOUNT_TOO_LARGE(formatAmount(LIMITS.MAX_TRANSFER)));
@@ -629,144 +616,30 @@ async function startKyc(phone: string, user: any) {
     return whatsapp.sendTextMessage(phone, MESSAGES.KYC_COMPLETE.TEXT);
   }
 
-  if (FLOWS.KYC_ONBOARDING) {
-    const sent = await whatsapp.sendFlowMessage(
-      phone,
-      MESSAGES.KYC_PROMPT.TEXT,
-      FLOWS.KYC_ONBOARDING,
-      MESSAGES.KYC_PROMPT.FLOW_BUTTON,
-      user.id,
-      "IDENTITY"
-    );
-    if (sent) {
-      // WhatsApp has no API to force-open a Flow - the CTA button on this
-      // one message IS what opens the form. Park the session in kyc_flow so
-      // any chat text typed while the form is open gets a gentle nudge back
-      // to the form instead of a fresh main menu (which reads as the bot
-      // "sending another message"). Return immediately: no second send.
-      await updateSession(user.id, "kyc_flow", {}).catch(() => {});
-      return true;
-    }
-    // Most common cause: the Flow is still in DRAFT, which Meta only delivers
-    // to users with a role on the app - every real user falls through to here
-    // and gets chat verification instead. Publish the Flow in WhatsApp Manager
-    // and unset WHATSAPP_FLOW_DRAFT_MODE to fix it for everyone.
-    logger.warn("KYC flow send failed, falling back to chat entry", {
-      phone,
-      draftMode: process.env.WHATSAPP_FLOW_DRAFT_MODE === "true",
-    });
+  const sent = await whatsapp.sendFlowMessage(
+    phone,
+    MESSAGES.KYC_PROMPT.TEXT,
+    FLOWS.KYC_ONBOARDING,
+    MESSAGES.KYC_PROMPT.FLOW_BUTTON,
+    user.id,
+    "IDENTITY"
+  );
+
+  if (sent) {
+    // WhatsApp has no API to force-open a Flow - the CTA button on this
+    // one message IS what opens the form. Park the session in kyc_flow so
+    // any chat text typed while the form is open gets a gentle nudge back
+    // to the form instead of a fresh main menu (which reads as the bot
+    // "sending another message"). Return immediately: no second send.
+    await updateSession(user.id, "kyc_flow", {}).catch(() => {});
+    return true;
   }
 
-  await updateSession(user.id, "kyc_choose_id", {});
-  return whatsapp.sendButtonsMessage(phone, MESSAGES.KYC_CHOOSE_ID.TEXT, [
-    ...MESSAGES.KYC_CHOOSE_ID.BUTTONS,
-  ]);
-}
-
-async function handleKycChooseId(phone: string, user: any, action?: string, text?: string) {
-  const choice = (action || text || "").toUpperCase();
-  const idType = choice.includes("NIN") ? "NIN" : choice.includes("BVN") ? "BVN" : null;
-
-  if (!idType) {
-    return whatsapp.sendButtonsMessage(phone, MESSAGES.KYC_CHOOSE_ID.TEXT, [
-      ...MESSAGES.KYC_CHOOSE_ID.BUTTONS,
-    ]);
-  }
-
-  await updateSession(user.id, "kyc_verify", { idType });
-  return whatsapp.sendTextMessage(phone, MESSAGES.KYC_CHOOSE_ID.PROMPT_NUMBER(idType));
-}
-
-async function handleKycVerify(phone: string, user: any, flowData: FlowData, text: string) {
-  const idType = (flowData.idType as "NIN" | "BVN") || "BVN";
-  const idNumber = text.replace(/[^0-9]/g, "");
-  if (idNumber.length !== 11) {
-    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_CHOOSE_ID.INVALID_NUMBER(idType));
-  }
-  try {
-    const result = await autoramp.initiateIdentityVerification({ type: idType, number: idNumber });
-    await updateSession(user.id, "kyc_otp", { identityId: result.identityId, idType, idNumber });
-
-    // Deliberately no web link here. Verification finishes in the chat: the
-    // whole point of a WhatsApp bot is that the user never leaves WhatsApp,
-    // and the kyc_verify_link template's URL is fixed to a host we don't
-    // control, so its button can't be pointed at this server anyway.
-    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_OTP.PROMPT);
-  } catch (error: any) {
-    await resetSession(user.id);
-    return whatsapp.sendTextMessage(phone, MESSAGES.ERROR.KYC_FAILED + `\n${error.message}`);
-  }
-}
-
-async function handleKycOtp(phone: string, user: any, flowData: FlowData, text: string) {
-  const otp = text.replace(/[^0-9]/g, "");
-  if (otp.length < 4 || otp.length > 6) {
-    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_OTP.INVALID);
-  }
-  try {
-    // Step 1: Verify OTP
-    await autoramp.validateIdentityVerification({
-      identityId: flowData.identityId as string,
-      type: ((flowData.idType as string) || "BVN") as "BVN" | "NIN",
-      otp,
-    });
-
-    // Step 2: Create sub-account on AutoRamp
-    const subAccount = await autoramp.createSubAccount({
-      phoneNumber: phone,
-      emailAddress: user.email || `${phone}@3rike.xyz`,
-      externalReference: generateReference("kyc"),
-      identityType: (flowData.idType as string) || "BVN",
-      identityNumber: flowData.idNumber as string,
-    });
-
-    // Step 3: Update user in DB
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        ...(flowData.idType === "NIN"
-          ? { nin: flowData.idNumber as string }
-          : { bvn: flowData.idNumber as string }),
-        kycStatus: "verified",
-        autorampSubId: subAccount?.id || subAccount?.accountId,
-        bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
-        bankCode: subAccount?.bankCode,
-        bankName: subAccount?.bankName || subAccount?.provider,
-      },
-    });
-
-    // Step 4: Send bank details to user
-    const bankName = updatedUser.bankName || "Safe Haven MFB";
-    const accountNumber = updatedUser.bankAccount || "Pending";
-    const userName = user.name || "there";
-
-    await whatsapp.sendTemplateOrText(
-      phone,
-      TEMPLATES.ACCOUNT_CREATED.NAME,
-      [userName, bankName, accountNumber, userName],
-      TEMPLATES.ACCOUNT_CREATED.LANGUAGE,
-      MESSAGES.FALLBACK.ACCOUNT_CREATED(bankName, accountNumber)
-    );
-
-    await resetSession(user.id);
-  } catch (error: any) {
-    // A mistyped code shouldn't cost the user their whole session - re-entering
-    // a BVN to fix one wrong digit is the kind of friction that makes people
-    // give up. Keep them in the OTP state for a few tries.
-    const attempts = Number(flowData.otpAttempts || 0) + 1;
-    logger.warn("KYC OTP validation failed", { phone: redactPhone(phone), attempts, error: error.message });
-
-    if (attempts < KYC_OTP_MAX_ATTEMPTS) {
-      await updateSession(user.id, "kyc_otp", { ...flowData, otpAttempts: attempts });
-      return whatsapp.sendTextMessage(
-        phone,
-        MESSAGES.KYC_OTP.RETRY(KYC_OTP_MAX_ATTEMPTS - attempts)
-      );
-    }
-
-    await resetSession(user.id);
-    return whatsapp.sendTextMessage(phone, MESSAGES.KYC_OTP.FAILED(error.message));
-  }
+  logger.warn("KYC flow send failed", { phone: redactPhone(phone) });
+  return whatsapp.sendTextMessage(
+    phone,
+    "We couldn't open the verification form. Please try again or contact support."
+  );
 }
 
 // ============================================
@@ -790,16 +663,6 @@ async function sendMenuForUser(phone: string, user: any) {
 /** Personalized "you don't have an account yet" — sent as the onboarding template. */
 async function sendNoAccountPrompt(phone: string, user: any) {
   const displayName = displayNameOf(user);
-
-  const alreadySent = await prisma.webhookEvent
-    .findFirst({
-      where: { source: "notification", eventType: "welcome_create_wallet", reference: phone },
-    })
-    .catch(() => null);
-  if (alreadySent) {
-    logger.debug("Onboarding template already sent, skipping", { phone: redactPhone(phone) });
-    return true;
-  }
 
   const sent = await whatsapp.sendTemplate(
     phone,

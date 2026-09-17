@@ -95,12 +95,12 @@
     },
     {
       "id": "SUCCESS",
-      "title": "You're all set",
+      "title": "Success",
       "terminal": true,
       "success": true,
       "data": {
-        "heading": { "type": "string", "__example__": "" },
-        "details": { "type": "string", "__example__": "" }
+        "heading": { "type": "string", "__example__": "Success" },
+        "details": { "type": "string", "__example__": "Your account details have been sent to you on WhatsApp." }
       },
       "layout": {
         "type": "SingleColumnLayout",

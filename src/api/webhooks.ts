@@ -112,10 +112,15 @@ router.post("/whatsapp", async (req: Request, res: Response) => {
         // Handle status updates
         if (value.statuses) {
           for (const status of value.statuses) {
+            const error = status.errors?.[0];
             logger.info("WhatsApp status update", {
               messageId: status.id,
               status: status.status,
               recipientId: status.recipient_id,
+              errorCode: error?.code,
+              errorTitle: error?.title,
+              errorMessage: error?.message,
+              errorDetails: error?.error_data?.details,
             });
           }
         }

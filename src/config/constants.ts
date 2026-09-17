@@ -1,3 +1,5 @@
+import messagesJson from "./messages.json";
+
 // ============================================
 // Triggers & Keywords
 // ============================================
@@ -90,175 +92,104 @@ export const LIMITS = {
 } as const;
 
 // ============================================
-// Messages
+// Message rendering helpers
+// ============================================
+function render(template: string, vars: Record<string, string | number> = {}) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    return key in vars ? String(vars[key]) : `{{${key}}}`;
+  });
+}
+
+// ============================================
+// Messages (loaded from messages.json)
 // ============================================
 export const MESSAGES = {
-  KYC_PROMPT: {
-    TEXT: `To start using 3rike Pay, we need to verify your identity.\n\nThis takes less than 2 minutes. Tap the button below to begin.`,
-    FLOW_BUTTON: "Verify Identity", // opens WhatsApp Flow form
-  },
+  KYC_PROMPT: messagesJson.KYC_PROMPT,
+  KYC_COMPLETE: messagesJson.KYC_COMPLETE,
 
-  KYC_COMPLETE: {
-    TEXT: `Identity verified successfully!\n\nYou can now:\n- Send money to any bank\n- Check your balance\n\nTap *Start* to begin.`,
-  },
-
-  // Chat fallback only. The Flow form is the intended path - an ID number
-  // typed as a chat message lives in the transcript on both devices and in any
-  // backup, which is not somewhere a NIN or BVN should be.
   KYC_CHOOSE_ID: {
-    TEXT: `Which ID would you like to verify with?`,
-    BUTTONS: [
-      { id: "kyc_nin", title: "NIN" },
-      { id: "kyc_bvn", title: "BVN" },
-    ],
-    PROMPT_NUMBER: (idType: string) => `Enter your ${idType} (11 digits):`,
-    INVALID_NUMBER: (idType: string) =>
-      `A ${idType} is exactly 11 digits. Please check and enter it again:`,
+    ...messagesJson.KYC_CHOOSE_ID,
+    PROMPT_NUMBER: (idType: string) => render(messagesJson.KYC_CHOOSE_ID.PROMPT_NUMBER, { idType }),
+    INVALID_NUMBER: (idType: string) => render(messagesJson.KYC_CHOOSE_ID.INVALID_NUMBER, { idType }),
   },
 
   KYC_OTP: {
-    PROMPT: `We've sent a code to the phone number registered to your ID.\n\nEnter the code here to finish setting up your account.`,
-    INVALID: `That code doesn't look right. Enter the code sent to the phone number registered to your BVN.\n\nType *cancel* to stop.`,
+    ...messagesJson.KYC_OTP,
     RETRY: (left: number) =>
-      `That code wasn't accepted. Check it and try again - ${left} ${left === 1 ? "attempt" : "attempts"} left.\n\nType *cancel* to stop.`,
-    FAILED: (reason: string) =>
-      `We couldn't verify that code: ${reason}\n\nType *kyc* to start over, or *help* if you're stuck.`,
+      render(messagesJson.KYC_OTP.RETRY, {
+        left,
+        leftPlural: left === 1 ? "attempt" : "attempts",
+      }),
+    FAILED: (reason: string) => render(messagesJson.KYC_OTP.FAILED, { reason }),
   },
 
-  // Shown only if the user types in the chat while the KYC Flow form is
-  // open. The form itself lives in the Flow endpoint - this just points back
-  // so we never reset their session or blast the main menu mid-verification.
-  KYC_FLOW_WAITING: {
-    TEXT: `Your verification form is still open - please continue there to finish setting up your wallet.\n\nType *cancel* if you want to stop and start over.`,
-  },
+  KYC_FLOW_WAITING: messagesJson.KYC_FLOW_WAITING,
 
-  // Plain-text equivalents of the WhatsApp templates, used when a template
-  // send fails (unapproved, paused, or parameter mismatch) so the user is
-  // never left with no reply at all.
   FALLBACK: {
     ACCOUNT_CREATED: (bank: string, account: string) =>
-      `Identity verified successfully!\n\nYour account details:\nBank: ${bank}\nAccount Number: ${account}\n\nTap *Start* to begin.`,
+      render(messagesJson.FALLBACK.ACCOUNT_CREATED, { bank, account }),
     TRANSFER_COMPLETE: (amount: string, name: string, bank: string, account: string, ref: string) =>
-      `Transfer Completed\n\nAmount: ${amount}\nTo: ${name}\nBank: ${bank}\nAccount: ${account}\nReference: ${ref}`,
+      render(messagesJson.FALLBACK.TRANSFER_COMPLETE, { amount, name, bank, account, ref }),
   },
 
-  MAIN_MENU: {
-    TEXT: `What would you like to do?`,
-    LIST_BUTTON: "Choose Action",
-    SECTIONS: [
-      // Airtime and data are deliberately absent: AutoRamp VAS isn't wired up
-      // yet, so offering them would dead-end the user. Restore these rows once
-      // handleBuyAirtimeConfirm actually buys something.
-      {
-        title: "Payments",
-        rows: [
-          { id: "send_money", title: "Send Money", description: "Transfer to any bank account" },
-        ],
-      },
-      {
-        title: "Account",
-        rows: [
-          { id: "check_balance", title: "Check Balance", description: "View your balance" },
-          { id: "transactions", title: "Transactions", description: "View recent transactions" },
-        ],
-      },
-    ],
-  },
+  MAIN_MENU: messagesJson.MAIN_MENU,
 
   SEND_MONEY: {
-    PROMPT_AMOUNT: `Enter the amount to send (e.g. 5000):`,
-    // WhatsApp lists cap at 10 rows, and there are 360+ banks - so the user
-    // types a name or code and picks from the matches instead of scrolling.
-    PROMPT_BANK: `Type the recipient's bank name.\n\nExamples: *GTBank*, *Opay*, *Moniepoint*, *Kuda*`,
-    PROMPT_ACCOUNT: `Enter the recipient's account number (10 digits):`,
-    INVALID_AMOUNT: `That doesn't look like a valid amount. Enter a number of at least ₦${LIMITS.MIN_TRANSFER} (e.g. 5000).`,
-    AMOUNT_TOO_LARGE: (max: string) =>
-      `That amount is above the ${max} per-transfer limit. Enter a smaller amount.`,
-    NO_BANK_MATCH: (query: string) =>
-      `No bank matched "${query}".\n\nTry a shorter name - e.g. *zenith*, *kuda*, *opay*, *access*.`,
+    PROMPT_AMOUNT: messagesJson.SEND_MONEY.PROMPT_AMOUNT,
+    PROMPT_BANK: messagesJson.SEND_MONEY.PROMPT_BANK,
+    PROMPT_ACCOUNT: messagesJson.SEND_MONEY.PROMPT_ACCOUNT,
+    INVALID_AMOUNT: (min: number | string) =>
+      render(messagesJson.SEND_MONEY.INVALID_AMOUNT, { min }),
+    AMOUNT_TOO_LARGE: (max: string) => render(messagesJson.SEND_MONEY.AMOUNT_TOO_LARGE, { max }),
+    NO_BANK_MATCH: (query: string) => render(messagesJson.SEND_MONEY.NO_BANK_MATCH, { query }),
     BANK_MATCHES: (count: number) =>
-      `Found ${count} matching bank${count === 1 ? "" : "s"}. Pick the right one:`,
+      render(messagesJson.SEND_MONEY.BANK_MATCHES, {
+        count,
+        plural: count === 1 ? "" : "s",
+      }),
     TOO_MANY_MATCHES: (count: number) =>
-      `Found ${count} matching banks - showing the closest 10. If yours isn't here, type more of its name.`,
+      render(messagesJson.SEND_MONEY.TOO_MANY_MATCHES, { count }),
     CONFIRM: (amount: string, bank: string, account: string, name: string) =>
-      `Confirm transfer:\n\nAmount: ${amount}\nBank: ${bank}\nAccount: ${account}\nName: ${name}`,
+      render(messagesJson.SEND_MONEY.CONFIRM, { amount, bank, account, name }),
     SUCCESS: (amount: string, name: string, ref: string) =>
-      `Transfer of ${amount} to ${name} initiated!\n\nReference: ${ref}\nYou'll receive a confirmation shortly.`,
-    FAILED: (reason: string) =>
-      `Transfer failed: ${reason}\n\nPlease try again or contact support.`,
+      render(messagesJson.SEND_MONEY.SUCCESS, { amount, name, ref }),
+    FAILED: (reason: string) => render(messagesJson.SEND_MONEY.FAILED, { reason }),
   },
 
   BUY_AIRTIME: {
-    COMING_SOON: `Airtime and data top-ups aren't live yet - we're finishing the integration.\n\nFor now you can send money and check your balance. Type *start* for the menu.`,
-    PROMPT_NETWORK: `Select your network provider:`,
-    PROMPT_PHONE: `Enter the phone number to recharge:`,
-    PROMPT_AMOUNT: `Enter the airtime amount (e.g. 500):`,
+    COMING_SOON: messagesJson.BUY_AIRTIME.COMING_SOON,
+    PROMPT_NETWORK: messagesJson.BUY_AIRTIME.PROMPT_NETWORK,
+    PROMPT_PHONE: messagesJson.BUY_AIRTIME.PROMPT_PHONE,
+    PROMPT_AMOUNT: messagesJson.BUY_AIRTIME.PROMPT_AMOUNT,
     SUCCESS: (amount: string, phone: string) =>
-      `Airtime of ${amount} sent to ${phone}!\n\nYou'll receive a confirmation shortly.`,
+      render(messagesJson.BUY_AIRTIME.SUCCESS, { amount, phone }),
   },
+
   CHECK_BALANCE: {
     TEXT: (bank: string, account: string, balance: string) =>
-      `*Your Balance*\n\nBank: ${bank}\nAccount: ${account}\nBalance: ${balance}`,
+      render(messagesJson.CHECK_BALANCE.TEXT, { bank, account, balance }),
     NO_BALANCE: (bank: string, account: string) =>
-      `*Your Account*\n\nBank: ${bank}\nAccount: ${account}\n\nYour balance isn't available right now. Please try again in a moment.`,
-    ERROR: `Could not fetch balance. Please try again later.`,
+      render(messagesJson.CHECK_BALANCE.NO_BALANCE, { bank, account }),
+    ERROR: messagesJson.CHECK_BALANCE.ERROR,
   },
 
-  TRANSACTIONS: {
-    TEXT: `*Your Transactions*
+  TRANSACTIONS: messagesJson.TRANSACTIONS,
 
-{{list}}\n\nType *start* for menu.`,
-    EMPTY: `You haven't made any transactions yet.\n\nType *start* for menu.`,
-    ERROR: `Could not load transactions. Please try again later.`,
+  HELP: messagesJson.HELP,
+
+  CANCEL: messagesJson.CANCEL,
+
+  ERROR: messagesJson.ERROR,
+
+  BANKS: messagesJson.BANKS,
+
+  NETWORKS: messagesJson.NETWORKS,
+
+  FLOW: {
+    ACCOUNT_CREATED: (bank: string, account: string, dryRun = false) =>
+      render(
+        dryRun ? messagesJson.FLOW.ACCOUNT_CREATED_DRY_RUN : messagesJson.FLOW.ACCOUNT_CREATED,
+        { bank, account }
+      ),
   },
-
-  HELP: {
-    TEXT: `*3rike Pay Commands*\n\n• *start* - Open main menu\n• *help* - Show this help\n• *cancel* - Cancel current action\n\nYou can type *cancel* at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification`,
-  },
-
-  CANCEL: `Session cancelled. Send *start* to begin again.`,
-
-  ERROR: {
-    GENERIC: `Something went wrong. Please try again or type *start* to restart.`,
-    KYC_FAILED: `Verification failed. Please try again or contact support.`,
-  },
-
-  BANKS: {
-    // Fallback list, used only when autoramp.listBanks() is unreachable.
-    //
-    // These are AutoRamp/NIP institution codes, NOT the legacy 3-digit CBN
-    // codes (GTBank is 000013 here, not 058). A transfer built with a legacy
-    // code is rejected, so keep these in sync with GET /misc/banks.
-    FALLBACK: [
-      { id: "bank_000014", title: "Access bank", code: "000014" },
-      { id: "bank_000005", title: "Diamond bank", code: "000005" },
-      { id: "bank_000010", title: "Ecobank Nigeria Plc", code: "000010" },
-      { id: "bank_000016", title: "First bank", code: "000016" },
-      { id: "bank_000007", title: "Fidelity bank", code: "000007" },
-      { id: "bank_000013", title: "GTBank", code: "000013" },
-      { id: "bank_000020", title: "Heritage bank", code: "000020" },
-      { id: "bank_000002", title: "Keystone bank", code: "000002" },
-      { id: "bank_000004", title: "United Bank For Africa Plc", code: "000004" },
-      { id: "bank_000001", title: "Sterling bank", code: "000001" },
-      { id: "bank_000018", title: "Union bank", code: "000018" },
-      { id: "bank_000011", title: "Unity Bank Plc", code: "000011" },
-      { id: "bank_000017", title: "Wema bank", code: "000017" },
-      { id: "bank_000015", title: "Zenith bank", code: "000015" },
-      { id: "bank_000012", title: "Stanbic IBTC Bank Ltd.", code: "000012" },
-      { id: "bank_000008", title: "Polaris Bank", code: "000008" },
-      { id: "bank_000023", title: "Providus Bank", code: "000023" },
-      { id: "bank_100004", title: "OPAY", code: "100004" },
-      { id: "bank_100033", title: "PALMPAY", code: "100033" },
-      { id: "bank_090267", title: "Kuda Microfinance Bank", code: "090267" },
-      { id: "bank_090405", title: "Moniepoint Microfinance Bank", code: "090405" },
-      { id: "bank_090286", title: "SAFE HAVEN MICROFINANCE BANK", code: "090286" },
-    ],
-  } as const,
-
-  NETWORKS: [
-    { id: "network_mtn", title: "MTN", code: "mtn" },
-    { id: "network_airtel", title: "Airtel", code: "airtel" },
-    { id: "network_glo", title: "Glo", code: "glo" },
-    { id: "network_9mobile", title: "9mobile", code: "9mobile" },
-  ],
 } as const;

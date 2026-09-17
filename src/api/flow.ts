@@ -6,6 +6,8 @@ import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
 import { prisma, updateSession, resetSession } from "@/services/database";
 import { generateReference, toWhatsAppPhone, redactPhone } from "@/utils/helpers";
+import { handleDryRunFlow } from "@/services/dryRunFlow";
+import { sendAccountCreatedMessage } from "@/services/accountNotification";
 import { MESSAGES } from "@/config/constants";
 
 const logger = createLogger("flow");
@@ -187,9 +189,13 @@ async function handleOtp(userId: string, data: any) {
     await resetSession(userId);
     logger.info("User verified and session reset", { userId, bankAccount: updated.bankAccount });
 
+    const bank = updated.bankName || "Safe Haven MFB";
+    const accountNumber = updated.bankAccount || "being created";
+    void sendAccountCreatedMessage(userId, bank, accountNumber, false).catch(() => {});
+
     return screen("SUCCESS", {
-      heading: "Your 3rike Pay account is ready",
-      details: `Bank: ${updated.bankName || "Safe Haven MFB"}\nAccount number: ${updated.bankAccount || "being created"}\nName: ${updated.name || "-"}`,
+      heading: "Success",
+      details: "Your account details have been sent to you on WhatsApp.",
     });
   } catch (error: any) {
     logger.error("Flow OTP/verification failed", { userId, error: error.message });
@@ -265,14 +271,31 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (action === "data_exchange") {
+      logger.debug("Flow data_exchange start", { userId, currentScreen, payloadData: data || {} });
+
+      const dryRunScreen = handleDryRunFlow(action, currentScreen, data || {}, userId);
+
       const next =
-        currentScreen === "IDENTITY"
+        dryRunScreen ||
+        (currentScreen === "IDENTITY"
           ? await handleIdentity(userId, data || {})
           : currentScreen === "OTP"
             ? await handleOtp(userId, data || {})
-            : screen("IDENTITY");
-      logger.info("Flow data_exchange response", { userId, currentScreen, nextScreen: next.screen });
+            : screen("IDENTITY"));
+
+      logger.info("Flow data_exchange response", {
+        userId,
+        currentScreen,
+        nextScreen: next.screen,
+        nextData: next.data,
+        dryRun: !!dryRunScreen,
+      });
       return res.send(encryptResponse(next, aesKey, iv));
+    }
+
+    if (action === "complete") {
+      logger.info("Flow complete", { userId, currentScreen });
+      return res.send(encryptResponse(screen(currentScreen || "SUCCESS"), aesKey, iv));
     }
 
     return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));

@@ -1,0 +1,124 @@
+{
+  "KYC_PROMPT": {
+    "TEXT": "To start using 3rike Pay, we need to verify your identity.\n\nThis takes less than 2 minutes. Tap the button below to begin.",
+    "FLOW_BUTTON": "Verify Identity"
+  },
+  "KYC_COMPLETE": {
+    "TEXT": "Identity verified successfully!\n\nYou can now:\n- Send money to any bank\n- Check your balance\n\nTap *Start* to begin."
+  },
+  "KYC_CHOOSE_ID": {
+    "TEXT": "Which ID would you like to verify with?",
+    "BUTTONS": [
+      { "id": "kyc_nin", "title": "NIN" },
+      { "id": "kyc_bvn", "title": "BVN" }
+    ],
+    "PROMPT_NUMBER": "Enter your {{idType}} (11 digits):",
+    "INVALID_NUMBER": "A {{idType}} is exactly 11 digits. Please check and enter it again:"
+  },
+  "KYC_OTP": {
+    "PROMPT": "We've sent a code to the phone number registered to your ID.\n\nEnter the code here to finish setting up your account.",
+    "INVALID": "That code doesn't look right. Enter the code sent to the phone number registered to your BVN.\n\nType *cancel* to stop.",
+    "RETRY": "That code wasn't accepted. Check it and try again - {{left}} {{leftPlural}} left.\n\nType *cancel* to stop.",
+    "FAILED": "We couldn't verify that code: {{reason}}\n\nType *kyc* to start over, or *help* if you're stuck."
+  },
+  "KYC_FLOW_WAITING": {
+    "TEXT": "Your verification form is still open - please continue there to finish setting up your wallet.\n\nType *cancel* if you want to stop and start over."
+  },
+  "FALLBACK": {
+    "ACCOUNT_CREATED": "Identity verified successfully!\n\nYour account details:\nBank: {{bank}}\nAccount Number: {{account}}\n\nTap *Start* to begin.",
+    "TRANSFER_COMPLETE": "Transfer Completed\n\nAmount: {{amount}}\nTo: {{name}}\nBank: {{bank}}\nAccount: {{account}}\nReference: {{ref}}"
+  },
+  "MAIN_MENU": {
+    "TEXT": "What would you like to do?",
+    "LIST_BUTTON": "Choose Action",
+    "SECTIONS": [
+      {
+        "title": "Payments",
+        "rows": [
+          { "id": "send_money", "title": "Send Money", "description": "Transfer to any bank account" }
+        ]
+      },
+      {
+        "title": "Account",
+        "rows": [
+          { "id": "check_balance", "title": "Check Balance", "description": "View your balance" },
+          { "id": "transactions", "title": "Transactions", "description": "View recent transactions" }
+        ]
+      }
+    ]
+  },
+  "SEND_MONEY": {
+    "PROMPT_AMOUNT": "Enter the amount to send (e.g. 5000):",
+    "PROMPT_BANK": "Type the recipient's bank name.\n\nExamples: *GTBank*, *Opay*, *Moniepoint*, *Kuda*",
+    "PROMPT_ACCOUNT": "Enter the recipient's account number (10 digits):",
+    "INVALID_AMOUNT": "That doesn't look like a valid amount. Enter a number of at least {{min}} (e.g. 5000).",
+    "AMOUNT_TOO_LARGE": "That amount is above the {{max}} per-transfer limit. Enter a smaller amount.",
+    "NO_BANK_MATCH": "No bank matched \"{{query}}\".\n\nTry a shorter name - e.g. *zenith*, *kuda*, *opay*, *access*.",
+    "BANK_MATCHES": "Found {{count}} matching bank{{plural}}. Pick the right one:",
+    "TOO_MANY_MATCHES": "Found {{count}} matching banks - showing the closest 10. If yours isn't here, type more of its name.",
+    "CONFIRM": "Confirm transfer:\n\nAmount: {{amount}}\nBank: {{bank}}\nAccount: {{account}}\nName: {{name}}",
+    "SUCCESS": "Transfer of {{amount}} to {{name}} initiated!\n\nReference: {{ref}}\nYou'll receive a confirmation shortly.",
+    "FAILED": "Transfer failed: {{reason}}\n\nPlease try again or contact support."
+  },
+  "BUY_AIRTIME": {
+    "COMING_SOON": "Airtime and data top-ups aren't live yet - we're finishing the integration.\n\nFor now you can send money and check your balance. Type *start* for the menu.",
+    "PROMPT_NETWORK": "Select your network provider:",
+    "PROMPT_PHONE": "Enter the phone number to recharge:",
+    "PROMPT_AMOUNT": "Enter the airtime amount (e.g. 500):",
+    "SUCCESS": "Airtime of {{amount}} sent to {{phone}}!\n\nYou'll receive a confirmation shortly."
+  },
+  "CHECK_BALANCE": {
+    "TEXT": "*Your Balance*\n\nBank: {{bank}}\nAccount: {{account}}\nBalance: {{balance}}",
+    "NO_BALANCE": "*Your Account*\n\nBank: {{bank}}\nAccount: {{account}}\n\nYour balance isn't available right now. Please try again in a moment.",
+    "ERROR": "Could not fetch balance. Please try again later."
+  },
+  "TRANSACTIONS": {
+    "TEXT": "*Your Transactions*\n\n{{list}}\n\nType *start* for menu.",
+    "EMPTY": "You haven't made any transactions yet.\n\nType *start* for menu.",
+    "ERROR": "Could not load transactions. Please try again later."
+  },
+  "HELP": {
+    "TEXT": "*3rike Pay Commands*\n\n• *start* - Open main menu\n• *help* - Show this help\n• *cancel* - Cancel current action\n\nYou can type *cancel* at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification"
+  },
+  "CANCEL": "Session cancelled. Send *start* to begin again.",
+  "ERROR": {
+    "GENERIC": "Something went wrong. Please try again or type *start* to restart.",
+    "KYC_FAILED": "Verification failed. Please try again or contact support."
+  },
+  "BANKS": {
+    "FALLBACK": [
+      { "id": "bank_000014", "title": "Access bank", "code": "000014" },
+      { "id": "bank_000005", "title": "Diamond bank", "code": "000005" },
+      { "id": "bank_000010", "title": "Ecobank Nigeria Plc", "code": "000010" },
+      { "id": "bank_000016", "title": "First bank", "code": "000016" },
+      { "id": "bank_000007", "title": "Fidelity bank", "code": "000007" },
+      { "id": "bank_000013", "title": "GTBank", "code": "000013" },
+      { "id": "bank_000020", "title": "Heritage bank", "code": "000020" },
+      { "id": "bank_000002", "title": "Keystone bank", "code": "000002" },
+      { "id": "bank_000004", "title": "United Bank For Africa Plc", "code": "000004" },
+      { "id": "bank_000001", "title": "Sterling bank", "code": "000001" },
+      { "id": "bank_000018", "title": "Union bank", "code": "000018" },
+      { "id": "bank_000011", "title": "Unity Bank Plc", "code": "000011" },
+      { "id": "bank_000017", "title": "Wema bank", "code": "000017" },
+      { "id": "bank_000015", "title": "Zenith bank", "code": "000015" },
+      { "id": "bank_000012", "title": "Stanbic IBTC Bank Ltd.", "code": "000012" },
+      { "id": "bank_000008", "title": "Polaris Bank", "code": "000008" },
+      { "id": "bank_000023", "title": "Providus Bank", "code": "000023" },
+      { "id": "bank_100004", "title": "OPAY", "code": "100004" },
+      { "id": "bank_100033", "title": "PALMPAY", "code": "100033" },
+      { "id": "bank_090267", "title": "Kuda Microfinance Bank", "code": "090267" },
+      { "id": "bank_090405", "title": "Moniepoint Microfinance Bank", "code": "090405" },
+      { "id": "bank_090286", "title": "SAFE HAVEN MICROFINANCE BANK", "code": "090286" }
+    ]
+  },
+  "NETWORKS": [
+    { "id": "network_mtn", "title": "MTN", "code": "mtn" },
+    { "id": "network_airtel", "title": "Airtel", "code": "airtel" },
+    { "id": "network_glo", "title": "Glo", "code": "glo" },
+    { "id": "network_9mobile", "title": "9mobile", "code": "9mobile" }
+  ],
+  "FLOW": {
+    "ACCOUNT_CREATED": "Your 3rike Pay account is ready\n\nBank: {{bank}}\nAccount Number: {{account}}",
+    "ACCOUNT_CREATED_DRY_RUN": "Dry-run complete — no real account was created.\n\nBank: {{bank}}\nAccount Number: {{account}}"
+  }
+}
