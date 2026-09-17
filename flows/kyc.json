@@ -186,18 +186,14 @@
                 "name": "pin",
                 "label": "4-digit PIN",
                 "input-type": "number",
-                "required": true,
-                "min-length": 4,
-                "max-length": 4
+                "required": true
               },
               {
                 "type": "TextInput",
                 "name": "confirm_pin",
                 "label": "Confirm PIN",
                 "input-type": "number",
-                "required": true,
-                "min-length": 4,
-                "max-length": 4
+                "required": true
               },
               {
                 "type": "Footer",
