@@ -264,6 +264,10 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (action === "INIT") {
+      const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+      if (user?.kycStatus === "verified") {
+        return res.send(encryptResponse(screen("COMPLETED"), aesKey, iv));
+      }
       return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
     }
 

@@ -4,7 +4,8 @@
   "routing_model": {
     "IDENTITY": ["OTP"],
     "OTP": ["END"],
-    "END": []
+    "END": [],
+    "COMPLETED": []
   },
   "screens": [
     {
@@ -103,6 +104,19 @@
         "children": [
           { "type": "TextHeading", "text": "Done" },
           { "type": "TextBody", "text": "Your account details have been sent to you on WhatsApp." }
+        ]
+      }
+    },
+    {
+      "id": "COMPLETED",
+      "title": "Already verified",
+      "terminal": true,
+      "success": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Already verified" },
+          { "type": "TextBody", "text": "Your identity has already been verified. No need to do this again." }
         ]
       }
     }
