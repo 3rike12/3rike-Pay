@@ -3,9 +3,7 @@
   "data_api_version": "3.0",
   "routing_model": {
     "IDENTITY": ["OTP"],
-    "OTP": ["SUCCESS"],
-    "SUCCESS": ["DONE"],
-    "DONE": []
+    "OTP": []
   },
   "screens": [
     {
@@ -87,57 +85,6 @@
                 "on-click-action": {
                   "name": "data_exchange",
                   "payload": { "otp": "${form.otp}" }
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "SUCCESS",
-      "title": "Success",
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          { "type": "TextHeading", "text": "Success" },
-          { "type": "TextBody", "text": "Your account details have been sent to you on WhatsApp." },
-          {
-            "type": "Form",
-            "name": "continue_form",
-            "children": [
-              {
-                "type": "Footer",
-                "label": "Continue",
-                "on-click-action": {
-                  "name": "data_exchange",
-                  "payload": {}
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "DONE",
-      "title": "Done",
-      "terminal": true,
-      "success": true,
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          { "type": "TextHeading", "text": "Done" },
-          {
-            "type": "Form",
-            "name": "close_form",
-            "children": [
-              {
-                "type": "Footer",
-                "label": "Close",
-                "on-click-action": {
-                  "name": "complete",
-                  "payload": {}
                 }
               }
             ]

@@ -193,7 +193,9 @@ async function handleOtp(userId: string, data: any) {
     const accountNumber = updated.bankAccount || "being created";
     void sendAccountCreatedMessage(userId, bank, accountNumber, false).catch(() => {});
 
-    return screen("SUCCESS");
+    return screen("OTP", {
+      message: "Verified. Your account details have been sent to you on WhatsApp. You can close this form.",
+    });
   } catch (error: any) {
     logger.error("Flow OTP/verification failed", { userId, error: error.message });
 
@@ -278,9 +280,7 @@ router.post("/", async (req: Request, res: Response) => {
           ? await handleIdentity(userId, data || {})
           : currentScreen === "OTP"
             ? await handleOtp(userId, data || {})
-            : currentScreen === "SUCCESS"
-              ? screen("DONE")
-              : screen("IDENTITY"));
+            : screen("IDENTITY"));
 
       logger.info("Flow data_exchange response", {
         userId,
