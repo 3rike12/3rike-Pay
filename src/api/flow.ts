@@ -170,6 +170,8 @@ async function handleOtp(userId: string, data: any) {
       identityType: flowData.idType,
       identityNumber: flowData.idNumber,
       identityId: flowData.identityId,
+      otp,
+      autoSweep: false,
     });
     logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
 
@@ -206,6 +208,8 @@ async function handleOtp(userId: string, data: any) {
           identityType: flowData.idType,
           identityNumber: flowData.idNumber,
           identityId: flowData.identityId,
+          otp,
+          autoSweep: false,
         });
         logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
 
@@ -308,8 +312,8 @@ router.post("/", async (req: Request, res: Response) => {
         currentScreen === "IDENTITY"
           ? await handleIdentity(userId, data || {})
           : currentScreen === "OTP"
-          ? await handleOtp(userId, data || {})
-          : screen("IDENTITY");
+            ? await handleOtp(userId, data || {})
+            : screen("IDENTITY");
       logger.info("Flow data_exchange response", { userId, currentScreen, nextScreen: next.screen });
       return res.send(encryptResponse(next, aesKey, iv));
     }

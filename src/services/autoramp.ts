@@ -49,6 +49,7 @@ class AutoRampService {
     identityId?: string;
     otp?: string;
     callbackUrl?: string;
+    autoSweep?: boolean;
   }) {
     try {
       const { data } = await this.client.post("/merchants/api/sub-account", params);
