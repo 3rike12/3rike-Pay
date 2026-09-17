@@ -266,6 +266,7 @@ router.post("/", async (req: Request, res: Response) => {
     if (action === "INIT") {
       const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
       if (user?.kycStatus === "verified") {
+        await resetSession(userId).catch(() => {});
         return res.send(encryptResponse(screen("COMPLETED"), aesKey, iv));
       }
       return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
@@ -283,6 +284,11 @@ router.post("/", async (req: Request, res: Response) => {
           : currentScreen === "OTP"
             ? await handleOtp(userId, data || {})
             : screen("IDENTITY"));
+
+      // Clear the Flow session once verification is complete.
+      if (currentScreen === "OTP" && next.screen === "END") {
+        await resetSession(userId).catch(() => {});
+      }
 
       logger.info("Flow data_exchange response", {
         userId,

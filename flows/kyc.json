@@ -2,7 +2,7 @@
   "version": "7.0",
   "data_api_version": "3.0",
   "routing_model": {
-    "IDENTITY": ["OTP"],
+    "IDENTITY": ["OTP", "COMPLETED"],
     "OTP": ["END"],
     "END": [],
     "COMPLETED": []
