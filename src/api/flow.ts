@@ -195,44 +195,6 @@ async function handleOtp(userId: string, data: any) {
       details: `Bank: ${updated.bankName || "Safe Haven MFB"}\nAccount number: ${updated.bankAccount || "being created"}\nName: ${updated.name || "-"}`,
     });
   } catch (error: any) {
-    const apiMessage = error.response?.data?.message || error.response?.data?.error || error.message;
-
-    if (String(apiMessage).toLowerCase().includes("already verified")) {
-      logger.info("Identity already verified, retrying sub-account creation", { userId });
-      try {
-        const subAccount = await autoramp.createSubAccount({
-          phoneNumber: user.phone,
-          emailAddress: user.email || `${user.phone}@3rike.xyz`,
-          externalReference: generateReference("kyc"),
-          identityType: flowData.idType,
-          identityNumber: flowData.idNumber,
-          identityId: flowData.identityId,
-          autoSweep: false,
-        });
-        logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
-
-        const updated = await prisma.user.update({
-          where: { id: userId },
-          data: {
-            ...(flowData.idType === "BVN" ? { bvn: flowData.idNumber } : { nin: flowData.idNumber }),
-            kycStatus: "verified",
-            autorampSubId: subAccount?.id || subAccount?.accountId,
-            bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
-            bankCode: subAccount?.bankCode,
-            bankName: subAccount?.bankName || subAccount?.provider,
-          },
-        });
-
-        await resetSession(userId);
-        return screen("SUCCESS", {
-          heading: "Your 3rike Pay account is ready",
-          details: `Bank: ${updated.bankName || "Safe Haven MFB"}\nAccount number: ${updated.bankAccount || "being created"}\nName: ${updated.name || "-"}`,
-        });
-      } catch (retryError: any) {
-        logger.error("Flow sub-account retry failed", { userId, error: retryError.message });
-      }
-    }
-
     logger.error("Flow OTP/verification failed", { userId, error: error.message });
 
     const errMessage = error.response?.data?.message || error.response?.data?.error || error.message;
