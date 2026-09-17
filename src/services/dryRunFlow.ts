@@ -42,6 +42,9 @@ export function handleDryRunFlow(
     logger.info("Flow IDENTITY dry-run: skipping identity verification");
     return screen("OTP", {
       message: "Dry-run mode: we will not send a real code. Enter any 6 digits to continue.",
+      identityId: "dry-run-identity-id",
+      idType,
+      idNumber,
     });
   }
 

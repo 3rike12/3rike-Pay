@@ -114,6 +114,9 @@ async function handleIdentity(userId: string, data: any) {
 
     return screen("OTP", {
       message: `We sent a code to the phone number registered to your ${idType}. Enter it below to finish.`,
+      identityId: result.identityId,
+      idType,
+      idNumber,
     });
   } catch (error: any) {
     logger.error("Flow IDENTITY failed", { userId, idType, error: error.message });
@@ -139,35 +142,35 @@ async function handleIdentity(userId: string, data: any) {
 
 async function handleOtp(userId: string, data: any) {
   const otp = String(data.otp || "").replace(/[^0-9]/g, "");
-  logger.info("Flow OTP received", { userId, otpLength: otp.length });
+  const identityId = String(data.identityId || "");
+  const idType = (String(data.idType || "").toUpperCase() as "BVN" | "NIN") || "BVN";
+  const idNumber = String(data.idNumber || "");
+
+  logger.info("Flow OTP received", { userId, otpLength: otp.length, hasIdentityId: !!identityId });
+
   if (otp.length < 4 || otp.length > 8) {
     return screen("OTP", { message: "Enter the code we sent you.", error_message: "That code looks too short." });
   }
 
-  const session = await prisma.userSession.findFirst({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
-  const flowData = (session?.flowData as any) || {};
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user || !flowData.identityId) {
-    logger.warn("Flow OTP missing session", { userId, hasUser: !!user });
+  if (!user || !identityId) {
+    logger.warn("Flow OTP missing identity context", { userId, hasUser: !!user, hasIdentityId: !!identityId });
     return screen("IDENTITY", { error_message: "Session expired. Re-enter your ID to continue." });
   }
 
-  const attempts = (flowData.otpAttempts || 0) + 1;
+  const attempts = (data.otpAttempts || 0) + 1;
 
   try {
-    logger.info("Creating AutoRamp sub-account", { userId, idType: flowData.idType });
+    logger.info("Creating AutoRamp sub-account", { userId, idType });
     const phoneNumber = `+${toWhatsAppPhone(user.phone)}`;
     logger.info("Sub-account phone formatted", { phone: redactPhone(phoneNumber) });
     const subAccount = await autoramp.createSubAccount({
       phoneNumber,
       emailAddress: user.email || `${user.phone}@3rike.xyz`,
       externalReference: generateReference("kyc"),
-      identityType: flowData.idType,
-      identityNumber: flowData.idNumber,
-      identityId: flowData.identityId,
+      identityType: idType,
+      identityNumber: idNumber,
+      identityId,
       otp,
       autoSweep: false,
     });
@@ -177,7 +180,7 @@ async function handleOtp(userId: string, data: any) {
     const updated = await prisma.user.update({
       where: { id: userId },
       data: {
-        ...(flowData.idType === "BVN" ? { bvn: flowData.idNumber } : { nin: flowData.idNumber }),
+        ...(idType === "BVN" ? { bvn: idNumber } : { nin: idNumber }),
         kycStatus: "verified",
         autorampSubId: subAccount?.id || subAccount?.accountId,
         bankAccount: subAccount?.accountNumber || subAccount?.bankAccount,
@@ -210,10 +213,12 @@ async function handleOtp(userId: string, data: any) {
     }
 
     if (attempts < 3) {
-      await updateSession(userId, "kyc_flow", { ...flowData, otpAttempts: attempts });
       return screen("OTP", {
         message: MESSAGES.KYC_OTP.PROMPT,
         error_message: errorMessage,
+        identityId,
+        idType,
+        idNumber,
       });
     }
 
@@ -266,7 +271,6 @@ router.post("/", async (req: Request, res: Response) => {
     if (action === "INIT") {
       const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
       if (user?.kycStatus === "verified") {
-        await resetSession(userId).catch(() => {});
         return res.send(encryptResponse(screen("COMPLETED"), aesKey, iv));
       }
       return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
@@ -287,7 +291,7 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Clear the Flow session once verification is complete.
       if (currentScreen === "OTP" && next.screen === "END") {
-        await resetSession(userId).catch(() => {});
+        await resetSession(userId).catch(() => { });
       }
 
       logger.info("Flow data_exchange response", {

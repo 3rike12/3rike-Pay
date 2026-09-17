@@ -64,7 +64,10 @@
         "message": {
           "type": "string",
           "__example__": "We sent a code to the phone number registered to your ID."
-        }
+        },
+        "identityId": { "type": "string" },
+        "idType": { "type": "string" },
+        "idNumber": { "type": "string" }
       },
       "layout": {
         "type": "SingleColumnLayout",
@@ -86,7 +89,12 @@
                 "label": "Verify",
                 "on-click-action": {
                   "name": "data_exchange",
-                  "payload": { "otp": "${form.otp}" }
+                  "payload": {
+                    "otp": "${form.otp}",
+                    "identityId": "${data.identityId}",
+                    "idType": "${data.idType}",
+                    "idNumber": "${data.idNumber}"
+                  }
                 }
               }
             ]
