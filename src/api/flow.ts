@@ -109,14 +109,17 @@ async function handleIdentity(userId: string, data: any) {
   } catch (error: any) {
     logger.error("Flow IDENTITY failed", { userId, idType, error: error.message });
 
-    const msg = (error.message || "").toLowerCase();
-    let errorMessage = error.message?.slice(0, 120) || "Could not start verification. Try again.";
-    if (msg.includes("record") || msg.includes("not found") || msg.includes("fetch")) {
-      errorMessage = "We couldn't find that ID record. Please check the number and try again.";
-    } else if (msg.includes("phone")) {
-      errorMessage = "The phone number on this ID doesn't match. Please use the phone number linked to your ID.";
-    } else if (msg.includes("network") || msg.includes("timeout")) {
-      errorMessage = "Network issue. Please try again in a moment.";
+    const apiMessage = error.response?.data?.message || error.response?.data?.error || error.message;
+    let errorMessage = "Could not start verification. Try again.";
+
+    if (apiMessage && typeof apiMessage === "string") {
+      if (apiMessage.toLowerCase().includes("unable to fetch record")) {
+        errorMessage = "We couldn't fetch that record. Please check the number and try again.";
+      } else if (apiMessage.toLowerCase().includes("missing phone")) {
+        errorMessage = "The phone number on this ID doesn't match. Please use the phone number linked to your ID.";
+      } else {
+        errorMessage = apiMessage.slice(0, 120);
+      }
     }
 
     return screen("IDENTITY", { error_message: errorMessage });
@@ -185,14 +188,16 @@ async function handleOtp(userId: string, data: any) {
   } catch (error: any) {
     logger.error("Flow OTP/verification failed", { userId, error: error.message });
 
-    const msg = error.message?.toLowerCase?.() || "";
+    const apiMessage = error.response?.data?.message || error.response?.data?.error || error.message;
     let errorMessage = "Verification failed. Try again.";
-    if (msg.includes("otp") || msg.includes("code") || msg.includes("invalid")) {
-      errorMessage = "The code you entered is incorrect. Please try again.";
-    } else if (msg.includes("timeout") || msg.includes("network")) {
-      errorMessage = "Network issue. Please try again in a moment.";
-    } else if (msg.includes("identity")) {
-      errorMessage = "Could not verify your identity. Please restart.";
+
+    if (apiMessage && typeof apiMessage === "string") {
+      const msg = apiMessage.toLowerCase();
+      if (msg.includes("otp") || msg.includes("code") || msg.includes("invalid")) {
+        errorMessage = "The code you entered is incorrect. Please try again.";
+      } else {
+        errorMessage = apiMessage.slice(0, 120);
+      }
     }
 
     if (attempts < 3) {
