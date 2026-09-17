@@ -32,6 +32,7 @@ export async function handleDryRunFlow(
   if (currentScreen === "IDENTITY") {
     const idType = String(data.id_type || "").toUpperCase();
     const idNumber = String(data.id_number || "").replace(/[^0-9]/g, "");
+    const email = String(data.email || "").trim();
 
     if (!["NIN", "BVN"].includes(idType)) {
       return screen("IDENTITY", { error_message: "Choose either NIN or BVN." });
@@ -39,21 +40,18 @@ export async function handleDryRunFlow(
     if (idNumber.length !== 11) {
       return screen("IDENTITY", { error_message: "That number must be exactly 11 digits." });
     }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return screen("IDENTITY", { error_message: "Enter a valid email address." });
+    }
 
     logger.info("Flow IDENTITY dry-run: skipping identity verification");
     await updateSession(userId, "kyc_flow", {
       identityId: "dry-run-identity-id",
       idType,
       idNumber,
+      email,
     });
 
-    return screen("OTP", {
-      message: "Dry-run mode: we will not send a real code. Enter any 6 digits to continue.",
-    });
-  }
-
-  if (currentScreen === "EMAIL") {
-    logger.info("Flow EMAIL dry-run: skipping");
     return screen("NAME");
   }
 

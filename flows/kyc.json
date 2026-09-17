@@ -2,8 +2,7 @@
   "version": "7.0",
   "data_api_version": "3.0",
   "routing_model": {
-    "IDENTITY": ["EMAIL", "COMPLETED"],
-    "EMAIL": ["NAME"],
+    "IDENTITY": ["NAME", "COMPLETED"],
     "NAME": ["OTP"],
     "OTP": ["PIN"],
     "PIN": ["END"],
@@ -45,34 +44,6 @@
                 "helper-text": "11 digits"
               },
               {
-                "type": "Footer",
-                "label": "Continue",
-                "on-click-action": {
-                  "name": "data_exchange",
-                  "payload": {
-                    "id_type": "${form.id_type}",
-                    "id_number": "${form.id_number}"
-                  }
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "EMAIL",
-      "title": "Email address",
-      "data": {},
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          { "type": "TextBody", "text": "Enter your email address. We will send account updates here." },
-          {
-            "type": "Form",
-            "name": "email_form",
-            "children": [
-              {
                 "type": "TextInput",
                 "name": "email",
                 "label": "Email",
@@ -84,7 +55,11 @@
                 "label": "Continue",
                 "on-click-action": {
                   "name": "data_exchange",
-                  "payload": { "email": "${form.email}" }
+                  "payload": {
+                    "id_type": "${form.id_type}",
+                    "id_number": "${form.id_number}",
+                    "email": "${form.email}"
+                  }
                 }
               }
             ]

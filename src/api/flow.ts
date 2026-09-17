@@ -89,13 +89,17 @@ async function saveFlowData(userId: string, data: Record<string, unknown>) {
 async function handleIdentity(userId: string, data: any) {
   const idType = String(data.id_type || "").toUpperCase();
   const idNumber = String(data.id_number || "").replace(/[^0-9]/g, "");
-  logger.info("Flow IDENTITY received", { userId, idType, idNumber: idNumber ? "[redacted]" : "empty" });
+  const email = String(data.email || "").trim();
+  logger.info("Flow IDENTITY received", { userId, idType, idNumber: idNumber ? "[redacted]" : "empty", hasEmail: !!email });
 
   if (!["NIN", "BVN"].includes(idType)) {
     return screen("IDENTITY", { error_message: "Choose either NIN or BVN." });
   }
   if (idNumber.length !== 11) {
     return screen("IDENTITY", { error_message: "That number must be exactly 11 digits." });
+  }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return screen("IDENTITY", { error_message: "Enter a valid email address." });
   }
 
   try {
@@ -116,7 +120,7 @@ async function handleIdentity(userId: string, data: any) {
       return screen("IDENTITY", { error_message: "We couldn't verify that ID. Please check the number and try again." });
     }
 
-    await saveFlowData(userId, { identityId: result.identityId, idType, idNumber });
+    await saveFlowData(userId, { identityId: result.identityId, idType, idNumber, email });
     logger.info("Session updated for OTP", { userId });
 
     return screen("EMAIL");
@@ -140,18 +144,6 @@ async function handleIdentity(userId: string, data: any) {
 
     return screen("IDENTITY", { error_message: errorMessage });
   }
-}
-
-async function handleEmail(userId: string, data: any) {
-  const email = String(data.email || "").trim();
-  logger.info("Flow EMAIL received", { userId, hasEmail: !!email });
-
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return screen("EMAIL", { error_message: "Enter a valid email address." });
-  }
-
-  await saveFlowData(userId, { email });
-  return screen("NAME");
 }
 
 async function handleName(userId: string, data: any) {
@@ -342,7 +334,6 @@ router.post("/", async (req: Request, res: Response) => {
 
       const handlers: Record<string, (uid: string, d: any) => Promise<{ screen: string; data: Record<string, unknown> }>> = {
         IDENTITY: handleIdentity,
-        EMAIL: handleEmail,
         NAME: handleName,
         OTP: handleOtp,
         PIN: handlePin,
