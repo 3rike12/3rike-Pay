@@ -272,7 +272,10 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (action === "data_exchange") {
-      logger.debug("Flow data_exchange start", { userId, currentScreen, payloadData: data || {} });
+      const safePayload = { ...data };
+      if (safePayload.id_number) safePayload.id_number = "[redacted]";
+      if (safePayload.otp) safePayload.otp = "[redacted]";
+      logger.debug("Flow data_exchange start", { userId, currentScreen, payloadData: safePayload });
 
       const dryRunScreen = await handleDryRunFlow(action, currentScreen, data || {}, userId);
 
