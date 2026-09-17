@@ -48,14 +48,11 @@ export function handleDryRunFlow(
   if (currentScreen === "OTP") {
     logger.info("Flow OTP dry-run: returning test account details");
     void sendAccountCreatedMessage(userId, "Safe Haven MFB", "1234567890", true).catch(() => {});
-    return screen("SUCCESS", {
-      heading: "Success",
-      details: "Your account details have been sent to you on WhatsApp.",
-    });
+    return screen("SUCCESS");
   }
 
   if (currentScreen === "SUCCESS") {
-    return screen("DONE", { heading: "Done" });
+    return screen("DONE");
   }
 
   return null;

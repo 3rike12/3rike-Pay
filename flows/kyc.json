@@ -97,15 +97,11 @@
     {
       "id": "SUCCESS",
       "title": "Success",
-      "data": {
-        "heading": { "type": "string", "__example__": "Success" },
-        "details": { "type": "string", "__example__": "Your account details have been sent to you on WhatsApp." }
-      },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextHeading", "text": "${data.heading}" },
-          { "type": "TextBody", "text": "${data.details}" },
+          { "type": "TextHeading", "text": "Success" },
+          { "type": "TextBody", "text": "Your account details have been sent to you on WhatsApp." },
           {
             "type": "Form",
             "name": "continue_form",
@@ -128,13 +124,10 @@
       "title": "Done",
       "terminal": true,
       "success": true,
-      "data": {
-        "heading": { "type": "string", "__example__": "Done" }
-      },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextHeading", "text": "${data.heading}" },
+          { "type": "TextHeading", "text": "Done" },
           {
             "type": "Form",
             "name": "close_form",
