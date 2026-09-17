@@ -103,7 +103,7 @@
         "type": "SingleColumnLayout",
         "children": [
           { "type": "TextHeading", "text": "Done" },
-          { "type": "TextBody", "text": "Your account details have been sent to you on WhatsApp." }
+          { "type": "TextBody", "text": "Close this form and check your WhatsApp chat for your account details." }
         ]
       }
     },

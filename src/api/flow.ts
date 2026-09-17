@@ -171,7 +171,10 @@ async function handleOtp(userId: string, data: any) {
       otp,
       autoSweep: false,
     });
-    logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(subAccount) });
+    const safeSubAccount = { ...subAccount };
+    if (safeSubAccount.accountNumber) safeSubAccount.accountNumber = "[redacted]";
+    if (safeSubAccount.accountName) safeSubAccount.accountName = "[redacted]";
+    logger.info("AutoRamp sub-account created", { userId, subAccount: JSON.stringify(safeSubAccount) });
 
     logger.info("Updating user record", { userId });
     const updated = await prisma.user.update({
@@ -187,7 +190,7 @@ async function handleOtp(userId: string, data: any) {
     });
 
     await resetSession(userId);
-    logger.info("User verified and session reset", { userId, bankAccount: updated.bankAccount });
+    logger.info("User verified and session reset", { userId });
 
     const bank = updated.bankName || "Safe Haven MFB";
     const accountNumber = updated.bankAccount || "being created";
