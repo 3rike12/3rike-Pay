@@ -103,7 +103,21 @@
         "type": "SingleColumnLayout",
         "children": [
           { "type": "TextHeading", "text": "Done" },
-          { "type": "TextBody", "text": "Close this form and check your WhatsApp chat for your account details." }
+          { "type": "TextBody", "text": "Close this form and check your WhatsApp chat for your account details." },
+          {
+            "type": "Form",
+            "name": "close_form",
+            "children": [
+              {
+                "type": "Footer",
+                "label": "Close",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {}
+                }
+              }
+            ]
+          }
         ]
       }
     },
