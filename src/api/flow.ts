@@ -124,6 +124,8 @@ async function handleIdentity(userId: string, data: any) {
         errorMessage = "We couldn't fetch that record. Please check the number and try again.";
       } else if (apiMessage.toLowerCase().includes("missing phone")) {
         errorMessage = "The phone number on this ID doesn't match. Please use the phone number linked to your ID.";
+      } else if (apiMessage.toLowerCase().includes("timeout") || apiMessage.toLowerCase().includes("timed out")) {
+        errorMessage = "Verification is taking too long. Please try again.";
       } else {
         errorMessage = apiMessage.slice(0, 120);
       }

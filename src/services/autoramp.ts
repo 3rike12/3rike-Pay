@@ -109,9 +109,10 @@ class AutoRampService {
     number: string;
   }) {
     try {
-      // NIBSS verification can be slow — use 60s instead of the default 30s.
+      // WhatsApp Flow data_exchange must respond quickly. Cap this call so we
+      // can return a graceful error before the Flow times out.
       const { data } = await this.client.post("/merchants/api/verify-identity", params, {
-        timeout: 60000,
+        timeout: 8000,
       });
       logger.info("Identity verification initiated", { type: params.type });
       return data;
