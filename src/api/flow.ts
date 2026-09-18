@@ -1,7 +1,4 @@
 import { Router, Request, Response } from "express";
-import crypto from "crypto";
-import fs from "fs";
-import path from "path";
 import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
 import {
@@ -18,60 +15,11 @@ import { handleDryRunFlow } from "@/services/dryRunFlow";
 import { sendAccountCreatedMessage } from "@/services/accountNotification";
 import { hashPin } from "@/utils/pin";
 import { MESSAGES } from "@/config/constants";
+import { decryptFlowRequest, encryptFlowResponse, screen } from "@/utils/flowCrypto";
 
 const logger = createLogger("flow");
 
 const router = Router();
-
-const PRIVATE_KEY_PATH =
-  process.env.FLOW_PRIVATE_KEY_PATH || path.resolve(process.cwd(), "secrets/flow_private.pem");
-
-let privateKey: crypto.KeyObject | null = null;
-function getPrivateKey(): crypto.KeyObject {
-  if (!privateKey) {
-    privateKey = crypto.createPrivateKey({
-      key: fs.readFileSync(PRIVATE_KEY_PATH, "utf8"),
-      passphrase: process.env.FLOW_PRIVATE_KEY_PASSPHRASE || undefined,
-    });
-  }
-  return privateKey;
-}
-
-const GCM_TAG_LENGTH = 16;
-
-function decryptRequest(body: any) {
-  const { encrypted_flow_data, encrypted_aes_key, initial_vector } = body;
-
-  const aesKey = crypto.privateDecrypt(
-    { key: getPrivateKey(), padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
-    Buffer.from(encrypted_aes_key, "base64")
-  );
-
-  const flowData = Buffer.from(encrypted_flow_data, "base64");
-  const iv = Buffer.from(initial_vector, "base64");
-  const body_ = flowData.subarray(0, -GCM_TAG_LENGTH);
-  const tag = flowData.subarray(-GCM_TAG_LENGTH);
-
-  const decipher = crypto.createDecipheriv(`aes-${aesKey.length * 8}-gcm` as any, aesKey, iv);
-  decipher.setAuthTag(tag);
-  const decrypted = Buffer.concat([decipher.update(body_), decipher.final()]).toString("utf8");
-
-  return { decrypted: JSON.parse(decrypted), aesKey, iv };
-}
-
-function encryptResponse(response: any, aesKey: Buffer, iv: Buffer): string {
-  const flippedIv = Buffer.from(iv.map((b) => ~b));
-  const cipher = crypto.createCipheriv(`aes-${aesKey.length * 8}-gcm` as any, aesKey, flippedIv);
-  return Buffer.concat([
-    cipher.update(JSON.stringify(response), "utf8"),
-    cipher.final(),
-    cipher.getAuthTag(),
-  ]).toString("base64");
-}
-
-function screen(name: string, data: Record<string, unknown> = {}) {
-  return { screen: name, data };
-}
 
 async function getLatestFlowData(userId: string) {
   const session = await prisma.userSession.findFirst({
@@ -284,7 +232,7 @@ router.post("/", async (req: Request, res: Response) => {
   let payload: any;
 
   try {
-    const decoded = decryptRequest(req.body);
+    const decoded = decryptFlowRequest(req.body);
     payload = decoded.decrypted;
     aesKey = decoded.aesKey;
     iv = decoded.iv;
@@ -298,18 +246,18 @@ router.post("/", async (req: Request, res: Response) => {
 
   try {
     if (action === "ping") {
-      return res.send(encryptResponse({ data: { status: "active" } }, aesKey, iv));
+      return res.send(encryptFlowResponse({ data: { status: "active" } }, aesKey, iv));
     }
 
     if (data?.error_message) {
       logger.warn("Flow client error", { error: data.error_message });
-      return res.send(encryptResponse({ data: { acknowledged: true } }, aesKey, iv));
+      return res.send(encryptFlowResponse({ data: { acknowledged: true } }, aesKey, iv));
     }
 
     const userId = String(flow_token || "");
     if (!userId || userId === "unused") {
       return res.send(
-        encryptResponse(screen("IDENTITY", { error_message: "Session expired. Type kyc to restart." }), aesKey, iv)
+        encryptFlowResponse(screen("IDENTITY", { error_message: "Session expired. Type kyc to restart." }), aesKey, iv)
       );
     }
 
@@ -317,9 +265,9 @@ router.post("/", async (req: Request, res: Response) => {
       const user = await getUserWithDetails(userId);
       if (user?.kycStatus === "verified") {
         await resetSession(userId).catch(() => {});
-        return res.send(encryptResponse(screen("COMPLETED"), aesKey, iv));
+        return res.send(encryptFlowResponse(screen("COMPLETED"), aesKey, iv));
       }
-      return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
+      return res.send(encryptFlowResponse(screen("IDENTITY"), aesKey, iv));
     }
 
     if (action === "data_exchange") {
@@ -348,20 +296,20 @@ router.post("/", async (req: Request, res: Response) => {
         nextData: next.data,
         dryRun: !!dryRunScreen,
       });
-      return res.send(encryptResponse(next, aesKey, iv));
+      return res.send(encryptFlowResponse(next, aesKey, iv));
     }
 
     if (action === "complete") {
       logger.info("Flow complete", { userId, currentScreen });
-      return res.send(encryptResponse(screen(currentScreen || "END"), aesKey, iv));
+      return res.send(encryptFlowResponse(screen(currentScreen || "END"), aesKey, iv));
     }
 
-    return res.send(encryptResponse(screen("IDENTITY"), aesKey, iv));
+    return res.send(encryptFlowResponse(screen("IDENTITY"), aesKey, iv));
   } catch (error: any) {
     logger.error("Flow handler error", { action, screen: currentScreen, error: error.message });
     const failing = currentScreen === "OTP" ? "OTP" : "IDENTITY";
     return res.send(
-      encryptResponse(
+      encryptFlowResponse(
         screen(failing, {
           ...(failing === "OTP" ? { message: MESSAGES.KYC_OTP.PROMPT } : {}),
           error_message: error.message?.slice(0, 120) || "Something went wrong. Try again.",
