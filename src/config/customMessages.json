@@ -1,0 +1,234 @@
+{
+  "KYC_PROMPT.TEXT": {
+    "params": [],
+    "description": "Ask user to start identity verification."
+  },
+  "KYC_PROMPT.FLOW_BUTTON": {
+    "params": [],
+    "description": "Button label that opens the KYC Flow."
+  },
+  "KYC_COMPLETE.TEXT": {
+    "params": [],
+    "description": "KYC success, what user can do next."
+  },
+  "KYC_CHOOSE_ID.TEXT": {
+    "params": [],
+    "description": "Ask which ID type to verify with."
+  },
+  "KYC_CHOOSE_ID.PROMPT_NUMBER": {
+    "params": [
+      "idType"
+    ],
+    "description": "Ask for the 11-digit ID number."
+  },
+  "KYC_CHOOSE_ID.INVALID_NUMBER": {
+    "params": [
+      "idType"
+    ],
+    "description": "ID number failed format check."
+  },
+  "KYC_OTP.PROMPT": {
+    "params": [],
+    "description": "Ask for the OTP sent to the ID phone."
+  },
+  "KYC_OTP.INVALID": {
+    "params": [],
+    "description": "OTP looks wrong."
+  },
+  "KYC_OTP.RETRY": {
+    "params": [
+      "left",
+      "leftPlural"
+    ],
+    "description": "OTP rejected, attempts remaining."
+  },
+  "KYC_OTP.FAILED": {
+    "params": [
+      "reason"
+    ],
+    "description": "OTP verification failed with reason."
+  },
+  "KYC_FLOW_WAITING.TEXT": {
+    "params": [],
+    "description": "Nudge user back to the open Flow form."
+  },
+  "FALLBACK.ACCOUNT_CREATED": {
+    "params": [
+      "bank",
+      "account"
+    ],
+    "description": "Account details (text fallback)."
+  },
+  "FALLBACK.TRANSFER_COMPLETE": {
+    "params": [
+      "amount",
+      "name",
+      "bank",
+      "account",
+      "ref"
+    ],
+    "description": "Transfer details (text fallback)."
+  },
+  "MAIN_MENU.TEXT": {
+    "params": [],
+    "description": "Main menu body."
+  },
+  "MAIN_MENU.LIST_BUTTON": {
+    "params": [],
+    "description": "Main menu list button label."
+  },
+  "SEND_MONEY.PROMPT_AMOUNT": {
+    "params": [],
+    "description": "Ask for transfer amount."
+  },
+  "SEND_MONEY.PROMPT_BANK": {
+    "params": [],
+    "description": "Ask for recipient bank name."
+  },
+  "SEND_MONEY.PROMPT_ACCOUNT": {
+    "params": [],
+    "description": "Ask for 10-digit account number."
+  },
+  "SEND_MONEY.INVALID_AMOUNT": {
+    "params": [
+      "min"
+    ],
+    "description": "Amount below minimum."
+  },
+  "SEND_MONEY.AMOUNT_TOO_LARGE": {
+    "params": [
+      "max"
+    ],
+    "description": "Amount above per-transfer limit."
+  },
+  "SEND_MONEY.NO_BANK_MATCH": {
+    "params": [
+      "query"
+    ],
+    "description": "No bank matched the search."
+  },
+  "SEND_MONEY.BANK_MATCHES": {
+    "params": [
+      "count",
+      "plural"
+    ],
+    "description": "Bank search results header."
+  },
+  "SEND_MONEY.TOO_MANY_MATCHES": {
+    "params": [
+      "count"
+    ],
+    "description": "Too many bank matches, showing top 10."
+  },
+  "SEND_MONEY.CONFIRM": {
+    "params": [
+      "amount",
+      "bank",
+      "account",
+      "name"
+    ],
+    "description": "Transfer confirmation summary."
+  },
+  "SEND_MONEY.SUCCESS": {
+    "params": [
+      "amount",
+      "name",
+      "ref"
+    ],
+    "description": "Transfer initiated with reference."
+  },
+  "SEND_MONEY.FAILED": {
+    "params": [
+      "reason"
+    ],
+    "description": "Transfer failed with reason."
+  },
+  "BUY_AIRTIME.COMING_SOON": {
+    "params": [],
+    "description": "Airtime not live yet notice."
+  },
+  "BUY_AIRTIME.PROMPT_NETWORK": {
+    "params": [],
+    "description": "Ask for network provider."
+  },
+  "BUY_AIRTIME.PROMPT_PHONE": {
+    "params": [],
+    "description": "Ask for phone number to recharge."
+  },
+  "BUY_AIRTIME.PROMPT_AMOUNT": {
+    "params": [],
+    "description": "Ask for airtime amount."
+  },
+  "BUY_AIRTIME.SUCCESS": {
+    "params": [
+      "amount",
+      "phone"
+    ],
+    "description": "Airtime sent confirmation."
+  },
+  "CHECK_BALANCE.TEXT": {
+    "params": [
+      "bank",
+      "account",
+      "balance"
+    ],
+    "description": "Balance reply with bank and account."
+  },
+  "CHECK_BALANCE.NO_BALANCE": {
+    "params": [
+      "bank",
+      "account"
+    ],
+    "description": "Account reply when balance unavailable."
+  },
+  "CHECK_BALANCE.ERROR": {
+    "params": [],
+    "description": "Balance fetch error."
+  },
+  "TRANSACTIONS.TEXT": {
+    "params": [
+      "list"
+    ],
+    "description": "Recent transactions list."
+  },
+  "TRANSACTIONS.EMPTY": {
+    "params": [],
+    "description": "No transactions yet."
+  },
+  "TRANSACTIONS.ERROR": {
+    "params": [],
+    "description": "Transaction history error."
+  },
+  "HELP.TEXT": {
+    "params": [],
+    "description": "Command list and help."
+  },
+  "CANCEL": {
+    "params": [],
+    "description": "Session cancelled."
+  },
+  "ERROR.GENERIC": {
+    "params": [],
+    "description": "Generic error."
+  },
+  "ERROR.KYC_FAILED": {
+    "params": [],
+    "description": "Verification failed."
+  },
+  "FLOW.ACCOUNT_CREATED": {
+    "params": [
+      "accountName",
+      "bank",
+      "account"
+    ],
+    "description": "Account ready after Flow KYC."
+  },
+  "FLOW.ACCOUNT_CREATED_DRY_RUN": {
+    "params": [
+      "accountName",
+      "bank",
+      "account"
+    ],
+    "description": "Dry-run account ready notice."
+  }
+}
