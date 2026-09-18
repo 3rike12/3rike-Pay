@@ -23,3 +23,11 @@ export const notifyLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+export const transferPinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 60, // generous: allows retries within the per-user lockout window
+  message: { error: 'Too many PIN attempts from this device. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});

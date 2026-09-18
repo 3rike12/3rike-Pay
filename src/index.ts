@@ -10,7 +10,8 @@ const logger = createLogger("server");
 import webhooksRouter from "@/api/webhooks";
 import notifyRouter from "@/api/notify";
 import flowRouter from "@/api/flow";
-import { generalLimiter } from "@/api/middleware/rateLimit";
+import transferFlowRouter from "@/api/transferFlow";
+import { generalLimiter, transferPinLimiter } from "@/api/middleware/rateLimit";
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.get("/health", (_req, res) => {
 app.use("/webhook", webhooksRouter);
 app.use("/webhook/notify", notifyRouter);
 app.use("/webhook/flow", flowRouter);
+app.use("/webhook/flow/transfer", transferPinLimiter, transferFlowRouter);
 
 // ============================================
 // Serve React frontend (built output)

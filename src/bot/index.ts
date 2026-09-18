@@ -457,8 +457,8 @@ async function handleEnterAccount(phone: string, user: any, flowData: FlowData, 
       phone,
       MESSAGES.SEND_MONEY.CONFIRM(formatAmount(flowData.amount as number), flowData.bankName as string, accountNumber, accountName),
       [
-        { id: "confirm_transfer_yes", title: "Confirm" },
-        { id: "cancel", title: "Cancel" },
+        { id: "confirm_transfer_yes", title: "Yes" },
+        { id: "cancel", title: "No" },
       ]
     );
   } catch (error: any) {
@@ -469,33 +469,58 @@ async function handleEnterAccount(phone: string, user: any, flowData: FlowData, 
 async function handleConfirmTransfer(phone: string, user: any, flowData: FlowData, action?: string) {
   if (action === "confirm_transfer_yes") {
     const reference = generateReference("txn");
-    try {
-      await createTransaction({
-        userId: user.id,
+
+    // Create the transaction record up front in a pending PIN state.
+    // The actual transfer is executed only after the PIN is verified server-side.
+    await createTransaction({
+      userId: user.id,
+      reference,
+      type: "transfer",
+      amount: flowData.amount as number,
+      description: `Transfer to ${flowData.accountName}`,
+      bankCode: flowData.bankCode as string,
+      bankAccount: flowData.accountNumber as string,
+      bankName: flowData.bankName as string,
+      accountName: flowData.accountName as string,
+      status: "pending_pin",
+    });
+
+    await updateSession(user.id, "confirm_transfer", {
+      ...flowData,
+      pendingTransfer: {
         reference,
-        type: "transfer",
-        amount: flowData.amount as number,
-        description: `Transfer to ${flowData.accountName}`,
-        bankCode: flowData.bankCode as string,
-        bankAccount: flowData.accountNumber as string,
-        bankName: flowData.bankName as string,
-        accountName: flowData.accountName as string,
-      });
-      await autoramp.transfer({
-        beneficiaryBankCode: flowData.bankCode as string,
-        beneficiaryAccountNumber: flowData.accountNumber as string,
-        amount: flowData.amount as number,
-        narration: `3rike Pay - ${flowData.accountName}`,
-        paymentReference: reference,
-      });
-      await resetSession(user.id);
-      return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.SUCCESS(formatAmount(flowData.amount as number), flowData.accountName as string, reference));
-    } catch (error: any) {
+        amount: flowData.amount,
+        bankCode: flowData.bankCode,
+        bankName: flowData.bankName,
+        accountNumber: flowData.accountNumber,
+        accountName: flowData.accountName,
+      },
+    });
+
+    await whatsapp.sendTextMessage(
+      phone,
+      `Transaction ${reference} is in progress. Please enter your PIN to authorize it.`
+    );
+
+    const sent = await whatsapp.sendFlowMessage(
+      phone,
+      "Enter your 4-digit PIN to authorize this transfer.",
+      FLOWS.SEND_MONEY,
+      "Authorize Transfer",
+      user.id,
+      "VERIFY_PIN"
+    );
+
+    if (!sent) {
+      logger.warn("Transfer PIN flow failed to open", { phone: redactPhone(phone), reference });
       await updateTransaction(reference, { status: "failed" });
       await resetSession(user.id);
-      return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.FAILED(error.message));
+      return whatsapp.sendTextMessage(phone, "We couldn't open the PIN form. Please try again.");
     }
+
+    return true;
   }
+
   await resetSession(user.id);
   return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
 }

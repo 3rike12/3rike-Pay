@@ -92,6 +92,7 @@ export async function createTransaction(params: {
   bankName?: string;
   accountName?: string;
   recipientPhone?: string;
+  status?: string;
   metadata?: Record<string, unknown>;
 }) {
   return prisma.transaction.create({

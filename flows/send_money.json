@@ -1,0 +1,58 @@
+{
+  "version": "7.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "VERIFY_PIN": []
+  },
+  "screens": [
+    {
+      "id": "VERIFY_PIN",
+      "title": "Authorize transfer",
+      "terminal": true,
+      "success": true,
+      "data": {
+        "transfer_summary": {
+          "type": "string",
+          "__example__": "Amount: ₦5,000\nTo: John Doe\nAccount: 1234567890 - GTBank"
+        },
+        "error_message": {
+          "type": "string",
+          "__example__": ""
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Enter your 4-digit PIN to confirm this transfer. Your PIN is encrypted and never stored in the chat."
+          },
+          {
+            "type": "Form",
+            "name": "verify_pin_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "pin",
+                "label": "4-digit PIN",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "Your PIN authorizes this transaction"
+              },
+              {
+                "type": "Footer",
+                "label": "Authorize",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "pin": "${form.pin}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
