@@ -1,0 +1,20 @@
+{
+  "KYC_ONBOARDING": {
+    "id": "28479476071684010",
+    "cta": "Verify Identity",
+    "firstScreen": "IDENTITY",
+    "description": "Identity verification (NIN/BVN + OTP + PIN). Definition: flows/kyc.json"
+  },
+  "SEND_MONEY": {
+    "id": "1275663897972005",
+    "cta": "Authorize Transfer",
+    "firstScreen": "VERIFY_PIN",
+    "description": "PIN authorization for transfers. Definition: flows/send_money.json"
+  },
+  "BUY_AIRTIME": {
+    "id": "",
+    "cta": "Buy Airtime",
+    "firstScreen": "SELECT_NETWORK",
+    "description": "Airtime top-up (not live yet, no definition file)"
+  }
+}

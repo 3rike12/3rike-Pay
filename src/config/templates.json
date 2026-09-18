@@ -1,0 +1,98 @@
+{
+  "WELCOME_CREATE_WALLET": {
+    "name": "onboarding_message",
+    "language": "en",
+    "category": "MARKETING",
+    "status": "active",
+    "params": ["user_name"],
+    "description": "Business-initiated intro for new users. Button opens the KYC Flow directly."
+  },
+  "KYC_OTP": {
+    "name": "kyc_otp",
+    "language": "en",
+    "category": "AUTHENTICATION",
+    "status": "pending",
+    "params": ["otp"],
+    "description": "OTP for KYC verification."
+  },
+  "KYC_APPROVED": {
+    "name": "kyc_approved",
+    "language": "en",
+    "category": "UTILITY",
+    "status": "pending",
+    "params": ["user_name"],
+    "description": "Sent when KYC verification succeeds."
+  },
+  "KYC_REJECTED": {
+    "name": "kyc_rejected",
+    "language": "en",
+    "category": "UTILITY",
+    "status": "pending",
+    "params": ["user_name", "reason"],
+    "description": "Sent when KYC verification fails."
+  },
+  "ACCOUNT_CREATED": {
+    "name": "account_created",
+    "language": "en",
+    "category": "UTILITY",
+    "status": "pending",
+    "params": ["user_name", "bank", "account_number", "account_name"],
+    "description": "Sent after a sub-account is issued."
+  },
+  "PAYMENT_RECEIVED": {
+    "name": "payment_received",
+    "language": "en",
+    "category": "UTILITY",
+    "params": ["user_name", "amount", "sender", "reference"],
+    "status": "pending",
+    "description": "Inbound payment notification."
+  },
+  "TRANSFER_COMPLETE": {
+    "name": "transfer_complete",
+    "language": "en",
+    "category": "UTILITY",
+    "status": "active",
+    "params": ["amount", "recipient_name", "recipient_bank", "recipient_account", "reference"],
+    "description": "Sent when a transfer completes. Param order is canonical — all call sites must match."
+  },
+  "TRANSFER_FAILED": {
+    "name": "transfer_failed",
+    "language": "en",
+    "category": "UTILITY",
+    "status": "pending",
+    "params": ["user_name", "amount", "recipient", "reason"],
+    "description": "DRAFT — not yet created in Manager. Sent when a transfer fails."
+  },
+  "LOGIN_OTP": {
+    "name": "login_otp",
+    "language": "en",
+    "category": "AUTHENTICATION",
+    "status": "pending",
+    "params": ["otp"],
+    "description": "OTP for login."
+  },
+  "LOW_BALANCE": {
+    "name": "low_balance",
+    "language": "en",
+    "category": "UTILITY",
+    "status": "pending",
+    "params": ["user_name", "balance"],
+    "description": "Low balance warning."
+  },
+  "WELCOME_PROMO": {
+    "name": "welcome_promo",
+    "language": "en",
+    "category": "MARKETING",
+    "status": "pending",
+    "params": ["user_name"],
+    "description": "Marketing welcome blast (STOP/honor opt-outs before sending)."
+  },
+  "REFERRAL_PROMO": {
+    "name": "referral_promo",
+    "language": "en",
+    "category": "MARKETING",
+    "status": "pending",
+    "params": ["user_name", "amount", "link"],
+    "description": "Referral promo blast (STOP/honor opt-outs before sending)."
+  }
+}

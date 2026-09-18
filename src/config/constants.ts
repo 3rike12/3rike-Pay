@@ -1,4 +1,6 @@
 import messagesJson from "./messages.json";
+import flowsJson from "./flows.json";
+import templatesJson from "./templates.json";
 
 // ============================================
 // Triggers & Keywords
@@ -14,17 +16,40 @@ export const TRIGGERS = {
 } as const;
 
 // ============================================
-// WhatsApp Flow IDs (from Meta Business Manager)
+// WhatsApp Flows (source of truth: src/config/flows.json)
 // ============================================
+// Design flow IDs + metadata in flows.json. Env vars below are optional
+// overrides (handy for staging/prod without editing the file).
+export const FLOW_DEFS = {
+  KYC_ONBOARDING: {
+    ...flowsJson.KYC_ONBOARDING,
+    id: process.env.WHATSAPP_FLOW_KYC_ID || flowsJson.KYC_ONBOARDING.id || "",
+  },
+  SEND_MONEY: {
+    ...flowsJson.SEND_MONEY,
+    id: process.env.WHATSAPP_FLOW_SEND_MONEY_ID || flowsJson.SEND_MONEY.id || "",
+  },
+  BUY_AIRTIME: {
+    ...flowsJson.BUY_AIRTIME,
+    id: process.env.WHATSAPP_FLOW_AIRTIME_ID || flowsJson.BUY_AIRTIME.id || "",
+  },
+} as const;
+
+export type FlowKey = keyof typeof FLOW_DEFS;
+
+/** Plain id map (kept so existing FLOWS.X call sites keep working). */
 export const FLOWS = {
-  KYC_ONBOARDING: process.env.WHATSAPP_FLOW_KYC_ID || "",
-  SEND_MONEY: process.env.WHATSAPP_FLOW_SEND_MONEY_ID || "",
-  BUY_AIRTIME: process.env.WHATSAPP_FLOW_AIRTIME_ID || "",
+  KYC_ONBOARDING: FLOW_DEFS.KYC_ONBOARDING.id,
+  SEND_MONEY: FLOW_DEFS.SEND_MONEY.id,
+  BUY_AIRTIME: FLOW_DEFS.BUY_AIRTIME.id,
 } as const;
 
 // ============================================
-// WhatsApp Template Names (pre-approved in Meta Business Manager)
-// Variables: {{1}} = username, {{2}} = link
+// WhatsApp Message Templates (source of truth: src/config/templates.json)
+// ============================================
+// Design template names + language + params in templates.json (must match
+// what is approved in Meta Business Manager). Env vars below are optional
+// overrides (handy for staging/prod without editing the file).
 //
 // WELCOME_CREATE_WALLET is the business-initiated intro (new users only).
 // Create it in Meta Business Manager as UTILITY, e.g. body:
@@ -39,47 +64,68 @@ export const FLOWS = {
 // ============================================
 export const TEMPLATES = {
   WELCOME_CREATE_WALLET: {
-    NAME: "onboarding_message",
-    LANGUAGE: "en",
+    NAME: process.env.WHATSAPP_TEMPLATE_WELCOME || templatesJson.WELCOME_CREATE_WALLET.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.WELCOME_CREATE_WALLET.language,
     // {{1}} = user name
   },
   KYC_OTP: {
-    NAME: "kyc_otp",
-    LANGUAGE: "en",
+    NAME: process.env.WHATSAPP_TEMPLATE_KYC_OTP || templatesJson.KYC_OTP.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.KYC_OTP.language,
     // {{1}} = OTP code
-    getOtp: (otp: string) => ({ otp }),
   },
   KYC_APPROVED: {
-    NAME: "kyc_approved",
-    LANGUAGE: "en",
+    NAME: process.env.WHATSAPP_TEMPLATE_KYC_APPROVED || templatesJson.KYC_APPROVED.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.KYC_APPROVED.language,
     // {{1}} = user name
   },
   KYC_REJECTED: {
-    NAME: "kyc_rejected",
-    LANGUAGE: "en",
+    NAME: process.env.WHATSAPP_TEMPLATE_KYC_REJECTED || templatesJson.KYC_REJECTED.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.KYC_REJECTED.language,
     // {{1}} = user name, {{2}} = reason
   },
   ACCOUNT_CREATED: {
-    NAME: "account_created",
-    LANGUAGE: "en",
+    NAME: process.env.WHATSAPP_TEMPLATE_ACCOUNT_CREATED || templatesJson.ACCOUNT_CREATED.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.ACCOUNT_CREATED.language,
     // {{1}} = user name, {{2}} = bank, {{3}} = account number, {{4}} = account name
   },
   PAYMENT_RECEIVED: {
-    NAME: "payment_received",
-    LANGUAGE: "en",
+    NAME: process.env.WHATSAPP_TEMPLATE_PAYMENT_RECEIVED || templatesJson.PAYMENT_RECEIVED.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.PAYMENT_RECEIVED.language,
     // {{1}} = user name, {{2}} = amount, {{3}} = from, {{4}} = reference
   },
   TRANSFER_COMPLETE: {
-    NAME: "transfer_complete",
-    LANGUAGE: "en",
-    VARIABLES: ["amount", "recipient_name", "recipient_bank", "recipient_account", "reference"],
+    NAME: process.env.WHATSAPP_TEMPLATE_TRANSFER_COMPLETE || templatesJson.TRANSFER_COMPLETE.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.TRANSFER_COMPLETE.language,
+    VARIABLES: templatesJson.TRANSFER_COMPLETE.params,
   },
   TRANSFER_FAILED: {
-    NAME: "transfer_failed",
-    LANGUAGE: "en",
-    // {{1}} = user name, {{2}} = amount, {{3}} = to, {{4}} = reason
+    NAME: process.env.WHATSAPP_TEMPLATE_TRANSFER_FAILED || templatesJson.TRANSFER_FAILED.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.TRANSFER_FAILED.language,
+    VARIABLES: templatesJson.TRANSFER_FAILED.params,
+  },
+  LOGIN_OTP: {
+    NAME: process.env.WHATSAPP_TEMPLATE_LOGIN_OTP || templatesJson.LOGIN_OTP.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.LOGIN_OTP.language,
+    // {{1}} = OTP code
+  },
+  LOW_BALANCE: {
+    NAME: process.env.WHATSAPP_TEMPLATE_LOW_BALANCE || templatesJson.LOW_BALANCE.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.LOW_BALANCE.language,
+    // {{1}} = user name, {{2}} = balance
+  },
+  WELCOME_PROMO: {
+    NAME: process.env.WHATSAPP_TEMPLATE_WELCOME_PROMO || templatesJson.WELCOME_PROMO.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.WELCOME_PROMO.language,
+    // {{1}} = user name
+  },
+  REFERRAL_PROMO: {
+    NAME: process.env.WHATSAPP_TEMPLATE_REFERRAL_PROMO || templatesJson.REFERRAL_PROMO.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.REFERRAL_PROMO.language,
+    // {{1}} = user name, {{2}} = amount, {{3}} = link
   },
 } as const;
+
+export type TemplateKey = keyof typeof TEMPLATES;
 
 // ============================================
 // Limits
