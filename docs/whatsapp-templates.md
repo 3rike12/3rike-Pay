@@ -36,7 +36,8 @@ Body: Hi {{1}}, you received ₦{{2}} from {{3}}. Ref: {{4}}. Type *start* for d
 
 Template Name: transfer_complete
 Category: UTILITY
-Body: Hi {{1}}, your transfer of ₦{{2}} to {{3}} ({{4}}) is complete. Ref: {{5}}.
+Status: ACTIVE (approved 5 Aug 2026)
+Body: Hi! Your 3rike Pay transfer has been completed successfully. Here are the details: Amount: {{1}} Recipient: {{2}} Bank: {{3}} Account: {{4}} Reference: {{5}} Type *start* for more options.
 
 Template Name: transfer_failed
 Category: UTILITY

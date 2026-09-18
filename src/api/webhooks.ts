@@ -8,7 +8,7 @@ import { whatsapp } from "@/services/whatsapp";
 import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
 import { cleanPhone, formatAmount, redactSensitiveText } from "@/utils/helpers";
-import { TEMPLATES, MESSAGES } from "@/config/constants";
+import { TEMPLATES } from "@/config/constants";
 
 const router = Router();
 
@@ -324,13 +324,15 @@ async function handleTransferEvent(event: string, data: any) {
           const bank = transaction.bankName || "Bank";
           const account = transaction.bankAccount || "";
 
-          await whatsapp.sendTemplateOrText(
+          const sent = await whatsapp.sendTemplate(
             user.phone,
             TEMPLATES.TRANSFER_COMPLETE.NAME,
             [amount, recipient, bank, account, transaction.reference],
-            TEMPLATES.TRANSFER_COMPLETE.LANGUAGE,
-            MESSAGES.FALLBACK.TRANSFER_COMPLETE(amount, recipient, bank, account, transaction.reference)
+            TEMPLATES.TRANSFER_COMPLETE.LANGUAGE
           );
+          if (!sent) {
+            logger.warn("transfer_complete template send failed", { reference: transaction.reference });
+          }
         } else {
           await whatsapp.sendTextMessage(
             user.phone,
