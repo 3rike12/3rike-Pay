@@ -137,12 +137,18 @@ export function wordsToNumber(text: string): number | null {
 }
 
 export function parseAmountFromText(text: string): number | null {
-  // Try numeric first
-  const numeric = extractAmount(text);
-  if (numeric !== null) return numeric;
+  // Try numeric first (anywhere in the text, not just the whole string)
+  const numericMatch = text.match(/\b(\d{1,9}(?:,\d{3})*(?:\.\d{1,2})?)\b/);
+  if (numericMatch) {
+    const value = parseFloat(numericMatch[1].replace(/,/g, ""));
+    if (!isNaN(value)) return value;
+  }
 
   // Try words
-  return wordsToNumber(text);
+  const wordsValue = wordsToNumber(text);
+  if (wordsValue !== null) return wordsValue;
+
+  return null;
 }
 
 export function extractAccountNumber(text: string): string | null {
