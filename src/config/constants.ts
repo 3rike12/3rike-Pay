@@ -25,6 +25,23 @@ export const DRY_RUN_FLOWS = {
 export type DryRunFlow = (typeof DRY_RUN_FLOWS)[keyof typeof DRY_RUN_FLOWS];
 
 // ============================================
+// Bot Session States
+// ============================================
+export const SESSION_STATE = {
+  IDLE: "idle",
+  KYC_FLOW: "kyc_flow",
+  SEND_MONEY: "send_money",
+  SELECT_BANK: "select_bank",
+  ENTER_ACCOUNT: "enter_account",
+  CONFIRM_TRANSFER: "confirm_transfer",
+  BUY_AIRTIME_NETWORK: "buy_airtime_network",
+  BUY_AIRTIME_AMOUNT: "buy_airtime_amount",
+  BUY_AIRTIME_CONFIRM: "buy_airtime_confirm",
+} as const;
+
+export type SessionState = (typeof SESSION_STATE)[keyof typeof SESSION_STATE];
+
+// ============================================
 // Triggers & Keywords
 // ============================================
 export const TRIGGERS = {

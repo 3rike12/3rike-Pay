@@ -13,7 +13,7 @@ import {
 import { generateReference, generateTransactionReference, formatAmount, extractAmount, redactSensitiveText, redactPhone } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
-import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS } from "@/config/constants";
+import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
 
 const logger = createLogger("bot");
 
@@ -29,7 +29,7 @@ function resolveDryRunFlow(input: string): string | undefined {
     case "kyc_onboarding":
       return DRY_RUN_FLOWS.KYC_ONBOARDING;
     case "send":
-    case "send_money":
+    case SESSION_STATE.SEND_MONEY:
     case "transfer":
       return DRY_RUN_FLOWS.SEND_MONEY;
     case "airtime":
@@ -48,7 +48,7 @@ async function startDryRunTransferFlow(phone: string, user: any) {
     accountNumber: "1234567890",
     accountName: "Dry Run Recipient",
   };
-  await updateSession(user.id, "confirm_transfer", { ...dryTransfer });
+  await updateSession(user.id, SESSION_STATE.CONFIRM_TRANSFER, { ...dryTransfer });
   return whatsapp.sendButtonsMessage(
     phone,
     MESSAGES.SEND_MONEY.CONFIRM(
@@ -84,7 +84,7 @@ const KYC_OTP_MAX_ATTEMPTS = 3;
  * written out verbatim - a BVN is the single most sensitive identifier a
  * Nigerian user has.
  */
-const SENSITIVE_STATES = new Set(["kyc_verify", "kyc_otp", "kyc_flow"]);
+const SENSITIVE_STATES = new Set(["kyc_verify", "kyc_otp", SESSION_STATE.KYC_FLOW]);
 
 function redactForLog(state: string, text: string): string {
   if (SENSITIVE_STATES.has(state)) return `[redacted ${text.trim().length} chars]`;
@@ -274,7 +274,7 @@ export async function handleMessage(
     if (action) {
       // Template button tap (some other payload id): Flow already opened
       // client-side. Silent ack only - no message back.
-      await updateSession(user.id, "kyc_flow", {}).catch(() => {});
+      await updateSession(user.id, SESSION_STATE.KYC_FLOW, {}).catch(() => {});
       return true;
     }
     // Plain typed text ("create wallet" with no button tap): nothing is open
@@ -352,23 +352,23 @@ export async function handleMessage(
   // so instead.
   try {
     switch (state) {
-      case "idle":
+      case SESSION_STATE.IDLE:
         return await handleIdle(phone, user, action, messageText);
-      case "send_money":
+      case SESSION_STATE.SEND_MONEY:
         return await handleSendMoney(phone, user, flowData, messageText);
-      case "select_bank":
+      case SESSION_STATE.SELECT_BANK:
         return await handleSelectBank(phone, user, flowData, action, messageText);
-      case "enter_account":
+      case SESSION_STATE.ENTER_ACCOUNT:
         return await handleEnterAccount(phone, user, flowData, messageText);
-      case "confirm_transfer":
+      case SESSION_STATE.CONFIRM_TRANSFER:
         return await handleConfirmTransfer(phone, user, flowData, action);
-      case "buy_airtime_network":
+      case SESSION_STATE.BUY_AIRTIME_NETWORK:
         return await handleBuyAirtimeNetwork(phone, user, action);
-      case "buy_airtime_amount":
+      case SESSION_STATE.BUY_AIRTIME_AMOUNT:
         return await handleBuyAirtimeAmount(phone, user, flowData, messageText);
-      case "buy_airtime_confirm":
+      case SESSION_STATE.BUY_AIRTIME_CONFIRM:
         return await handleBuyAirtimeConfirm(phone, user);
-      case "kyc_flow":
+      case SESSION_STATE.KYC_FLOW:
         // Form is open on the user's phone; the Flow endpoint owns the steps.
         // If they are already verified, the session is stale (form completed but
         // state not yet refreshed) - send the menu instead of the waiting nudge.
@@ -404,14 +404,14 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     return startKyc(phone, user);
   }
 
-  if (action === "send_money") {
+  if (action === SESSION_STATE.SEND_MONEY) {
     if (!user.bankAccount?.accountNumber) {
       return whatsapp.sendButtonsMessage(phone, MESSAGES.KYC_PROMPT.TEXT, [
         { id: "btn_kyc", title: "Verify Now" },
         { id: "btn_menu", title: "Main Menu" },
       ]);
     }
-    await updateSession(user.id, "send_money", {});
+    await updateSession(user.id, SESSION_STATE.SEND_MONEY, {});
     return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
   }
 
@@ -444,7 +444,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     if (!user.bankAccount?.accountNumber) {
       return startKyc(phone, user);
     }
-    await updateSession(user.id, "send_money", {});
+    await updateSession(user.id, SESSION_STATE.SEND_MONEY, {});
     return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
   }
 
@@ -480,7 +480,7 @@ async function handleSendMoney(phone: string, user: any, flowData: FlowData, tex
     if (amount > LIMITS.MAX_TRANSFER) {
       return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.AMOUNT_TOO_LARGE(formatAmount(LIMITS.MAX_TRANSFER)));
     }
-    await updateSession(user.id, "select_bank", { amount });
+    await updateSession(user.id, SESSION_STATE.SELECT_BANK, { amount });
     return whatsapp.sendTextMessage(phone, `Send ${formatAmount(amount)}\n\n${MESSAGES.SEND_MONEY.PROMPT_BANK}`);
   }
   // Unreachable in practice (an amount always moves to select_bank), but never
@@ -501,7 +501,7 @@ async function handleSelectBank(phone: string, user: any, flowData: FlowData, ac
       MESSAGES.BANKS.FALLBACK.find((b) => b.code === bankCode)?.title ||
       bankCode;
 
-    await updateSession(user.id, "enter_account", {
+    await updateSession(user.id, SESSION_STATE.ENTER_ACCOUNT, {
       ...flowData,
       bankCode,
       bankName,
@@ -525,7 +525,7 @@ async function handleSelectBank(phone: string, user: any, flowData: FlowData, ac
   }
 
   const shown = matches.slice(0, LIST_MAX_ROWS);
-  await updateSession(user.id, "select_bank", { ...flowData, bankChoices: shown });
+  await updateSession(user.id, SESSION_STATE.SELECT_BANK, { ...flowData, bankChoices: shown });
 
   const body =
     matches.length > LIST_MAX_ROWS
@@ -545,7 +545,7 @@ async function handleEnterAccount(phone: string, user: any, flowData: FlowData, 
     const resolved = await autoramp.nameEnquiry(flowData.bankCode as string, accountNumber);
     const accountName = resolved.accountName || "Unknown";
 
-    await updateSession(user.id, "confirm_transfer", { ...flowData, accountNumber, accountName });
+    await updateSession(user.id, SESSION_STATE.CONFIRM_TRANSFER, { ...flowData, accountNumber, accountName });
     return whatsapp.sendButtonsMessage(
       phone,
       MESSAGES.SEND_MONEY.CONFIRM(formatAmount(flowData.amount as number), flowData.bankName as string, accountNumber, accountName),
@@ -578,7 +578,7 @@ async function handleConfirmTransfer(phone: string, user: any, flowData: FlowDat
       status: "pending_pin",
     });
 
-    await updateSession(user.id, "confirm_transfer", {
+    await updateSession(user.id, SESSION_STATE.CONFIRM_TRANSFER, {
       ...flowData,
       pendingTransfer: {
         reference,
@@ -633,7 +633,7 @@ async function handleConfirmTransfer(phone: string, user: any, flowData: FlowDat
 async function handleBuyAirtimeNetwork(phone: string, user: any, action?: string) {
   if (action?.startsWith("network_")) {
     const network = action.replace("network_", "");
-    await updateSession(user.id, "buy_airtime_amount", { network });
+    await updateSession(user.id, SESSION_STATE.BUY_AIRTIME_AMOUNT, { network });
     return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.PROMPT_PHONE);
   }
   return whatsapp.sendTextMessage(phone, "Please select a network provider:");
@@ -642,7 +642,7 @@ async function handleBuyAirtimeNetwork(phone: string, user: any, action?: string
 async function handleBuyAirtimeAmount(phone: string, user: any, flowData: FlowData, text: string) {
   const phoneNum = text.replace(/[^0-9+]/g, "");
   if (phoneNum.length >= 10) {
-    await updateSession(user.id, "buy_airtime_confirm", { ...flowData, phoneToRecharge: phoneNum });
+    await updateSession(user.id, SESSION_STATE.BUY_AIRTIME_CONFIRM, { ...flowData, phoneToRecharge: phoneNum });
     return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.PROMPT_AMOUNT);
   }
   return whatsapp.sendTextMessage(phone, "Please enter a valid phone number:");
@@ -757,7 +757,7 @@ async function startKyc(phone: string, user: any) {
     // any chat text typed while the form is open gets a gentle nudge back
     // to the form instead of a fresh main menu (which reads as the bot
     // "sending another message"). Return immediately: no second send.
-    await updateSession(user.id, "kyc_flow", {}).catch(() => {});
+    await updateSession(user.id, SESSION_STATE.KYC_FLOW, {}).catch(() => {});
     return true;
   }
 
