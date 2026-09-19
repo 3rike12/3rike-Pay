@@ -27,6 +27,11 @@
   "license": "ISC",
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/ioredis": "^4.28.10",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^20.11.0",
     "axios": "^1.7.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
@@ -38,11 +43,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
-    "@types/ioredis": "^4.28.10",
-    "@types/morgan": "^1.9.9",
-    "@types/node": "^20.11.0",
     "prisma": "^6.19.3",
     "ts-node-dev": "^2.0.0",
     "tsc-alias": "^1.9.1",

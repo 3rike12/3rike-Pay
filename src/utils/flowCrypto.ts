@@ -61,7 +61,7 @@ export function decryptFlowRequest(body: any): DecryptedFlowRequest {
 }
 
 export function encryptFlowResponse(response: any, aesKey: Buffer, iv: Buffer): string {
-  const flippedIv = Buffer.from(iv.map((b) => ~b));
+  const flippedIv = Buffer.from(iv.map((b: number) => ~b));
   const cipher = crypto.createCipheriv(`aes-${aesKey.length * 8}-gcm` as any, aesKey, flippedIv);
   return Buffer.concat([
     cipher.update(JSON.stringify(response), "utf8"),

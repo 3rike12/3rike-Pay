@@ -43,7 +43,7 @@ app.use(express.json({ limit: "10mb" }));
 // ============================================
 // Health check
 // ============================================
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: express.Request, res: express.Response) => {
   res.json({
     status: "ok",
     service: config.app.name,
@@ -67,7 +67,7 @@ const webDist = path.join(__dirname, "../web/dist");
 app.use(express.static(webDist));
 
 // SPA fallback - serve index.html for all non-API routes
-app.get("*", (req, res) => {
+app.get("*", (req: express.Request, res: express.Response) => {
   if (req.path.startsWith("/api/") || req.path.startsWith("/webhook/") || req.path === "/health") {
     return res.status(404).json({ error: "Not found" });
   }
