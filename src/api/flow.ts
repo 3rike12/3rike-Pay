@@ -207,12 +207,17 @@ async function handleOtp(userId: string, data: any) {
 }
 
 async function handlePin(userId: string, data: any) {
-  const pin = String(data.pin || "").replace(/[^0-9]/g, "");
-  const confirmPin = String(data.confirm_pin || "").replace(/[^0-9]/g, "");
+  const rawPin = String(data.pin || "").trim();
+  const rawConfirmPin = String(data.confirm_pin || "").trim();
+  const pin = rawPin.replace(/[^0-9]/g, "");
+  const confirmPin = rawConfirmPin.replace(/[^0-9]/g, "");
   logger.info("Flow PIN received", { userId, pinLength: pin.length });
 
-  if (pin.length !== 4) {
-    return screen("PIN", { error_message: "PIN must be exactly 4 digits." });
+  if (!/^\d{4}$/.test(pin)) {
+    return screen("PIN", { error_message: "PIN must be exactly 4 digits and contain only numbers." });
+  }
+  if (!/^\d{4}$/.test(confirmPin)) {
+    return screen("PIN", { error_message: "Confirm PIN must be exactly 4 digits and contain only numbers." });
   }
   if (pin !== confirmPin) {
     return screen("PIN", { error_message: "PINs do not match. Try again." });

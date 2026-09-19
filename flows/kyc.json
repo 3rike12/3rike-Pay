@@ -14,6 +14,7 @@
       "id": "IDENTITY",
       "title": "Verify your identity",
       "data": {},
+      "sensitive": ["id_type", "id_number", "email"],
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
@@ -110,6 +111,7 @@
     {
       "id": "OTP",
       "title": "Enter your code",
+      "sensitive": ["otp"],
       "data": {
         "message": {
           "type": "string",
@@ -147,6 +149,7 @@
     {
       "id": "PIN",
       "title": "Create PIN",
+      "sensitive": ["pin", "confirm_pin"],
       "data": {},
       "layout": {
         "type": "SingleColumnLayout",
@@ -160,14 +163,18 @@
                 "type": "TextInput",
                 "name": "pin",
                 "label": "4-digit PIN",
-                "input-type": "number",
+                "min-chars": 4,
+                "max-chars": 4,
+                "input-type": "passcode",
                 "required": true
               },
               {
                 "type": "TextInput",
                 "name": "confirm_pin",
                 "label": "Confirm PIN",
-                "input-type": "number",
+                "min-chars": 4,
+                "max-chars": 4,
+                "input-type": "passcode",
                 "required": true
               },
               {

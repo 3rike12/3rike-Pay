@@ -2,14 +2,34 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
-const PRIVATE_KEY_PATH =
-  process.env.FLOW_PRIVATE_KEY_PATH || path.resolve(process.cwd(), "secrets/flow_private.pem");
-
 const GCM_TAG_LENGTH = 16;
 
+function loadPrivateKey(): string {
+  // Priority:
+  // 1. Raw PEM in env (useful for deployment platforms with secret env vars)
+  // 2. Base64-encoded PEM in env (useful when newlines are hard to handle)
+  // 3. File on disk (local development)
+  if (process.env.FLOW_PRIVATE_KEY) {
+    return process.env.FLOW_PRIVATE_KEY.trim();
+  }
+
+  if (process.env.FLOW_PRIVATE_KEY_BASE64) {
+    return Buffer.from(process.env.FLOW_PRIVATE_KEY_BASE64, "base64").toString("utf8").trim();
+  }
+
+  const keyPath =
+    process.env.FLOW_PRIVATE_KEY_PATH || path.resolve(process.cwd(), "secrets/flow_private.pem");
+  return fs.readFileSync(keyPath, "utf8").trim();
+}
+
+let cachedKey: string | null = null;
+
 function getPrivateKey(): crypto.KeyObject {
+  if (!cachedKey) {
+    cachedKey = loadPrivateKey();
+  }
   return crypto.createPrivateKey({
-    key: fs.readFileSync(PRIVATE_KEY_PATH, "utf8"),
+    key: cachedKey,
     passphrase: process.env.FLOW_PRIVATE_KEY_PASSPHRASE || undefined,
   });
 }

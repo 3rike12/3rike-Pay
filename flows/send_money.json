@@ -10,6 +10,7 @@
       "title": "Authorize transfer",
       "terminal": true,
       "success": true,
+      "sensitive": ["pin"],
       "data": {
         "transfer_summary": {
           "type": "string",
@@ -35,7 +36,9 @@
                 "type": "TextInput",
                 "name": "pin",
                 "label": "4-digit PIN",
-                "input-type": "number",
+                "min-chars": 4,
+                "max-chars": 4,
+                "input-type": "passcode",
                 "required": true,
                 "helper-text": "Your PIN authorizes this transaction"
               },
