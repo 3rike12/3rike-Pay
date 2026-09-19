@@ -54,9 +54,14 @@ function summaryOf(transfer: PendingTransfer): string {
   return `Amount: ₦${formatAmount(transfer.amount)}\nTo: ${transfer.accountName}\nAccount: ${transfer.accountNumber} - ${transfer.bankName}`;
 }
 
-/** Single-screen flow: VERIFY_PIN is terminal, so returning it closes the form. */
-function closeFlow(data: Record<string, unknown> = {}) {
-  return screen("VERIFY_PIN", data);
+/** PIN verified successfully — route to the terminal close screen. */
+function closeFlow() {
+  return screen("AUTHORIZED");
+}
+
+/** Stay on PIN screen so the user can retry after a validation error. */
+function pinScreen(data: Record<string, unknown> = {}) {
+  return pinScreen( data);
 }
 
 /**
@@ -142,7 +147,7 @@ async function handleVerifyPin(userId: string, data: any) {
   }
 
   if (pin.length !== 4) {
-    return screen("VERIFY_PIN", {
+    return pinScreen( {
       transfer_summary: summaryOf(transfer),
       error_message: "Enter a 4-digit PIN.",
     });
@@ -183,7 +188,7 @@ async function handleVerifyPin(userId: string, data: any) {
     }
 
     await setPendingTransfer(userId, { ...transfer, pinAttempts: attempts });
-    return screen("VERIFY_PIN", {
+    return pinScreen( {
       transfer_summary: summaryOf(transfer),
       error_message: `Incorrect PIN. ${remaining} ${remaining === 1 ? "attempt" : "attempts"} left.`,
     });
@@ -278,7 +283,7 @@ router.post("/", async (req: Request, res: Response) => {
     if (!userId || userId === "unused") {
       return res.send(
         encryptFlowResponse(
-          screen("VERIFY_PIN", { error_message: "Session expired. Please start again." }),
+          pinScreen( { error_message: "Session expired. Please start again." }),
           aesKey,
           iv
         )
@@ -290,7 +295,7 @@ router.post("/", async (req: Request, res: Response) => {
       if (!transfer) {
         return res.send(
           encryptFlowResponse(
-            screen("VERIFY_PIN", { error_message: "No pending transfer. Please start again." }),
+            pinScreen( { error_message: "No pending transfer. Please start again." }),
             aesKey,
             iv
           )
@@ -298,7 +303,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
       return res.send(
         encryptFlowResponse(
-          screen("VERIFY_PIN", { transfer_summary: summaryOf(transfer) }),
+          pinScreen( { transfer_summary: summaryOf(transfer) }),
           aesKey,
           iv
         )

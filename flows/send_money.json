@@ -2,15 +2,13 @@
   "version": "7.0",
   "data_api_version": "3.0",
   "routing_model": {
-    "VERIFY_PIN": []
+    "VERIFY_PIN": ["AUTHORIZED"],
+    "AUTHORIZED": []
   },
   "screens": [
     {
       "id": "VERIFY_PIN",
       "title": "Authorize transfer",
-      "terminal": true,
-      "success": true,
-      "sensitive": ["pin"],
       "data": {
         "transfer_summary": {
           "type": "string",
@@ -21,6 +19,7 @@
           "__example__": ""
         }
       },
+      "sensitive": ["pin"],
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
@@ -53,6 +52,21 @@
                 }
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "AUTHORIZED",
+      "title": "Transfer authorized",
+      "terminal": true,
+      "success": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Your transfer is being processed. Check your WhatsApp chat for the confirmation."
           }
         ]
       }
