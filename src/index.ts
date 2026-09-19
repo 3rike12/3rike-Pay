@@ -57,7 +57,7 @@ app.get("/health", (_req, res) => {
 // ============================================
 app.use("/webhook", webhooksRouter);
 app.use("/webhook/notify", notifyRouter);
-app.use("/webhook/flow", flowRouter);
+app.use("/webhook/flow/kyc", flowRouter);
 app.use("/webhook/flow/transfer", transferPinLimiter, transferFlowRouter);
 
 // ============================================
