@@ -30,23 +30,8 @@ interface PendingTransfer {
 async function getPendingTransfer(userId: string): Promise<PendingTransfer | null> {
   const session = await getSession(userId);
   const data = (session.flowData as any)?.pendingTransfer;
-  if (data) return data as PendingTransfer;
-
-  // Session may have expired/reset in Redis; recover from the DB transaction.
-  const tx = await prisma.transaction.findFirst({
-    where: { userId, status: "pending_pin" },
-    orderBy: { createdAt: "desc" },
-  });
-  if (!tx) return null;
-
-  return {
-    reference: tx.reference,
-    amount: tx.amount,
-    bankCode: tx.bankCode || "",
-    bankName: tx.bankName || "",
-    accountNumber: tx.bankAccount || "",
-    accountName: tx.accountName || "",
-  } as PendingTransfer;
+  if (!data) return null;
+  return data as PendingTransfer;
 }
 
 async function setPendingTransfer(userId: string, transfer: PendingTransfer | null) {
