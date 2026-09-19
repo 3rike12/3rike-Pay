@@ -4,7 +4,7 @@ import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
 import { whatsapp } from "@/services/whatsapp";
 import { MESSAGES, TEMPLATES } from "@/config/constants";
-import { prisma, getSession, updateSession, resetSession, updateTransaction } from "@/services/database";
+import { prisma, getSession, updateSession, resetSession, updateTransaction, getTransactionByReference } from "@/services/database";
 import { verifyPin } from "@/utils/pin";
 import { formatAmount, generateReference } from "@/utils/helpers";
 import { decryptFlowRequest, encryptFlowResponse, screen } from "@/utils/flowCrypto";
@@ -194,6 +194,16 @@ async function handleVerifyPin(userId: string, data: any) {
   transfer.reference = reference;
 
   try {
+    // Guard against authorizing a transaction that was already cancelled or completed.
+    const existing = await getTransactionByReference(reference);
+    if (existing && existing.status !== "pending_pin") {
+      logger.warn("Transfer authorization attempted on non-pending transaction", { userId, reference, status: existing.status });
+      await notifyTransferFailed(userId, transfer, "This transaction was already cancelled or completed.");
+      await setPendingTransfer(userId, null);
+      await resetSession(userId).catch(() => {});
+      return closeFlow();
+    }
+
     await updateTransaction(reference, { status: "processing" });
 
     if (config.features.dryRun) {

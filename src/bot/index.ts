@@ -603,6 +603,14 @@ async function handleConfirmTransfer(phone: string, user: any, flowData: FlowDat
     return true;
   }
 
+  // User clicked "No" on a confirmation. If a transaction was already
+  // created (they may have clicked Yes earlier then gone back), mark it
+  // as failed so it cannot be authorized later.
+  const pendingRef = (flowData.pendingTransfer as any)?.reference;
+  if (pendingRef) {
+    await updateTransaction(pendingRef, { status: "failed" }).catch(() => {});
+  }
+
   await resetSession(user.id);
   return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.CANCELLED);
 }

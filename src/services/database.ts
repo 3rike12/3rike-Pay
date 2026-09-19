@@ -103,6 +103,12 @@ export async function createTransaction(params: {
   });
 }
 
+export async function getTransactionByReference(reference: string) {
+  return prisma.transaction.findUnique({
+    where: { reference },
+  });
+}
+
 export async function updateTransaction(
   reference: string,
   data: Record<string, unknown>
