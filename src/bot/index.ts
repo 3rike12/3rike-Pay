@@ -692,14 +692,8 @@ async function handleNaturalTransfer(
   const bank = matches[0];
 
   try {
-    let accountName = "Unknown";
-
-    if (config.features.dryRun) {
-      accountName = (user.name || "Dry Run Recipient").trim() || "Dry Run Recipient";
-    } else {
-      const resolved = await autoramp.nameEnquiry(bank.code, request.accountNumber);
-      accountName = resolved.accountName || "Unknown";
-    }
+    const resolved = await autoramp.nameEnquiry(bank.code, request.accountNumber);
+    const accountName = resolved.accountName || user.name || "Unknown";
 
     await updateSession(user.id, SESSION_STATE.CONFIRM_TRANSFER, {
       amount: request.amount,
