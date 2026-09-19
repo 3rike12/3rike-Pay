@@ -7,6 +7,9 @@ const logger = createLogger("database");
 
 export { prisma };
 
+// Re-export session helpers so existing imports keep working.
+export { getSession, updateSession, resetSession } from "@/services/sessionStore";
+
 // ------- User helpers -------
 
 export async function findOrCreateUser(phone: string, name?: string) {
@@ -28,57 +31,6 @@ export async function findOrCreateUser(phone: string, name?: string) {
     });
   }
   return user;
-}
-
-export async function getSession(userId: string) {
-  let session = await prisma.userSession.findFirst({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
-  if (!session) {
-    session = await prisma.userSession.create({
-      data: { userId, state: "idle", flowData: Prisma.JsonNull },
-    });
-  }
-  return session;
-}
-
-export async function updateSession(
-  userId: string,
-  state: string,
-  flowData?: Record<string, unknown>
-) {
-  const session = await prisma.userSession.findFirst({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
-  if (!session) return null;
-
-  return prisma.userSession.update({
-    where: { id: session.id },
-    data: {
-      state,
-      flowData: (flowData !== undefined ? flowData : session.flowData) as Prisma.InputJsonValue,
-      lastActivity: new Date(),
-    },
-  });
-}
-
-export async function resetSession(userId: string) {
-  const session = await prisma.userSession.findFirst({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
-  if (!session) return null;
-
-  return prisma.userSession.update({
-    where: { id: session.id },
-    data: {
-      state: "idle",
-      flowData: {},
-      lastActivity: new Date(),
-    },
-  });
 }
 
 export async function createTransaction(params: {

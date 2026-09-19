@@ -31,6 +31,10 @@ export const config = {
     webhookSecret: process.env.AUTORAMP_WEBHOOK_SECRET || "",
   },
 
+  redis: {
+    url: process.env.REDIS_URL || "",
+  },
+
   app: {
     name: process.env.APP_NAME || "3rike Pay",
     currency: process.env.APP_CURRENCY || "NGN",
