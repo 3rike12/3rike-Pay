@@ -104,6 +104,19 @@ async function notifyTransferSuccess(userId: string, transfer: PendingTransfer, 
   }
 }
 
+async function notifyTransferInitiated(userId: string, transfer: PendingTransfer, reference: string) {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.phone) return;
+    await whatsapp.sendTextMessage(
+      user.phone,
+      `Transfer of ${formatAmount(transfer.amount)} to ${transfer.accountName} has been initiated. Reference: ${reference}. You will receive a confirmation shortly.`
+    );
+  } catch (error: any) {
+    logger.error("Failed to send transfer initiated message", { userId, error: error.message });
+  }
+}
+
 async function notifyTransferFailed(userId: string, transfer: PendingTransfer, reason: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -220,6 +233,8 @@ async function handleVerifyPin(userId: string, data: any) {
       return closeFlow();
     }
 
+    // Real mode: submit to AutoRamp, tell the user it is in progress,
+    // then let the AutoRamp webhook send the final success/failure message.
     await autoramp.transfer({
       beneficiaryBankCode: transfer.bankCode,
       beneficiaryAccountNumber: transfer.accountNumber,
@@ -228,13 +243,10 @@ async function handleVerifyPin(userId: string, data: any) {
       paymentReference: reference,
     });
 
-    await updateTransaction(reference, { status: "completed" });
-
-    logger.info("Transfer authorized and executed", { userId, reference });
+    logger.info("Transfer submitted to AutoRamp", { userId, reference });
     await setPendingTransfer(userId, null);
     await resetSession(userId).catch(() => {});
-
-    await notifyTransferSuccess(userId, transfer, reference);
+    await notifyTransferInitiated(userId, transfer, reference);
     return closeFlow();
   } catch (error: any) {
     logger.error("Transfer execution failed", { userId, reference, error: error.message });

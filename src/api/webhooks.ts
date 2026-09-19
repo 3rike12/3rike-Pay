@@ -334,10 +334,16 @@ async function handleTransferEvent(event: string, data: any) {
             logger.warn("transfer_complete template send failed", { reference: transaction.reference });
           }
         } else {
-          await whatsapp.sendTextMessage(
+          const name = (user.name || "there").trim() || "there";
+          const sent = await whatsapp.sendTemplate(
             user.phone,
-            `Transfer of ${formatAmount(transaction.amount)} to ${transaction.accountName} failed. Please try again.`
+            TEMPLATES.TRANSFER_FAILED.NAME,
+            [name, formatAmount(transaction.amount), transaction.accountName || "Recipient", "AutoRamp transfer failed"],
+            TEMPLATES.TRANSFER_FAILED.LANGUAGE
           );
+          if (!sent) {
+            logger.warn("transfer_failed template send failed", { reference: transaction.reference });
+          }
         }
       }
     }
