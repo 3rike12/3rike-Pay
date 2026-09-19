@@ -10,7 +10,7 @@ import {
   logWebhookEvent,
   prisma,
 } from "@/services/database";
-import { generateReference, generateTransactionReference, formatAmount, extractAmount, redactSensitiveText, redactPhone } from "@/utils/helpers";
+import { generateReference, generateTransactionReference, formatAmount, extractAmount, redactSensitiveText, redactPhone, parseTransferRequest } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
 import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
@@ -444,6 +444,13 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     if (!user.bankAccount?.accountNumber) {
       return startKyc(phone, user);
     }
+
+    // Try natural-language transfer: "send 5000 to 1234567890 gtbank"
+    const natural = parseTransferRequest(text || "");
+    if (natural) {
+      return handleNaturalTransfer(phone, user, natural);
+    }
+
     await updateSession(user.id, SESSION_STATE.SEND_MONEY, {});
     return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
   }
@@ -652,6 +659,62 @@ async function handleBuyAirtimeConfirm(phone: string, user: any) {
   // TODO: integrate airtime purchase via AutoRamp VAS
   await resetSession(user.id);
   return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
+}
+
+// ============================================
+// Natural-language transfer
+// ============================================
+
+async function handleNaturalTransfer(
+  phone: string,
+  user: any,
+  request: { amount: number; accountNumber: string; bankName: string }
+) {
+  if (request.amount < LIMITS.MIN_TRANSFER) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.INVALID_AMOUNT(formatAmount(LIMITS.MIN_TRANSFER)));
+  }
+  if (request.amount > LIMITS.MAX_TRANSFER) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.AMOUNT_TOO_LARGE(formatAmount(LIMITS.MAX_TRANSFER)));
+  }
+
+  const matches = await searchBanks(request.bankName);
+  if (matches.length === 0) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.NO_BANK_MATCH(request.bankName));
+  }
+
+  const bank = matches[0];
+
+  try {
+    const resolved = await autoramp.nameEnquiry(bank.code, request.accountNumber);
+    const accountName = resolved.accountName || "Unknown";
+
+    await updateSession(user.id, SESSION_STATE.CONFIRM_TRANSFER, {
+      amount: request.amount,
+      bankCode: bank.code,
+      bankName: bank.name,
+      accountNumber: request.accountNumber,
+      accountName,
+    });
+
+    return whatsapp.sendButtonsMessage(
+      phone,
+      MESSAGES.SEND_MONEY.CONFIRM(
+        formatAmount(request.amount),
+        bank.name,
+        request.accountNumber,
+        accountName
+      ),
+      [
+        { id: "confirm_transfer_yes", title: "Yes" },
+        { id: "cancel", title: "No" },
+      ]
+    );
+  } catch (error: any) {
+    return whatsapp.sendTextMessage(
+      phone,
+      `Could not verify account: ${error.message}\nPlease check and try again.`
+    );
+  }
 }
 
 // ============================================
