@@ -47,15 +47,6 @@
     "status": "pending",
     "description": "Inbound payment notification."
   },
-  "TRANSFER_INITIATED": {
-    "name": "transfer_initiated",
-    "language": "en",
-    "category": "UTILITY",
-    "status": "pending",
-    "params": ["user_name", "amount", "recipient", "reference"],
-    "body": "Hi {{1}}, your transfer of ₦{{2}} to {{3}} has been initiated. Ref: {{4}}. You will receive a confirmation shortly.",
-    "description": "Sent right after the user authorizes a transfer with PIN."
-  },
   "TRANSFER_COMPLETE": {
     "name": "transfer_complete",
     "language": "en",

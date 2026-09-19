@@ -108,16 +108,10 @@ async function notifyTransferInitiated(userId: string, transfer: PendingTransfer
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user?.phone) return;
-    const name = (user.name || "there").trim() || "there";
-    const sent = await whatsapp.sendTemplate(
+    await whatsapp.sendTextMessage(
       user.phone,
-      TEMPLATES.TRANSFER_INITIATED.NAME,
-      [name, formatAmount(transfer.amount), transfer.accountName, reference],
-      TEMPLATES.TRANSFER_INITIATED.LANGUAGE
+      `Transfer of ${formatAmount(transfer.amount)} to ${transfer.accountName} has been initiated. Reference: ${reference}. You will receive a confirmation shortly.`
     );
-    if (!sent) {
-      logger.warn("transfer_initiated template send failed", { userId, reference });
-    }
   } catch (error: any) {
     logger.error("Failed to send transfer initiated message", { userId, error: error.message });
   }
