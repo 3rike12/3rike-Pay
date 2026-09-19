@@ -132,6 +132,11 @@ export const TEMPLATES = {
     LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.PAYMENT_RECEIVED.language,
     // {{1}} = user name, {{2}} = amount, {{3}} = from, {{4}} = reference
   },
+  TRANSFER_INITIATED: {
+    NAME: process.env.WHATSAPP_TEMPLATE_TRANSFER_INITIATED || templatesJson.TRANSFER_INITIATED.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.TRANSFER_INITIATED.language,
+    VARIABLES: templatesJson.TRANSFER_INITIATED.params,
+  },
   TRANSFER_COMPLETE: {
     NAME: process.env.WHATSAPP_TEMPLATE_TRANSFER_COMPLETE || templatesJson.TRANSFER_COMPLETE.name,
     LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.TRANSFER_COMPLETE.language,

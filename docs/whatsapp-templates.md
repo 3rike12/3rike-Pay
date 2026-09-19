@@ -34,6 +34,10 @@ Template Name: payment_received
 Category: UTILITY
 Body: Hi {{1}}, you received ₦{{2}} from {{3}}. Ref: {{4}}. Type *start* for details.
 
+Template Name: transfer_initiated
+Category: UTILITY
+Body: Hi {{1}}, your transfer of ₦{{2}} to {{3}} has been initiated. Ref: {{4}}. You will receive a confirmation shortly.
+
 Template Name: transfer_complete
 Category: UTILITY
 Status: ACTIVE (approved 5 Aug 2026)
