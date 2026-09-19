@@ -15,28 +15,6 @@ function isRedisEnabled(): boolean {
   return redis !== null;
 }
 
-async function writeDbSession(userId: string, state: string, flowData?: Record<string, unknown>) {
-  const session = await prisma.userSession.findFirst({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  if (session) {
-    await prisma.userSession.update({
-      where: { id: session.id },
-      data: {
-        state,
-        flowData: (flowData ?? session.flowData) as Prisma.InputJsonValue,
-        lastActivity: new Date(),
-      },
-    });
-  } else {
-    await prisma.userSession.create({
-      data: { userId, state, flowData: (flowData ?? {}) as Prisma.InputJsonValue },
-    });
-  }
-}
-
 export async function getSession(userId: string) {
   if (isRedisEnabled()) {
     try {
@@ -86,17 +64,30 @@ export async function updateSession(
   if (isRedisEnabled()) {
     try {
       await redis!.setex(sessionKey(userId), SESSION_TTL_SECONDS, JSON.stringify(data));
+      return;
     } catch (error: any) {
-      logger.error("Redis updateSession failed", { userId, error: error.message });
+      logger.error("Redis updateSession failed, falling back to DB", { userId, error: error.message });
     }
   }
 
-  // Always persist to the DB too so pending transfers and state survive Redis TTL/expiry.
-  try {
-    await writeDbSession(userId, state, flowData);
-  } catch (error: any) {
-    logger.error("DB updateSession failed", { userId, error: error.message });
-    if (!isRedisEnabled()) throw error;
+  const session = await prisma.userSession.findFirst({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (session) {
+    await prisma.userSession.update({
+      where: { id: session.id },
+      data: {
+        state,
+        flowData: (flowData ?? session.flowData) as Prisma.InputJsonValue,
+        lastActivity: new Date(),
+      },
+    });
+  } else {
+    await prisma.userSession.create({
+      data: { userId, state, flowData: (flowData ?? {}) as Prisma.InputJsonValue },
+    });
   }
 }
 
