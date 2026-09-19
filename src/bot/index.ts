@@ -214,9 +214,11 @@ export async function handleMessage(
     }
 
     const target = lower.replace("/dry ", "").trim();
-    logger.info("Dry-run command", { phone: redactPhone(phone), target });
+    const command = target.split(" ")[0];
+    const args = target.slice(command.length).trim();
+    logger.info("Dry-run command", { phone: redactPhone(phone), command, args });
 
-    const dryFlow = resolveDryRunFlow(target);
+    const dryFlow = resolveDryRunFlow(command);
 
     switch (dryFlow) {
       case DRY_RUN_FLOWS.KYC_ONBOARDING:
@@ -224,7 +226,7 @@ export async function handleMessage(
 
       case DRY_RUN_FLOWS.SEND_MONEY:
         // Try natural-language dry-run transfer, e.g. /dry send 5000 to 1234567890 gtbank
-        const natural = parseTransferRequest(target);
+        const natural = parseTransferRequest(args);
         if (natural) {
           return handleNaturalTransfer(phone, user, natural);
         }
