@@ -223,6 +223,11 @@ export async function handleMessage(
         return startKyc(phone, user);
 
       case DRY_RUN_FLOWS.SEND_MONEY:
+        // Try natural-language dry-run transfer, e.g. /dry send 5000 to 1234567890 gtbank
+        const natural = parseTransferRequest(target);
+        if (natural) {
+          return handleNaturalTransfer(phone, user, natural);
+        }
         return startDryRunTransferFlow(phone, user);
 
       case DRY_RUN_FLOWS.BUY_AIRTIME:
@@ -685,8 +690,12 @@ async function handleNaturalTransfer(
   const bank = matches[0];
 
   try {
-    const resolved = await autoramp.nameEnquiry(bank.code, request.accountNumber);
-    const accountName = resolved.accountName || "Unknown";
+    let accountName = "Dry Run Recipient";
+
+    if (!config.features.dryRun) {
+      const resolved = await autoramp.nameEnquiry(bank.code, request.accountNumber);
+      accountName = resolved.accountName || "Unknown";
+    }
 
     await updateSession(user.id, SESSION_STATE.CONFIRM_TRANSFER, {
       amount: request.amount,
