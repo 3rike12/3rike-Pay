@@ -12,7 +12,7 @@ import {
 } from "@/services/database";
 import { generateReference, formatAmount, extractAmount, redactSensitiveText, redactPhone } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
-import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS } from "@/config/constants";
+import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS } from "@/config/constants";
 
 const logger = createLogger("bot");
 
@@ -282,7 +282,12 @@ export async function handleMessage(
         return await handleBuyAirtimeConfirm(phone, user);
       case "kyc_flow":
         // Form is open on the user's phone; the Flow endpoint owns the steps.
-        // Nudge back to the form - never reset, never re-send the menu.
+        // If they are already verified, the session is stale (form completed but
+        // state not yet refreshed) - send the menu instead of the waiting nudge.
+        if (user.kycStatus === KYC_STATUS.VERIFIED) {
+          await resetSession(user.id);
+          return sendMenuForUser(phone, user);
+        }
         return whatsapp.sendTextMessage(phone, MESSAGES.KYC_FLOW_WAITING.TEXT);
       default:
         await resetSession(user.id);
@@ -637,7 +642,7 @@ async function handleTransactions(phone: string, user: any) {
  * fallback for when the Flow can't be delivered.
  */
 async function startKyc(phone: string, user: any) {
-  if (user.kycStatus === "verified") {
+  if (user.kycStatus === KYC_STATUS.VERIFIED) {
     return whatsapp.sendTextMessage(phone, MESSAGES.KYC_COMPLETE.TEXT);
   }
 

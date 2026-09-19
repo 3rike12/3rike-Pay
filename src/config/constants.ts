@@ -3,6 +3,17 @@ import flowsJson from "./flows.json";
 import templatesJson from "./templates.json";
 
 // ============================================
+// User KYC Status
+// ============================================
+export const KYC_STATUS = {
+  PENDING: "pending",
+  VERIFIED: "verified",
+  REJECTED: "rejected",
+} as const;
+
+export type KycStatus = (typeof KYC_STATUS)[keyof typeof KYC_STATUS];
+
+// ============================================
 // Triggers & Keywords
 // ============================================
 export const TRIGGERS = {

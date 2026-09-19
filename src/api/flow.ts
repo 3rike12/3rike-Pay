@@ -14,7 +14,7 @@ import { generateReference, toWhatsAppPhone, redactPhone } from "@/utils/helpers
 import { handleDryRunFlow } from "@/services/dryRunFlow";
 import { sendAccountCreatedMessage } from "@/services/accountNotification";
 import { hashPin } from "@/utils/pin";
-import { MESSAGES } from "@/config/constants";
+import { MESSAGES, KYC_STATUS } from "@/config/constants";
 import { decryptFlowRequest, encryptFlowResponse, screen } from "@/utils/flowCrypto";
 
 const logger = createLogger("flow");
@@ -224,7 +224,7 @@ async function handlePin(userId: string, data: any) {
   }
 
   await createUserCredential(userId, { pin: hashPin(pin) });
-  await prisma.user.update({ where: { id: userId }, data: { kycStatus: "verified" } });
+  await prisma.user.update({ where: { id: userId }, data: { kycStatus: KYC_STATUS.VERIFIED } });
   await resetSession(userId);
   logger.info("PIN created and session reset", { userId });
 
@@ -268,7 +268,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (action === "INIT") {
       const user = await getUserWithDetails(userId);
-      if (user?.kycStatus === "verified") {
+      if (user?.kycStatus === KYC_STATUS.VERIFIED) {
         await resetSession(userId).catch(() => {});
         return res.send(encryptFlowResponse(screen("COMPLETED"), aesKey, iv));
       }

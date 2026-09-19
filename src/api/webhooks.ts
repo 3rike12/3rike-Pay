@@ -8,7 +8,7 @@ import { whatsapp } from "@/services/whatsapp";
 import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
 import { cleanPhone, formatAmount, redactSensitiveText } from "@/utils/helpers";
-import { TEMPLATES } from "@/config/constants";
+import { TEMPLATES, KYC_STATUS } from "@/config/constants";
 
 const router = Router();
 
@@ -222,7 +222,7 @@ async function handleAccountCreated(data: any) {
       });
       await prisma.user.update({
         where: { id: bankAccount.userId },
-        data: { kycStatus: "verified" },
+        data: { kycStatus: KYC_STATUS.VERIFIED },
       });
     }
   }
