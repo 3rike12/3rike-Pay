@@ -69,9 +69,31 @@ export function extractAmount(text: string): number | null {
   return match ? parseFloat(match[1]) : null;
 }
 
-// ============================================
-// Natural-language transfer parser
-// ============================================
+function expandAmountShorthand(text: string): string {
+  return text
+    .replace(/\b(\d+(?:\.\d{1,2})?)\s?k\b/gi, (_, n) => String(parseFloat(n) * 1000))
+    .replace(/\b(\d+(?:\.\d{1,2})?)\s?kay\b/gi, (_, n) => String(parseFloat(n) * 1000))
+    .replace(/\b(\d+(?:\.\d{1,2})?)\s?m\b/gi, (_, n) => String(parseFloat(n) * 1000000))
+    .replace(/\b(\d+(?:\.\d{1,2})?)\s?milla?\b/gi, (_, n) => String(parseFloat(n) * 1000000));
+}
+
+export function parseAmountFromText(text: string): number | null {
+  // Expand Nigerian slang like 4k, 5k, 1m
+  const expanded = expandAmountShorthand(text);
+
+  // Try numeric first (anywhere in the text)
+  const numericMatch = expanded.match(/\b(\d{1,9}(?:,\d{3})*(?:\.\d{1,2})?)\b/);
+  if (numericMatch) {
+    const value = parseFloat(numericMatch[1].replace(/,/g, ""));
+    if (!isNaN(value)) return value;
+  }
+
+  // Try words
+  const wordsValue = wordsToNumber(expanded);
+  if (wordsValue !== null) return wordsValue;
+
+  return null;
+}
 
 const UNITS: Record<string, number> = {
   zero: 0,
@@ -134,21 +156,6 @@ export function wordsToNumber(text: string): number | null {
 
   const result = total + current;
   return result > 0 ? result : null;
-}
-
-export function parseAmountFromText(text: string): number | null {
-  // Try numeric first (anywhere in the text, not just the whole string)
-  const numericMatch = text.match(/\b(\d{1,9}(?:,\d{3})*(?:\.\d{1,2})?)\b/);
-  if (numericMatch) {
-    const value = parseFloat(numericMatch[1].replace(/,/g, ""));
-    if (!isNaN(value)) return value;
-  }
-
-  // Try words
-  const wordsValue = wordsToNumber(text);
-  if (wordsValue !== null) return wordsValue;
-
-  return null;
 }
 
 export function extractAccountNumber(text: string): string | null {
