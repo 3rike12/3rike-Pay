@@ -1,3 +1,4 @@
+import { config } from "@/config";
 import { Router, Request, Response } from "express";
 import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
@@ -194,6 +195,15 @@ async function handleVerifyPin(userId: string, data: any) {
 
   try {
     await updateTransaction(reference, { status: "processing" });
+
+    if (config.features.dryRun) {
+      logger.info("Transfer dry-run: skipping AutoRamp, mocking completion", { userId, reference });
+      await updateTransaction(reference, { status: "completed" });
+      await setPendingTransfer(userId, null);
+      await resetSession(userId).catch(() => {});
+      await notifyTransferSuccess(userId, transfer, reference);
+      return closeFlow();
+    }
 
     await autoramp.transfer({
       beneficiaryBankCode: transfer.bankCode,

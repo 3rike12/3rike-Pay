@@ -40,11 +40,12 @@ export const config = {
 
   features: {
     /**
-     * Dry-run KYC mode.
-     * When true, the WhatsApp KYC Flow skips AutoRamp and database writes,
-     * accepts any OTP, and returns a fake test account number.
+     * Global dry-run mode.
+     * When true, KYC and transfer flows skip real third-party calls and
+     * database side effects, returning mocked success responses.
+     * KYC_DRY_RUN is still accepted as a legacy alias.
      */
-    kycDryRun: process.env.KYC_DRY_RUN === "true",
+    dryRun: process.env.DRY_RUN === "true" || process.env.KYC_DRY_RUN === "true",
   },
 
   logLevel: process.env.LOG_LEVEL || "debug",

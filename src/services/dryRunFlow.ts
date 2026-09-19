@@ -26,7 +26,7 @@ export async function handleDryRunFlow(
   data: Record<string, unknown>,
   userId: string
 ): Promise<Screen | null> {
-  if (!config.features.kycDryRun) return null;
+  if (!config.features.dryRun) return null;
   if (action !== "data_exchange") return null;
 
   if (currentScreen === "IDENTITY") {
