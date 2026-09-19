@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
@@ -64,15 +65,33 @@ app.use("/webhook/flow/transfer", transferPinLimiter, transferFlowRouter);
 // Serve React frontend (built output)
 // ============================================
 const webDist = path.join(__dirname, "../web/dist");
-app.use(express.static(webDist));
+const webIndex = path.join(webDist, "index.html");
+const hasFrontend = fs.existsSync(webIndex);
 
-// SPA fallback - serve index.html for all non-API routes
-app.get("*", (req: express.Request, res: express.Response) => {
-  if (req.path.startsWith("/api/") || req.path.startsWith("/webhook/") || req.path === "/health") {
-    return res.status(404).json({ error: "Not found" });
-  }
-  res.sendFile(path.join(webDist, "index.html"));
-});
+if (hasFrontend) {
+  app.use(express.static(webDist));
+
+  // SPA fallback - serve index.html for all non-API routes
+  app.get("*", (req: express.Request, res: express.Response) => {
+    if (req.path.startsWith("/api/") || req.path.startsWith("/webhook/") || req.path === "/health") {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.sendFile(webIndex);
+  });
+} else {
+  // No frontend built yet - return a graceful landing response instead of
+  // crashing on requests to the root URL (e.g. Render's uptime check).
+  app.get("*", (req: express.Request, res: express.Response) => {
+    if (req.path.startsWith("/api/") || req.path.startsWith("/webhook/") || req.path === "/health") {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json({
+      service: config.app.name,
+      status: "running",
+      message: "Frontend not built. API is available under /api and /webhook.",
+    });
+  });
+}
 
 // ============================================
 // Error handler
