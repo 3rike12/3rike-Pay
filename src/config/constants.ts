@@ -14,6 +14,17 @@ export const KYC_STATUS = {
 export type KycStatus = (typeof KYC_STATUS)[keyof typeof KYC_STATUS];
 
 // ============================================
+// Dry-run Flow Commands
+// ============================================
+export const DRY_RUN_FLOWS = {
+  KYC_ONBOARDING: "kyc_onboarding",
+  SEND_MONEY: "send_money",
+  BUY_AIRTIME: "buy_airtime",
+} as const;
+
+export type DryRunFlow = (typeof DRY_RUN_FLOWS)[keyof typeof DRY_RUN_FLOWS];
+
+// ============================================
 // Triggers & Keywords
 // ============================================
 export const TRIGGERS = {

@@ -13,11 +13,77 @@ import {
 import { generateReference, formatAmount, extractAmount, redactSensitiveText, redactPhone } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
-import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS } from "@/config/constants";
+import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS } from "@/config/constants";
 
 const logger = createLogger("bot");
 
 type FlowData = Record<string, unknown>;
+
+// ============================================
+// Dry-run helpers
+// ============================================
+function resolveDryRunFlow(input: string): string | undefined {
+  switch (input) {
+    case "kyc":
+    case "onboarding":
+    case "kyc_onboarding":
+      return DRY_RUN_FLOWS.KYC_ONBOARDING;
+    case "send":
+    case "send_money":
+    case "transfer":
+      return DRY_RUN_FLOWS.SEND_MONEY;
+    case "airtime":
+    case "buy_airtime":
+      return DRY_RUN_FLOWS.BUY_AIRTIME;
+    default:
+      return undefined;
+  }
+}
+
+async function startDryRunTransferFlow(phone: string, user: any) {
+  const reference = generateReference("txn");
+  const dryTransfer = {
+    reference,
+    amount: 5000,
+    bankCode: "090267",
+    bankName: "Kuda MFB",
+    accountNumber: "1234567890",
+    accountName: "Dry Run Recipient",
+  };
+  await createTransaction({
+    userId: user.id,
+    reference,
+    type: "transfer",
+    amount: dryTransfer.amount,
+    description: `Transfer to ${dryTransfer.accountName}`,
+    bankCode: dryTransfer.bankCode,
+    bankAccount: dryTransfer.accountNumber,
+    bankName: dryTransfer.bankName,
+    accountName: dryTransfer.accountName,
+    status: "pending_pin",
+  });
+  await updateSession(user.id, "confirm_transfer", {
+    pendingTransfer: dryTransfer,
+  });
+  await whatsapp.sendTextMessage(
+    phone,
+    `[DRY RUN] Transaction ${reference} is in progress. Please enter your PIN to authorize it.`
+  );
+  const sent = await whatsapp.sendFlowMessage(
+    phone,
+    "Enter your 4-digit PIN to authorize this transfer.",
+    FLOWS.SEND_MONEY,
+    "Authorize Transfer",
+    user.id,
+    "VERIFY_PIN"
+  );
+  if (!sent) {
+    await updateTransaction(reference, { status: "failed" });
+    await resetSession(user.id);
+    return whatsapp.sendTextMessage(phone, "[DRY RUN] Could not open the PIN form.");
+  }
+  return true;
+}
 
 // ============================================
 // Build bank list rows (live from AutoRamp)
@@ -171,63 +237,24 @@ export async function handleMessage(
     const target = lower.replace("/dry ", "").trim();
     logger.info("Dry-run command", { phone: redactPhone(phone), target });
 
-    if (target === "kyc") {
-      return startKyc(phone, user);
-    }
+    const dryFlow = resolveDryRunFlow(target);
 
-    if (target === "send" || target === "send_money" || target === "transfer") {
-      const reference = generateReference("txn");
-      const dryTransfer = {
-        reference,
-        amount: 5000,
-        bankCode: "090267",
-        bankName: "Kuda MFB",
-        accountNumber: "1234567890",
-        accountName: "Dry Run Recipient",
-      };
-      await createTransaction({
-        userId: user.id,
-        reference,
-        type: "transfer",
-        amount: dryTransfer.amount,
-        description: `Transfer to ${dryTransfer.accountName}`,
-        bankCode: dryTransfer.bankCode,
-        bankAccount: dryTransfer.accountNumber,
-        bankName: dryTransfer.bankName,
-        accountName: dryTransfer.accountName,
-        status: "pending_pin",
-      });
-      await updateSession(user.id, "confirm_transfer", {
-        pendingTransfer: dryTransfer,
-      });
-      await whatsapp.sendTextMessage(
-        phone,
-        `[DRY RUN] Transaction ${reference} is in progress. Please enter your PIN to authorize it.`
-      );
-      const sent = await whatsapp.sendFlowMessage(
-        phone,
-        "Enter your 4-digit PIN to authorize this transfer.",
-        FLOWS.SEND_MONEY,
-        "Authorize Transfer",
-        user.id,
-        "VERIFY_PIN"
-      );
-      if (!sent) {
-        await updateTransaction(reference, { status: "failed" });
-        await resetSession(user.id);
-        return whatsapp.sendTextMessage(phone, "[DRY RUN] Could not open the PIN form.");
-      }
-      return true;
-    }
+    switch (dryFlow) {
+      case DRY_RUN_FLOWS.KYC_ONBOARDING:
+        return startKyc(phone, user);
 
-    if (target === "airtime") {
-      return whatsapp.sendTextMessage(phone, "[DRY RUN] Airtime flow is not live yet.");
-    }
+      case DRY_RUN_FLOWS.SEND_MONEY:
+        return startDryRunTransferFlow(phone, user);
 
-    return whatsapp.sendTextMessage(
-      phone,
-      "[DRY RUN] Unknown flow. Try: /dry kyc, /dry send, /dry airtime"
-    );
+      case DRY_RUN_FLOWS.BUY_AIRTIME:
+        return whatsapp.sendTextMessage(phone, "[DRY RUN] Airtime flow is not live yet.");
+
+      default:
+        return whatsapp.sendTextMessage(
+          phone,
+          "[DRY RUN] Unknown flow. Try: /dry kyc, /dry send, /dry airtime"
+        );
+    }
   }
 
   // ---- "Create wallet" taps ----
