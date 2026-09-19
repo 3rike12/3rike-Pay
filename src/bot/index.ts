@@ -236,6 +236,17 @@ export async function handleMessage(
     }
   }
 
+  // ---- Dry-run /clear command ----
+  if (lower === "/clear") {
+    if (!config.features.dryRun) {
+      logger.info("Clear command ignored (dry run disabled)", { phone: redactPhone(phone) });
+      return true;
+    }
+    await resetSession(user.id);
+    logger.info("Dry-run session cleared", { phone: redactPhone(phone), userId: user.id });
+    return whatsapp.sendTextMessage(phone, "[DRY RUN] Session cleared.");
+  }
+
   // ---- "Create wallet" taps ----
   // Two different buttons share the text "Create wallet":
   // 1. Our in-chat welcome's plain button (id exactly "create_wallet"). A
