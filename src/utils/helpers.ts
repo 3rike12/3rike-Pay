@@ -156,6 +156,39 @@ export function extractAccountNumber(text: string): string | null {
   return matches ? matches[0] : null;
 }
 
+import messagesJson from "@/config/messages.json";
+
+function extractBankName(text: string): string | null {
+  const lower = text.toLowerCase();
+  const fallbackBanks = messagesJson.BANKS.FALLBACK.map((b) => b.title);
+  const knownBanks = [
+    ...fallbackBanks,
+    "opay",
+    "palmpay",
+    "kuda",
+    "moniepoint",
+  ];
+
+  let best: { name: string; score: number } | null = null;
+
+  for (const bank of knownBanks) {
+    const bankLower = bank.toLowerCase();
+    // Exact token match or substring match
+    const tokens = bankLower.split(/\s+/);
+    for (const token of tokens) {
+      if (!token || token.length < 2) continue;
+      if (lower.includes(token)) {
+        const score = token.length; // longer match is better
+        if (!best || score > best.score) {
+          best = { name: bank, score };
+        }
+      }
+    }
+  }
+
+  return best?.name || null;
+}
+
 export interface NaturalTransferRequest {
   amount: number;
   accountNumber: string;
@@ -180,20 +213,8 @@ export function parseTransferRequest(text: string, requireIntent = true): Natura
 
   if (!amount || !accountNumber) return null;
 
-  // Remove account number and amount digits/words from text, leaving bank candidates
-  let remainder = lower
-    .replace(/\b\d{10}\b/, " ")
-    .replace(/[₦NGN,]/g, " ")
-    .replace(/\d+/g, " ");
+  const bankName = extractBankName(text);
+  if (!bankName) return null;
 
-  // Strip common words
-  remainder = remainder
-    .replace(/\b(send|transfer|pay|to|naira|ngn|into|for|the|of)\b/g, " ")
-    .trim();
-
-  // The longest remaining word/phrase is likely the bank name candidate
-  const bankCandidate = remainder.split(/\s+/).filter(Boolean).join(" ") || "";
-  if (!bankCandidate) return null;
-
-  return { amount, accountNumber, bankName: bankCandidate };
+  return { amount, accountNumber, bankName };
 }
