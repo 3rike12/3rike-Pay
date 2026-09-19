@@ -123,9 +123,9 @@
   "SEND_MONEY.CONFIRM": {
     "params": [
       "amount",
+      "name",
       "bank",
-      "account",
-      "name"
+      "account"
     ],
     "description": "Transfer confirmation summary."
   },
