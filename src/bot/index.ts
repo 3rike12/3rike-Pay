@@ -226,7 +226,7 @@ export async function handleMessage(
 
       case DRY_RUN_FLOWS.SEND_MONEY:
         // Try natural-language dry-run transfer, e.g. /dry send 5000 to 1234567890 gtbank
-        const natural = parseTransferRequest(args);
+        const natural = parseTransferRequest(args, false);
         if (natural) {
           return handleNaturalTransfer(phone, user, natural);
         }

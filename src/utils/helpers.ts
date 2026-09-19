@@ -163,11 +163,11 @@ export interface NaturalTransferRequest {
  *
  * Returns null if any part is missing.
  */
-export function parseTransferRequest(text: string): NaturalTransferRequest | null {
+export function parseTransferRequest(text: string, requireIntent = true): NaturalTransferRequest | null {
   const lower = text.toLowerCase();
 
-  // Must contain transfer intent
-  if (!/\b(send|transfer|pay)\b/.test(lower)) return null;
+  // Must contain transfer intent unless caller already established it
+  if (requireIntent && !/\b(send|transfer|pay)\b/.test(lower)) return null;
 
   const amount = parseAmountFromText(text);
   const accountNumber = extractAccountNumber(text);
