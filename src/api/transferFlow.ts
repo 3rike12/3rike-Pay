@@ -157,7 +157,7 @@ async function handleVerifyPin(userId: string, data: any) {
     where: { userId },
   });
 
-  if (!credentials?.pin) {
+  if (!credentials?.pin && !config.features.dryRun) {
     logger.warn("User has no PIN set", { userId });
     await notifyTransferFailed(userId, transfer, "You have not set a PIN. Please complete setup first.");
     await setPendingTransfer(userId, null);
@@ -165,7 +165,7 @@ async function handleVerifyPin(userId: string, data: any) {
     return closeFlow();
   }
 
-  if (!verifyPin(pin, credentials.pin)) {
+  if (!config.features.dryRun && !verifyPin(pin, credentials?.pin || "")) {
     const attempts = (transfer.pinAttempts || 0) + 1;
     const remaining = MAX_PIN_ATTEMPTS - attempts;
 
