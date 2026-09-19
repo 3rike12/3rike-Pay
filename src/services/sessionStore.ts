@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
-import { redis, SESSION_TTL_SECONDS, sessionKey } from "@/services/redis";
+import { redis, SESSION_TTL_SECONDS, sessionKey, sessionTtlForState } from "@/services/redis";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("session-store");
@@ -63,7 +63,8 @@ export async function updateSession(
 
   if (isRedisEnabled()) {
     try {
-      await redis!.setex(sessionKey(userId), SESSION_TTL_SECONDS, JSON.stringify(data));
+      const ttl = sessionTtlForState(state);
+      await redis!.setex(sessionKey(userId), ttl, JSON.stringify(data));
       return;
     } catch (error: any) {
       logger.error("Redis updateSession failed, falling back to DB", { userId, error: error.message });
