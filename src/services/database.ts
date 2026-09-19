@@ -103,20 +103,6 @@ export async function createTransaction(params: {
   });
 }
 
-import { generateTransactionReference } from "@/utils/helpers";
-
-export async function generateUniqueTransactionReference(maxAttempts = 10): Promise<string> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const reference = generateTransactionReference();
-    const existing = await prisma.transaction.findUnique({
-      where: { reference },
-      select: { id: true },
-    });
-    if (!existing) return reference;
-  }
-  throw new Error("Unable to generate a unique transaction reference");
-}
-
 export async function getTransactionByReference(reference: string) {
   return prisma.transaction.findUnique({
     where: { reference },

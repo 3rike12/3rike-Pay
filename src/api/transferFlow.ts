@@ -4,9 +4,9 @@ import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
 import { whatsapp } from "@/services/whatsapp";
 import { MESSAGES, TEMPLATES } from "@/config/constants";
-import { prisma, getSession, updateSession, resetSession, updateTransaction, getTransactionByReference, generateUniqueTransactionReference } from "@/services/database";
+import { prisma, getSession, updateSession, resetSession, updateTransaction, getTransactionByReference } from "@/services/database";
 import { verifyPin } from "@/utils/pin";
-import { formatAmount } from "@/utils/helpers";
+import { formatAmount, generateTransactionReference } from "@/utils/helpers";
 import { decryptFlowRequest, encryptFlowResponse, screen } from "@/utils/flowCrypto";
 
 const logger = createLogger("transfer-flow");
@@ -190,7 +190,7 @@ async function handleVerifyPin(userId: string, data: any) {
   }
 
   // PIN correct — execute the transfer, notify in chat, close the form.
-  const reference = transfer.reference || (await generateUniqueTransactionReference());
+  const reference = transfer.reference || generateTransactionReference();
   transfer.reference = reference;
 
   try {
