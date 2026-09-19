@@ -67,7 +67,7 @@ async function startDryRunTransferFlow(phone: string, user: any) {
   });
   await whatsapp.sendTextMessage(
     phone,
-    `[DRY RUN] Transaction ${reference} is in progress. Please enter your PIN to authorize it.`
+    `[DRY RUN] Transaction ${reference} is in progress.`,
   );
   const sent = await whatsapp.sendFlowMessage(
     phone,
@@ -602,7 +602,7 @@ async function handleConfirmTransfer(phone: string, user: any, flowData: FlowDat
 
     await whatsapp.sendTextMessage(
       phone,
-      `Transaction ${reference} is in progress. Please enter your PIN to authorize it.`
+      `Transaction ${reference} is in progress.`
     );
 
     const sent = await whatsapp.sendFlowMessage(
