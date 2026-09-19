@@ -326,10 +326,10 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (action === "complete") {
       logger.info("Transfer flow complete", { userId, currentScreen });
-      return res.send(encryptFlowResponse(screen("VERIFY_PIN"), aesKey, iv));
+      return res.send(encryptFlowResponse(screen("AUTHORIZED"), aesKey, iv));
     }
 
-    return res.send(encryptFlowResponse(screen("VERIFY_PIN"), aesKey, iv));
+    return res.send(encryptFlowResponse(pinScreen(), aesKey, iv));
   } catch (error: any) {
     logger.error("Transfer flow handler error", { action, screen: currentScreen, error: error.message });
     try {
