@@ -677,6 +677,14 @@ async function handleNaturalTransfer(
   user: any,
   request: { amount: number; accountNumber: string; bankName: string }
 ) {
+  // Transferring requires the sender to have a verified sub-account.
+  if (!user.bankAccount?.accountNumber) {
+    return whatsapp.sendButtonsMessage(phone, MESSAGES.KYC_PROMPT.TEXT, [
+      { id: "btn_kyc", title: "Verify Now" },
+      { id: "btn_menu", title: "Main Menu" },
+    ]);
+  }
+
   if (request.amount < LIMITS.MIN_TRANSFER) {
     return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.INVALID_AMOUNT(formatAmount(LIMITS.MIN_TRANSFER)));
   }
