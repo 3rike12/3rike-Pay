@@ -41,48 +41,27 @@ function resolveDryRunFlow(input: string): string | undefined {
 }
 
 async function startDryRunTransferFlow(phone: string, user: any) {
-  const reference = generateReference("txn");
   const dryTransfer = {
-    reference,
     amount: 5000,
     bankCode: "090267",
     bankName: "Kuda MFB",
     accountNumber: "1234567890",
     accountName: "Dry Run Recipient",
   };
-  await createTransaction({
-    userId: user.id,
-    reference,
-    type: "transfer",
-    amount: dryTransfer.amount,
-    description: `Transfer to ${dryTransfer.accountName}`,
-    bankCode: dryTransfer.bankCode,
-    bankAccount: dryTransfer.accountNumber,
-    bankName: dryTransfer.bankName,
-    accountName: dryTransfer.accountName,
-    status: "pending_pin",
-  });
-  await updateSession(user.id, "confirm_transfer", {
-    pendingTransfer: dryTransfer,
-  });
-  await whatsapp.sendTextMessage(
+  await updateSession(user.id, "confirm_transfer", { ...dryTransfer });
+  return whatsapp.sendButtonsMessage(
     phone,
-    `[DRY RUN] Transaction ${reference} is in progress.`,
+    MESSAGES.SEND_MONEY.CONFIRM(
+      formatAmount(dryTransfer.amount),
+      dryTransfer.bankName,
+      dryTransfer.accountNumber,
+      dryTransfer.accountName
+    ),
+    [
+      { id: "confirm_transfer_yes", title: "Yes" },
+      { id: "cancel", title: "No" },
+    ]
   );
-  const sent = await whatsapp.sendFlowMessage(
-    phone,
-    "Enter your 4-digit PIN to authorize this transfer.",
-    FLOWS.SEND_MONEY,
-    "Authorize Transfer",
-    user.id,
-    "VERIFY_PIN"
-  );
-  if (!sent) {
-    await updateTransaction(reference, { status: "failed" });
-    await resetSession(user.id);
-    return whatsapp.sendTextMessage(phone, "[DRY RUN] Could not open the PIN form.");
-  }
-  return true;
 }
 
 // ============================================
