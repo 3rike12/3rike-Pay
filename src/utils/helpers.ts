@@ -4,6 +4,13 @@ export function generateReference(prefix: string = "3rik"): string {
   return `${prefix}_${ts}_${rand}`;
 }
 
+export function generateTransactionReference(): string {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `3RIKE-${date}-${rand}`;
+}
+
 export function formatAmount(amount: number): string {
   return new Intl.NumberFormat("en-NG", {
     style: "currency",

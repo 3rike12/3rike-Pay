@@ -6,7 +6,7 @@ import { whatsapp } from "@/services/whatsapp";
 import { MESSAGES, TEMPLATES } from "@/config/constants";
 import { prisma, getSession, updateSession, resetSession, updateTransaction, getTransactionByReference } from "@/services/database";
 import { verifyPin } from "@/utils/pin";
-import { formatAmount, generateReference } from "@/utils/helpers";
+import { formatAmount, generateTransactionReference } from "@/utils/helpers";
 import { decryptFlowRequest, encryptFlowResponse, screen } from "@/utils/flowCrypto";
 
 const logger = createLogger("transfer-flow");
@@ -190,7 +190,7 @@ async function handleVerifyPin(userId: string, data: any) {
   }
 
   // PIN correct — execute the transfer, notify in chat, close the form.
-  const reference = transfer.reference || generateReference("txn");
+  const reference = transfer.reference || generateTransactionReference();
   transfer.reference = reference;
 
   try {
