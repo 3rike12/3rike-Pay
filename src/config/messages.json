@@ -57,6 +57,7 @@
     "BANK_MATCHES": "Found {{count}} matching bank{{plural}}. Pick the right one:",
     "TOO_MANY_MATCHES": "Found {{count}} matching banks - showing the closest 10. If yours isn't here, type more of its name.",
     "CONFIRM": "Confirm transfer:\n\nAmount: {{amount}}\nRecipient: {{name}}\nBank: {{bank}}\nAccount: {{account}}\n\nTap *Yes* to continue or *No* to cancel.",
+    "CANCELLED": "Transfer cancelled. No money was moved.",
     "SUCCESS": "Transfer of {{amount}} to {{name}} initiated!\n\nReference: {{ref}}\nYou'll receive a confirmation shortly.",
     "FAILED": "Transfer failed: {{reason}}\n\nPlease try again or contact support."
   },

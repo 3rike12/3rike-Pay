@@ -129,6 +129,10 @@
     ],
     "description": "Transfer confirmation summary."
   },
+  "SEND_MONEY.CANCELLED": {
+    "params": [],
+    "description": "User cancelled the transfer."
+  },
   "SEND_MONEY.SUCCESS": {
     "params": [
       "amount",

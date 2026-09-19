@@ -219,6 +219,7 @@ export const MESSAGES = {
       render(messagesJson.SEND_MONEY.TOO_MANY_MATCHES, { count }),
     CONFIRM: (amount: string, bank: string, account: string, name: string) =>
       render(messagesJson.SEND_MONEY.CONFIRM, { amount, bank, account, name }),
+    CANCELLED: messagesJson.SEND_MONEY.CANCELLED,
     SUCCESS: (amount: string, name: string, ref: string) =>
       render(messagesJson.SEND_MONEY.SUCCESS, { amount, name, ref }),
     FAILED: (reason: string) => render(messagesJson.SEND_MONEY.FAILED, { reason }),

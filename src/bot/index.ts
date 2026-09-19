@@ -604,7 +604,7 @@ async function handleConfirmTransfer(phone: string, user: any, flowData: FlowDat
   }
 
   await resetSession(user.id);
-  return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
+  return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.CANCELLED);
 }
 
 // ============================================
