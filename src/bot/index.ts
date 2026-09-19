@@ -10,7 +10,8 @@ import {
   logWebhookEvent,
   prisma,
 } from "@/services/database";
-import { generateReference, generateTransactionReference, formatAmount, extractAmount, redactSensitiveText, redactPhone } from "@/utils/helpers";
+import { generateReference, formatAmount, extractAmount, redactSensitiveText, redactPhone } from "@/utils/helpers";
+import { generateUniqueTransactionReference } from "@/services/database";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
 import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS } from "@/config/constants";
@@ -550,7 +551,7 @@ async function handleEnterAccount(phone: string, user: any, flowData: FlowData, 
 
 async function handleConfirmTransfer(phone: string, user: any, flowData: FlowData, action?: string) {
   if (action === "confirm_transfer_yes") {
-    const reference = generateTransactionReference();
+    const reference = await generateUniqueTransactionReference();
 
     // Create the transaction record up front in a pending PIN state.
     // The actual transfer is executed only after the PIN is verified server-side.
