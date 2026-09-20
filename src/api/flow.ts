@@ -71,7 +71,7 @@ async function handleIdentity(userId: string, data: any) {
     await saveFlowData(userId, { identityId: result.identityId, idType, idNumber, email });
     logger.info("Session updated for OTP", { userId });
 
-    return screen("EMAIL");
+    return screen("NAME");
   } catch (error: any) {
     logger.error("Flow IDENTITY failed", { userId, idType, error: error.message });
 

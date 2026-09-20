@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: threerike-pay
+    runtime: node
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_BUSINESS_ACCOUNT_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: AUTORAMP_API_KEY
+        sync: false
+      - key: AUTORAMP_WEBHOOK_SECRET
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: FLOW_PRIVATE_KEY
+        sync: false
+      - key: DRY_RUN
+        sync: false

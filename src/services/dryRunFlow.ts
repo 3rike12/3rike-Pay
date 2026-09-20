@@ -1,6 +1,6 @@
 import { config } from "@/config";
 import { createLogger } from "@/utils/logger";
-import { updateSession } from "@/services/database";
+import { getSession, updateSession } from "@/services/database";
 import { sendAccountCreatedMessage } from "@/services/accountNotification";
 
 const logger = createLogger("dry-run-flow");
@@ -9,6 +9,12 @@ type Screen = { screen: string; data: Record<string, unknown> };
 
 function screen(name: string, data: Record<string, unknown> = {}): Screen {
   return { screen: name, data };
+}
+
+async function saveFlowData(userId: string, data: Record<string, unknown>) {
+  const session = await getSession(userId);
+  const existing = (session.flowData as Record<string, unknown>) || {};
+  await updateSession(userId, "kyc_flow", { ...existing, ...data });
 }
 
 /**
@@ -45,7 +51,7 @@ export async function handleDryRunFlow(
     }
 
     logger.info("Flow IDENTITY dry-run: skipping identity verification");
-    await updateSession(userId, "kyc_flow", {
+    await saveFlowData(userId, {
       identityId: "dry-run-identity-id",
       idType,
       idNumber,
@@ -56,17 +62,47 @@ export async function handleDryRunFlow(
   }
 
   if (currentScreen === "NAME") {
+    const firstName = String(data.first_name || "").trim();
+    const lastName = String(data.last_name || "").trim();
+
+    if (!firstName || !lastName) {
+      return screen("NAME", { error_message: "Enter both first and last name." });
+    }
+
     logger.info("Flow NAME dry-run: skipping");
+    await saveFlowData(userId, { firstName, lastName });
     return screen("OTP", { message: "Dry-run mode: we will not send a real code. Enter any 6 digits to continue." });
   }
 
   if (currentScreen === "OTP") {
+    const otp = String(data.otp || "").replace(/[^0-9]/g, "");
+
+    if (otp.length < 4 || otp.length > 8) {
+      return screen("OTP", {
+        message: "Dry-run mode: enter any 6 digits.",
+        error_message: "That code looks too short.",
+      });
+    }
+
     logger.info("Flow OTP dry-run: returning test account details");
     void sendAccountCreatedMessage(userId, "Safe Haven MFB", "1234567890", "Test User", true).catch(() => {});
     return screen("PIN");
   }
 
   if (currentScreen === "PIN") {
+    const pin = String(data.pin || "").replace(/[^0-9]/g, "");
+    const confirmPin = String(data.confirm_pin || "").replace(/[^0-9]/g, "");
+
+    if (!/^\d{4}$/.test(pin)) {
+      return screen("PIN", { error_message: "PIN must be exactly 4 digits and contain only numbers." });
+    }
+    if (!/^\d{4}$/.test(confirmPin)) {
+      return screen("PIN", { error_message: "Confirm PIN must be exactly 4 digits and contain only numbers." });
+    }
+    if (pin !== confirmPin) {
+      return screen("PIN", { error_message: "PINs do not match. Try again." });
+    }
+
     logger.info("Flow PIN dry-run: skipping");
     return screen("END");
   }
