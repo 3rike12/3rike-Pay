@@ -226,6 +226,8 @@ export const MESSAGES = {
     INVALID_AMOUNT: (min: number | string) =>
       render(messagesJson.SEND_MONEY.INVALID_AMOUNT, { min }),
     AMOUNT_TOO_LARGE: (max: string) => render(messagesJson.SEND_MONEY.AMOUNT_TOO_LARGE, { max }),
+    INSUFFICIENT_BALANCE: (amount: string, balance: string) =>
+      render(messagesJson.SEND_MONEY.INSUFFICIENT_BALANCE, { amount, balance }),
     NO_BANK_MATCH: (query: string) => render(messagesJson.SEND_MONEY.NO_BANK_MATCH, { query }),
     BANK_MATCHES: (count: number) =>
       render(messagesJson.SEND_MONEY.BANK_MATCHES, {

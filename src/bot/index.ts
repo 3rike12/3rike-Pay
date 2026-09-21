@@ -531,6 +531,43 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
 }
 
 // ============================================
+// Balance helpers
+// ============================================
+
+/** Live balance for a user's sub-account, or null when unavailable. */
+async function getUserBalance(user: any): Promise<number | null> {
+  try {
+    const account = await autoramp.getSubAccount(user.bankAccount?.autorampSubId || "");
+    const balance = account?.accountBalance ?? account?.bookBalance;
+    if (balance === undefined || balance === null) return null;
+    return Number(balance);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gate a transfer on having enough balance. Sends the explanatory message and
+ * returns false when the balance is unknown or too low, so the caller can bail
+ * out before touching the bank or the transaction record.
+ */
+async function ensureSufficientBalance(phone: string, user: any, amount: number): Promise<boolean> {
+  const balance = await getUserBalance(user);
+  if (balance === null) {
+    await whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.ERROR);
+    return false;
+  }
+  if (balance < amount) {
+    await whatsapp.sendTextMessage(
+      phone,
+      MESSAGES.SEND_MONEY.INSUFFICIENT_BALANCE(formatAmount(amount), formatAmount(balance))
+    );
+    return false;
+  }
+  return true;
+}
+
+// ============================================
 // Send Money flow
 // ============================================
 
@@ -542,6 +579,9 @@ async function handleSendMoney(phone: string, user: any, flowData: FlowData, tex
     }
     if (amount > LIMITS.MAX_TRANSFER) {
       return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.AMOUNT_TOO_LARGE(formatAmount(LIMITS.MAX_TRANSFER)));
+    }
+    if (!(await ensureSufficientBalance(phone, user, amount))) {
+      return true;
     }
     await updateSession(user.id, SESSION_STATE.SELECT_BANK, { amount });
     return whatsapp.sendTextMessage(phone, `Send ${formatAmount(amount)}\n\n${MESSAGES.SEND_MONEY.PROMPT_BANK}`);
@@ -653,11 +693,6 @@ async function handleConfirmTransfer(phone: string, user: any, flowData: FlowDat
       },
     });
 
-    await whatsapp.sendTextMessage(
-      phone,
-      `Transaction ${reference} is in progress.`
-    );
-
     const sent = await whatsapp.sendFlowMessage(
       phone,
       "Enter your 4-digit PIN to authorize this transfer.",
@@ -739,6 +774,10 @@ async function handleNaturalTransfer(
   }
   if (request.amount > LIMITS.MAX_TRANSFER) {
     return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.AMOUNT_TOO_LARGE(formatAmount(LIMITS.MAX_TRANSFER)));
+  }
+
+  if (!(await ensureSufficientBalance(phone, user, request.amount))) {
+    return true;
   }
 
   const matches = await searchBanks(request.bankName);

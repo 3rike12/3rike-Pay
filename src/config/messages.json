@@ -53,6 +53,7 @@
     "PROMPT_ACCOUNT": "Enter the recipient's account number (10 digits):",
     "INVALID_AMOUNT": "That doesn't look like a valid amount. Enter a number of at least {{min}} (e.g. 5000).",
     "AMOUNT_TOO_LARGE": "That amount is above the {{max}} per-transfer limit. Enter a smaller amount.",
+    "INSUFFICIENT_BALANCE": "Insufficient balance.\n\nYou want to send {{amount}} but your balance is {{balance}}.\n\nTop up your account or enter a smaller amount.",
     "NO_BANK_MATCH": "No bank matched \"{{query}}\".\n\nTry a shorter name - e.g. *zenith*, *kuda*, *opay*, *access*.",
     "BANK_MATCHES": "Found {{count}} matching bank{{plural}}. Pick the right one:",
     "TOO_MANY_MATCHES": "Found {{count}} matching banks - showing the closest 10. If yours isn't here, type more of its name.",
