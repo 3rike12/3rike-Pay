@@ -1,11 +1,11 @@
-import crypto from "crypto";
+import bcrypt from "bcryptjs";
 
-const PIN_SALT = process.env.PIN_SALT || "3rike-pay-pin-salt";
+const BCRYPT_ROUNDS = 10;
 
 export function hashPin(pin: string): string {
-  return crypto.pbkdf2Sync(pin, PIN_SALT, 100000, 64, "sha512").toString("hex");
+  return bcrypt.hashSync(pin, BCRYPT_ROUNDS);
 }
 
 export function verifyPin(pin: string, hash: string): boolean {
-  return hashPin(pin) === hash;
+  return bcrypt.compareSync(pin, hash);
 }
