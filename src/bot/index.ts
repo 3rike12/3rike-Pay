@@ -746,10 +746,10 @@ async function handleCheckBalance(phone: string, user: any) {
   }
 
   try {
-    const account = await autoramp.getSubAccountByReference(user.bankAccount?.autorampSubId || "");
+    const account = await autoramp.getSubAccount(user.bankAccount?.autorampSubId || "");
     const bank = user.bankAccount?.bankName || user.bankAccount?.bankCode || account?.bankName || "Bank";
     const accountNumber = user.bankAccount?.accountNumber || account?.accountNumber || "";
-    const balance = account?.accountBalance ?? account?.balance;
+    const balance = account?.accountBalance ?? account?.bookBalance;
 
     if (balance === undefined || balance === null) {
       return whatsapp.sendTextMessage(

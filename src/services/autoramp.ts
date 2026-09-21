@@ -105,6 +105,23 @@ class AutoRampService {
     }
   }
 
+  /**
+   * Fetch a single sub-account by its AutoRamp id. The list endpoint does not
+   * include the live balance, so this is the correct call for balance checks:
+   * it hits /sub-accounts/{id}, which the provider populates with the current
+   * accountBalance / bookBalance.
+   */
+  async getSubAccount(id: string): Promise<any | null> {
+    if (!id) return null;
+    try {
+      const { data } = await this.client.get(`/merchants/api/sub-accounts/${id}`);
+      return data;
+    } catch (error: any) {
+      logger.error("Failed to fetch sub-account", { id, error: error.response?.data || error.message });
+      return null;
+    }
+  }
+
   // ------- Identity Verification -------
 
   async initiateIdentityVerification(params: {
