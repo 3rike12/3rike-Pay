@@ -254,6 +254,56 @@ export async function handleMessage(
     return whatsapp.sendTextMessage(phone, "[DRY RUN] Session cleared.");
   }
 
+  // ---- Slash commands (/balance, /check_balance, /send, ...) ----
+  // Explicit commands work from any state: the user can interrupt a flow by
+  // typing one. The token is normalised so /check_balance, /check-balance and
+  // /balance all resolve to the same action.
+  if (lower.startsWith("/")) {
+    const cmd = lower.split(/\s+/)[0].slice(1).replace(/[_-]/g, "").toLowerCase();
+
+    switch (cmd) {
+      case "balance":
+      case "checkbalance":
+      case "bal":
+        await resetSession(user.id);
+        return handleCheckBalance(phone, user);
+
+      case "start":
+      case "menu":
+        await resetSession(user.id);
+        return sendMenuForUser(phone, user);
+
+      case "help":
+        return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
+
+      case "send":
+      case "transfer":
+      case "sendmoney":
+        await resetSession(user.id);
+        if (!user.bankAccount?.accountNumber) {
+          return startKyc(phone, user);
+        }
+        await updateSession(user.id, SESSION_STATE.SEND_MONEY, {});
+        return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
+
+      case "transactions":
+      case "history":
+        await resetSession(user.id);
+        return handleTransactions(phone, user);
+
+      case "cancel":
+        await resetSession(user.id);
+        return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
+
+      case "kyc":
+      case "verify":
+        return startKyc(phone, user);
+
+      default:
+        return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
+    }
+  }
+
   // ---- "Create wallet" taps ----
   // Two different buttons share the text "Create wallet":
   // 1. Our in-chat welcome's plain button (id exactly "create_wallet"). A

@@ -79,7 +79,7 @@
     "ERROR": "Could not load transactions. Please try again later."
   },
   "HELP": {
-    "TEXT": "*3rike Pay Commands*\n\n• *start* - Open main menu\n• *help* - Show this help\n• *cancel* - Cancel current action\n\nYou can type *cancel* at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification"
+    "TEXT": "*3rike Pay Commands*\n\n• *start* or /start - Open main menu\n• /balance or /check_balance - Check balance\n• /send - Send money\n• /transactions - View transactions\n• *help* or /help - Show this help\n• *cancel* or /cancel - Cancel current action\n\nYou can type *cancel* at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification"
   },
   "CANCEL": "Session cancelled. Send *start* to begin again.",
   "ERROR": {
