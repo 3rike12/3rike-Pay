@@ -297,7 +297,8 @@ export async function handleMessage(
   // (kept for dedup compatibility), shared with the POST /welcome endpoint
   // so a number never gets both.
   const isNewUser = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
-  if (isNewUser) {
+  const hasAccount = user.kycStatus === KYC_STATUS.VERIFIED || !!user.bankAccount?.accountNumber;
+  if (isNewUser && !hasAccount) {
     await resetSession(user.id).catch(() => {});
     const displayName = displayNameOf(user, name || "there");
 
