@@ -166,6 +166,40 @@ function bankResultsToSections(banks: Array<{ code: string; name: string }>) {
 }
 
 // ============================================
+// Slash commands
+// ============================================
+
+async function startSendMoneyCommand(phone: string, user: any) {
+  if (!user.bankAccount?.accountNumber) {
+    return startKyc(phone, user);
+  }
+  await updateSession(user.id, SESSION_STATE.SEND_MONEY, {});
+  return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
+}
+
+/**
+ * Hashtable of slash commands. Keys are the command token with `/`, `_` and
+ * `-` stripped (so /check_balance, /check-balance and /balance all map to the
+ * same entry). Values are handlers; the dispatcher resets the session first.
+ */
+const SLASH_COMMANDS: Record<string, (phone: string, user: any) => Promise<unknown>> = {
+  balance: handleCheckBalance,
+  checkbalance: handleCheckBalance,
+  bal: handleCheckBalance,
+  start: sendMenuForUser,
+  menu: sendMenuForUser,
+  help: (phone) => whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT),
+  send: startSendMoneyCommand,
+  transfer: startSendMoneyCommand,
+  sendmoney: startSendMoneyCommand,
+  transactions: handleTransactions,
+  history: handleTransactions,
+  cancel: (phone) => whatsapp.sendTextMessage(phone, MESSAGES.CANCEL),
+  kyc: startKyc,
+  verify: startKyc,
+};
+
+// ============================================
 // Main conversation handler
 // ============================================
 
@@ -260,48 +294,12 @@ export async function handleMessage(
   // /balance all resolve to the same action.
   if (lower.startsWith("/")) {
     const cmd = lower.split(/\s+/)[0].slice(1).replace(/[_-]/g, "").toLowerCase();
-
-    switch (cmd) {
-      case "balance":
-      case "checkbalance":
-      case "bal":
-        await resetSession(user.id);
-        return handleCheckBalance(phone, user);
-
-      case "start":
-      case "menu":
-        await resetSession(user.id);
-        return sendMenuForUser(phone, user);
-
-      case "help":
-        return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
-
-      case "send":
-      case "transfer":
-      case "sendmoney":
-        await resetSession(user.id);
-        if (!user.bankAccount?.accountNumber) {
-          return startKyc(phone, user);
-        }
-        await updateSession(user.id, SESSION_STATE.SEND_MONEY, {});
-        return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
-
-      case "transactions":
-      case "history":
-        await resetSession(user.id);
-        return handleTransactions(phone, user);
-
-      case "cancel":
-        await resetSession(user.id);
-        return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
-
-      case "kyc":
-      case "verify":
-        return startKyc(phone, user);
-
-      default:
-        return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
+    const handler = SLASH_COMMANDS[cmd];
+    if (!handler) {
+      return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
     }
+    await resetSession(user.id);
+    return handler(phone, user);
   }
 
   // ---- "Create wallet" taps ----
