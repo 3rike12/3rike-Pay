@@ -17,12 +17,12 @@
   },
   "KYC_OTP": {
     "PROMPT": "We've sent a code to the phone number registered to your ID.\n\nEnter the code here to finish setting up your account.",
-    "INVALID": "That code doesn't look right. Enter the code sent to the phone number registered to your BVN.\n\nType *cancel* to stop.",
-    "RETRY": "That code wasn't accepted. Check it and try again - {{left}} {{leftPlural}} left.\n\nType *cancel* to stop.",
-    "FAILED": "We couldn't verify that code: {{reason}}\n\nType *kyc* to start over, or *help* if you're stuck."
+    "INVALID": "That code doesn't look right. Enter the code sent to the phone number registered to your BVN.\n\nType /cancel to stop.",
+    "RETRY": "That code wasn't accepted. Check it and try again - {{left}} {{leftPlural}} left.\n\nType /cancel to stop.",
+    "FAILED": "We couldn't verify that code: {{reason}}\n\nType /kyc to start over, or /help if you're stuck."
   },
   "KYC_FLOW_WAITING": {
-    "TEXT": "Your verification form is still open - please continue there to finish setting up your wallet.\n\nType *cancel* if you want to stop and start over."
+    "TEXT": "Your verification form is still open - please continue there to finish setting up your wallet.\n\nType /cancel if you want to stop and start over."
   },
   "FALLBACK": {
     "ACCOUNT_CREATED": "Identity verified successfully!\n\nYour account details:\nBank: {{bank}}\nAccount Number: {{account}}\n\nTap *Start* to begin.",
@@ -63,7 +63,7 @@
     "FAILED": "Transfer failed: {{reason}}\n\nPlease try again or contact support."
   },
   "BUY_AIRTIME": {
-    "COMING_SOON": "Airtime and data top-ups aren't live yet - we're finishing the integration.\n\nFor now you can send money and check your balance. Type *start* for the menu.",
+    "COMING_SOON": "Airtime and data top-ups aren't live yet - we're finishing the integration.\n\nFor now you can send money and check your balance. Type /start for the menu.",
     "PROMPT_NETWORK": "Select your network provider:",
     "PROMPT_PHONE": "Enter the phone number to recharge:",
     "PROMPT_AMOUNT": "Enter the airtime amount (e.g. 500):",
@@ -75,16 +75,16 @@
     "ERROR": "Could not fetch balance. Please try again later."
   },
   "TRANSACTIONS": {
-    "TEXT": "*Your Transactions*\n\n{{list}}\n\nType *start* for menu.",
-    "EMPTY": "You haven't made any transactions yet.\n\nType *start* for menu.",
+    "TEXT": "*Your Transactions*\n\n{{list}}\n\nType /start for menu.",
+    "EMPTY": "You haven't made any transactions yet.\n\nType /start for menu.",
     "ERROR": "Could not load transactions. Please try again later."
   },
   "HELP": {
-    "TEXT": "*3rike Pay Commands*\n\n• *start* or /start - Open main menu\n• /balance or /check_balance - Check balance\n• /send - Send money\n• /transactions - View transactions\n• *help* or /help - Show this help\n• *cancel* or /cancel - Cancel current action\n\nYou can type *cancel* at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification"
+    "TEXT": "*3rike Pay Commands*\n\n• /start - Open main menu\n• /balance or /check_balance - Check balance\n• /send - Send money\n• /transactions - View transactions\n• /help - Show this help\n• /cancel - Cancel current action\n\nType /cancel at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification"
   },
-  "CANCEL": "Session cancelled. Send *start* to begin again.",
+  "CANCEL": "Session cancelled. Send /start to begin again.",
   "ERROR": {
-    "GENERIC": "Something went wrong. Please try again or type *start* to restart.",
+    "GENERIC": "Something went wrong. Please try again or type /start to restart.",
     "KYC_FAILED": "Verification failed. Please try again or contact support."
   },
   "BANKS": {

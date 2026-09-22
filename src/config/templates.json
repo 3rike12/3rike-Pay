@@ -53,7 +53,7 @@
     "category": "UTILITY",
     "status": "active",
     "params": ["amount", "recipient_name", "recipient_bank", "recipient_account", "reference"],
-    "body": "Hi! Your 3rike Pay transfer has been completed successfully. Here are the details:\n*Amount*: {{1}}\n*Recipient*: {{2}}\n*Bank*: {{3}}\n*Account*: {{4}}\n*Reference*: {{5}}\n\nType *start* for more options.",
+    "body": "Hi! Your 3rike Pay transfer has been completed successfully. Here are the details:\n*Amount*: {{1}}\n*Recipient*: {{2}}\n*Bank*: {{3}}\n*Account*: {{4}}\n*Reference*: {{5}}\n\nType /start for more options.",
     "description": "Sent when a transfer completes. Param order is canonical — all call sites must match."
   },
   "TRANSFER_FAILED": {

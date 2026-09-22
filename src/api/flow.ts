@@ -202,7 +202,7 @@ async function handleOtp(userId: string, data: any) {
     }
 
     await resetSession(userId);
-    return screen("OTP", { message: MESSAGES.KYC_OTP.PROMPT, error_message: "Too many failed attempts. Type kyc to restart." });
+    return screen("OTP", { message: MESSAGES.KYC_OTP.PROMPT, error_message: "Too many failed attempts. Type /kyc to restart." });
   }
 }
 
@@ -262,7 +262,7 @@ router.post("/", async (req: Request, res: Response) => {
     const userId = String(flow_token || "");
     if (!userId || userId === "unused") {
       return res.send(
-        encryptFlowResponse(screen("IDENTITY", { error_message: "Session expired. Type kyc to restart." }), aesKey, iv)
+        encryptFlowResponse(screen("IDENTITY", { error_message: "Session expired. Type /kyc to restart." }), aesKey, iv)
       );
     }
 
