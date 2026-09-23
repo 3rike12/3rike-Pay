@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "lint": "eslint src/ --ext .ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -48,6 +50,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "ts-node-dev": "^2.0.0"
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.3.0",
+    "ts-node-dev": "^2.0.0",
+    "vitest": "^3.2.7"
   }
 }
