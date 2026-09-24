@@ -1,14 +1,15 @@
-// Send the account revalidation template to one or more users.
+// Send the account revalidation flow message to one or more users.
+//
+// Sends a custom (non-template) interactive flow message: the body text plus
+// a "Continue" button that opens the revalidation Flow. flow_token is set to
+// the user's id so the flow endpoint can correlate the session, and the first
+// screen is set to IDENTITY.
 //
 // Usage:
 //   node scripts/send-revalidation.js <phone> [phone ...]
 //
-// The template ("account_revalidation") is designed in Meta with a single
-// "Continue" flow button that opens the revalidation Flow. The flow_token
-// is set to the user's id so the flow endpoint can correlate the session.
-//
-// Env required: WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID,
-// DATABASE_URL. Optional: WHATSAPP_TEMPLATE_REVALIDATION, WHATSAPP_TEMPLATE_LANG.
+// Env required: WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, DATABASE_URL.
+// Optional: WHATSAPP_FLOW_REVALIDATION_ID (default 1034360419652896).
 
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
@@ -46,8 +47,7 @@ async function main() {
     process.exit(1);
   }
 
-  const templateName = process.env.WHATSAPP_TEMPLATE_REVALIDATION || "account_revalidation";
-  const lang = process.env.WHATSAPP_TEMPLATE_LANG || "en";
+  const flowId = process.env.WHATSAPP_FLOW_REVALIDATION_ID || "1034360419652896";
   const base = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}`;
 
   for (const raw of phones) {
@@ -63,19 +63,23 @@ async function main() {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: toWhatsAppPhone(phoneLocal),
-      type: "template",
-      template: {
-        name: templateName,
-        language: { code: lang },
-        components: [
-          { type: "body", parameters: [{ type: "text", text: name }] },
-          {
-            type: "button",
-            sub_type: "flow",
-            index: "0",
-            parameters: [{ type: "action", action: { flow_token: user.id } }],
+      type: "interactive",
+      interactive: {
+        type: "flow",
+        body: {
+          text: `Hi ${name}, your 3rike Pay account needs revalidation. Tap *Continue* to complete it.`,
+        },
+        action: {
+          name: "flow",
+          parameters: {
+            flow_id: flowId,
+            flow_cta: "Continue",
+            flow_message_version: "3",
+            flow_action: "navigate",
+            flow_token: user.id,
+            flow_action_payload: { screen: "IDENTITY" },
           },
-        ],
+        },
       },
     };
 
