@@ -1,0 +1,126 @@
+{
+  "version": "7.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "IDENTITY": ["OTP"],
+    "OTP": ["END"],
+    "END": []
+  },
+  "screens": [
+    {
+      "id": "IDENTITY",
+      "title": "Revalidate your account",
+      "data": {},
+      "sensitive": ["id_type", "id_number"],
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Your account needs revalidation. Enter the ID you originally verified with. What you type here stays private - it is never shown in the chat."
+          },
+          {
+            "type": "Form",
+            "name": "identity_form",
+            "children": [
+              {
+                "type": "RadioButtonsGroup",
+                "name": "id_type",
+                "label": "ID type",
+                "required": true,
+                "data-source": [
+                  { "id": "NIN", "title": "NIN", "description": "National Identification Number" },
+                  { "id": "BVN", "title": "BVN", "description": "Bank Verification Number" }
+                ]
+              },
+              {
+                "type": "TextInput",
+                "name": "id_number",
+                "label": "ID number",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "11 digits"
+              },
+              {
+                "type": "Footer",
+                "label": "Continue",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "id_type": "${form.id_type}",
+                    "id_number": "${form.id_number}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "OTP",
+      "title": "Enter your code",
+      "sensitive": ["otp"],
+      "data": {
+        "message": {
+          "type": "string",
+          "__example__": "We sent a code to the phone number registered to your ID."
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "${data.message}" },
+          {
+            "type": "Form",
+            "name": "otp_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "otp",
+                "label": "Verification code",
+                "input-type": "number",
+                "required": true
+              },
+              {
+                "type": "Footer",
+                "label": "Verify",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": { "otp": "${form.otp}" }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "END",
+      "title": "Done",
+      "terminal": true,
+      "success": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Done" },
+          { "type": "TextBody", "text": "Your account has been revalidated. Close this form to continue using 3rike Pay." },
+          {
+            "type": "Form",
+            "name": "close_form",
+            "children": [
+              {
+                "type": "Footer",
+                "label": "Close",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {}
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

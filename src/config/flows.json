@@ -16,5 +16,11 @@
     "cta": "Buy Airtime",
     "firstScreen": "SELECT_NETWORK",
     "description": "Airtime top-up (not live yet, no definition file)"
+  },
+  "ACCOUNT_REVALIDATION": {
+    "id": "",
+    "cta": "Continue",
+    "firstScreen": "IDENTITY",
+    "description": "Account revalidation (identity + OTP). Definition: flows/revalidation.json"
   }
 }

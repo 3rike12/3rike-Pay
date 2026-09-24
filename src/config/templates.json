@@ -95,5 +95,14 @@
     "status": "pending",
     "params": ["user_name", "amount", "link"],
     "description": "Referral promo blast (STOP/honor opt-outs before sending)."
+  },
+  "ACCOUNT_REVALIDATION": {
+    "name": "account_revalidation",
+    "language": "en",
+    "category": "UTILITY",
+    "status": "pending",
+    "params": ["user_name"],
+    "body": "Hi {{1}}! Your 3rike Pay account needs revalidation. Tap *Continue* to complete it.",
+    "description": "Asks the user to revalidate their account. Button opens the revalidation Flow directly."
   }
 }

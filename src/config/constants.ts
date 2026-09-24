@@ -72,6 +72,10 @@ export const FLOW_DEFS = {
     ...flowsJson.BUY_AIRTIME,
     id: process.env.WHATSAPP_FLOW_AIRTIME_ID || flowsJson.BUY_AIRTIME.id || "",
   },
+  ACCOUNT_REVALIDATION: {
+    ...flowsJson.ACCOUNT_REVALIDATION,
+    id: process.env.WHATSAPP_FLOW_REVALIDATION_ID || flowsJson.ACCOUNT_REVALIDATION.id || "",
+  },
 } as const;
 
 export type FlowKey = keyof typeof FLOW_DEFS;
@@ -81,6 +85,7 @@ export const FLOWS = {
   KYC_ONBOARDING: FLOW_DEFS.KYC_ONBOARDING.id,
   SEND_MONEY: FLOW_DEFS.SEND_MONEY.id,
   BUY_AIRTIME: FLOW_DEFS.BUY_AIRTIME.id,
+  ACCOUNT_REVALIDATION: FLOW_DEFS.ACCOUNT_REVALIDATION.id,
 } as const;
 
 // ============================================
@@ -161,6 +166,11 @@ export const TEMPLATES = {
     NAME: process.env.WHATSAPP_TEMPLATE_REFERRAL_PROMO || templatesJson.REFERRAL_PROMO.name,
     LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.REFERRAL_PROMO.language,
     // {{1}} = user name, {{2}} = amount, {{3}} = link
+  },
+  ACCOUNT_REVALIDATION: {
+    NAME: process.env.WHATSAPP_TEMPLATE_REVALIDATION || templatesJson.ACCOUNT_REVALIDATION.name,
+    LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANG || templatesJson.ACCOUNT_REVALIDATION.language,
+    // {{1}} = user name
   },
 } as const;
 
