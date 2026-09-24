@@ -237,7 +237,7 @@ async function handleVerifyPin(userId: string, data: any) {
     // then let the AutoRamp webhook send the final success/failure message.
     // Debit the user's own sub-account, never the merchant's main account.
     const debitAccount = await prisma.bankAccount.findUnique({ where: { userId } });
-    await autoramp.transfer({
+    const result = await autoramp.transfer({
       beneficiaryBankCode: transfer.bankCode,
       beneficiaryAccountNumber: transfer.accountNumber,
       amount: transfer.amount,
@@ -246,7 +246,13 @@ async function handleVerifyPin(userId: string, data: any) {
       ...(debitAccount?.accountNumber ? { debitAccountNumber: debitAccount.accountNumber } : {}),
     });
 
-    logger.info("Transfer submitted to AutoRamp", { userId, reference });
+    // Store AutoRamp's own reference so the bank_transfer.* webhook can
+    // correlate back to this transaction (our paymentReference is not echoed).
+    if (result?.reference) {
+      await updateTransaction(reference, { autorampRef: result.reference });
+    }
+
+    logger.info("Transfer submitted to AutoRamp", { userId, reference, autorampRef: result?.reference });
     await setPendingTransfer(userId, null);
     await resetSession(userId).catch(() => {});
     await notifyTransferInitiated(userId, transfer, reference);

@@ -150,6 +150,7 @@ describe("Transfer PIN flow webhook", () => {
   });
 
   it("submits the transfer and authorizes when the PIN is correct", async () => {
+    mockTransfer.mockResolvedValue({ reference: "bnk_xyz" } as any);
     const res = await post(
       buildApp(),
       flowPayload({ action: "data_exchange", data: { pin: "1234" } })
@@ -158,6 +159,7 @@ describe("Transfer PIN flow webhook", () => {
     expect(res.body.screen).toBe("AUTHORIZED");
     await vi.waitFor(() => {
       expect(updateTransaction).toHaveBeenCalledWith("3RIKE-REF-1", { status: "processing" });
+      expect(updateTransaction).toHaveBeenCalledWith("3RIKE-REF-1", { autorampRef: "bnk_xyz" });
       expect(mockTransfer).toHaveBeenCalledWith(
         expect.objectContaining({
           beneficiaryBankCode: "090286",

@@ -368,12 +368,17 @@ async function handleTransactionUpdated(data: any) {
 async function handleBankTransfer(event: string, data: any) {
   logger.info("Transfer event", { event, reference: data.reference, status: data.status });
 
-  if (data.reference) {
-    const transaction = await prisma.transaction.findFirst({
-      where: { reference: data.reference },
-    });
+  // AutoRamp's `reference` ("bnk_…") is stored at initiation time on the
+  // transaction as autorampRef. Fall back to our own reference for any
+  // transaction that wasn't linked.
+  const ref = data.reference as string | undefined;
+  if (!ref) return;
 
-    if (transaction) {
+  const transaction = await prisma.transaction.findFirst({
+    where: { OR: [{ autorampRef: ref }, { reference: ref }] },
+  });
+
+  if (transaction) {
       const newStatus = normalizeStatus(event, data);
       await prisma.transaction.update({
         where: { id: transaction.id },
@@ -415,7 +420,6 @@ async function handleBankTransfer(event: string, data: any) {
         }
       }
     }
-  }
 }
 
 export default router;
