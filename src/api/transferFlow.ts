@@ -235,12 +235,15 @@ async function handleVerifyPin(userId: string, data: any) {
 
     // Real mode: submit to AutoRamp, tell the user it is in progress,
     // then let the AutoRamp webhook send the final success/failure message.
+    // Debit the user's own sub-account, never the merchant's main account.
+    const debitAccount = await prisma.bankAccount.findUnique({ where: { userId } });
     await autoramp.transfer({
       beneficiaryBankCode: transfer.bankCode,
       beneficiaryAccountNumber: transfer.accountNumber,
       amount: transfer.amount,
       narration: `3rike Pay - ${transfer.accountName}`,
       paymentReference: reference,
+      ...(debitAccount?.accountNumber ? { debitAccountNumber: debitAccount.accountNumber } : {}),
     });
 
     logger.info("Transfer submitted to AutoRamp", { userId, reference });

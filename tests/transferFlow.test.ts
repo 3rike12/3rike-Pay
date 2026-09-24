@@ -32,6 +32,7 @@ vi.mock("@/services/database", () => ({
   prisma: {
     userCredential: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
+    bankAccount: { findUnique: vi.fn() },
   },
   getSession: vi.fn(),
   updateSession: vi.fn().mockResolvedValue(undefined),
@@ -59,6 +60,7 @@ const mockDecrypt = vi.mocked(decryptFlowRequest);
 const mockGetSession = vi.mocked(getSession);
 const mockVerifyPin = vi.mocked(verifyPin);
 const mockFindCred = vi.mocked(prisma.userCredential.findUnique);
+const mockFindBank = vi.mocked(prisma.bankAccount.findUnique);
 const mockTransfer = vi.mocked(autoramp.transfer);
 const mockGetTxn = vi.mocked(getTransactionByReference);
 
@@ -107,6 +109,7 @@ describe("Transfer PIN flow webhook", () => {
     mockFindCred.mockResolvedValue({ pin: "some-hash" } as any);
     mockVerifyPin.mockReturnValue(true);
     mockGetTxn.mockResolvedValue(null);
+    mockFindBank.mockResolvedValue({ accountNumber: "5015575517" } as any);
   });
 
   it("responds to ping with active status", async () => {
@@ -160,6 +163,7 @@ describe("Transfer PIN flow webhook", () => {
           beneficiaryBankCode: "090286",
           beneficiaryAccountNumber: "5015575517",
           amount: 5000,
+          debitAccountNumber: "5015575517",
         })
       );
     });
