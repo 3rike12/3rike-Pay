@@ -190,6 +190,9 @@ router.post("/autoramp", async (req: Request, res: Response) => {
       case "transfer.failed":
         await handleTransferEvent(event, data);
         break;
+      case "subaccount.inflow":
+        await handleSubaccountInflow(data);
+        break;
       default:
         logger.info("Unhandled AutoRamp event", { event });
     }
@@ -226,6 +229,37 @@ async function handleAccountCreated(data: any) {
       });
     }
   }
+}
+
+/**
+ * Fires when a sub-account receives money (a bank deposit into the user's
+ * account number). Notify the account holder in chat.
+ */
+async function handleSubaccountInflow(data: any) {
+  const accountNumber = String(data.accountNumber ?? data.account_number ?? "").replace(/[^0-9]/g, "");
+  if (!accountNumber) {
+    logger.warn("subaccount.inflow missing accountNumber", { data: JSON.stringify(data) });
+    return;
+  }
+
+  const bankAccount = await prisma.bankAccount.findFirst({
+    where: { accountNumber },
+    include: { user: true },
+  });
+
+  if (!bankAccount?.user) {
+    logger.warn("subaccount.inflow for unknown account", { accountNumber });
+    return;
+  }
+
+  const rawAmount = data.amount ?? data.creditAmount ?? data.creditedAmount ?? data.value;
+  const amount = Number(rawAmount);
+  const sender = data.sender ?? data.senderName ?? data.originatorName ?? data.narration ?? "Bank deposit";
+
+  await whatsapp.sendTextMessage(
+    bankAccount.user.phone,
+    `*Deposit Received*\n\nAmount: ${Number.isFinite(amount) ? formatAmount(amount) : "—"}\nFrom: ${sender}\nAccount: ${accountNumber}`
+  );
 }
 
 async function handleOnrampEvent(event: string, data: any) {

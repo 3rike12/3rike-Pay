@@ -222,6 +222,33 @@ describe("AutoRamp webhook", () => {
       });
     });
 
+    it("subaccount.inflow notifies the account holder of a deposit", async () => {
+      findBank.mockResolvedValue({
+        id: "ba1",
+        userId: "u1",
+        accountNumber: "5015575517",
+        user: { id: "u1", phone: "08012345678" },
+      } as any);
+
+      const res = await postAutoramp(
+        buildApp(),
+        { event: "subaccount.inflow", data: { accountNumber: "5015575517", amount: 50000, sender: "GTBank" } },
+        "sig"
+      );
+
+      expect(res.status).toBe(200);
+      await vi.waitFor(() => {
+        expect(sendText).toHaveBeenCalledWith(
+          "08012345678",
+          expect.stringContaining("Deposit Received")
+        );
+        expect(sendText).toHaveBeenCalledWith(
+          "08012345678",
+          expect.stringContaining("5015575517")
+        );
+      });
+    });
+
     it("ignores unknown events but still acks", async () => {
       const res = await postAutoramp(buildApp(), { event: "something.weird", data: { reference: "ref-1" } }, "sig");
       expect(res.status).toBe(200);

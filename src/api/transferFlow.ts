@@ -51,7 +51,7 @@ function isLocked(transfer: PendingTransfer): boolean {
 }
 
 function summaryOf(transfer: PendingTransfer): string {
-  return `Amount: ₦${formatAmount(transfer.amount)}\nTo: ${transfer.accountName}\nAccount: ${transfer.accountNumber} - ${transfer.bankName}`;
+  return `Amount: ${formatAmount(transfer.amount)}\nTo: ${transfer.accountName}\nAccount: ${transfer.accountNumber} - ${transfer.bankName}`;
 }
 
 /** PIN verified successfully — route to the terminal close screen. */
