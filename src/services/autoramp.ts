@@ -122,6 +122,31 @@ class AutoRampService {
     }
   }
 
+  /**
+   * Patch a sub-account — used to complete account revalidation by submitting
+   * the OTP alongside the identity details used to initiate verification.
+   */
+  async patchSubAccount(id: string, params: {
+    otp?: string;
+    identityType?: string;
+    identityNumber?: string;
+    identityId?: string;
+    phoneNumber?: string;
+    emailAddress?: string;
+  }) {
+    try {
+      const { data } = await this.client.patch(`/merchants/api/sub-accounts/${id}`, params);
+      logger.info("Sub-account patched", { id });
+      return data;
+    } catch (error: any) {
+      logger.error("Failed to patch sub-account", {
+        id,
+        error: error.response?.data || error.message,
+      });
+      throw error;
+    }
+  }
+
   // ------- Identity Verification -------
 
   async initiateIdentityVerification(params: {

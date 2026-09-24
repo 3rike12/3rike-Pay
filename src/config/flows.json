@@ -18,7 +18,7 @@
     "description": "Airtime top-up (not live yet, no definition file)"
   },
   "ACCOUNT_REVALIDATION": {
-    "id": "",
+    "id": "1034360419652896",
     "cta": "Continue",
     "firstScreen": "IDENTITY",
     "description": "Account revalidation (identity + OTP). Definition: flows/revalidation.json"
