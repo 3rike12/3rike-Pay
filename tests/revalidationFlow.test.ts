@@ -20,6 +20,7 @@ vi.mock("@/services/database", () => ({
     userSession: { findFirst: vi.fn() },
     user: { update: vi.fn() },
   },
+  getSession: vi.fn(),
   updateSession: vi.fn().mockResolvedValue(undefined),
   resetSession: vi.fn().mockResolvedValue(undefined),
   getUserWithDetails: vi.fn(),
@@ -28,12 +29,12 @@ vi.mock("@/services/database", () => ({
 import revalidationRouter from "@/api/revalidationFlow";
 import { decryptFlowRequest } from "@/utils/flowCrypto";
 import { autoramp } from "@/services/autoramp";
-import { prisma, updateSession, resetSession, getUserWithDetails } from "@/services/database";
+import { prisma, getSession, updateSession, resetSession, getUserWithDetails } from "@/services/database";
 
 const mockDecrypt = vi.mocked(decryptFlowRequest);
 const mockIdentity = vi.mocked(autoramp.initiateIdentityVerification);
 const mockPatch = vi.mocked(autoramp.patchSubAccount);
-const mockFindSession = vi.mocked(prisma.userSession.findFirst);
+const mockGetSession = vi.mocked(getSession);
 const mockUpdateUser = vi.mocked(prisma.user.update);
 const mockGetUser = vi.mocked(getUserWithDetails);
 
@@ -66,7 +67,7 @@ async function post(app: express.Express, payload: Record<string, unknown>) {
 describe("Revalidation flow webhook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindSession.mockResolvedValue(null);
+    mockGetSession.mockResolvedValue({ flowData: {} } as any);
     mockGetUser.mockResolvedValue({
       id: "user-1",
       bankAccount: { autorampSubId: "sub-1" },
@@ -122,7 +123,7 @@ describe("Revalidation flow webhook", () => {
   });
 
   it("patches the sub-account and ends the flow on a valid OTP", async () => {
-    mockFindSession.mockResolvedValue({
+    mockGetSession.mockResolvedValue({
       flowData: { identityId: "identity-1", idType: "NIN", idNumber: "12345678901" },
     } as any);
 

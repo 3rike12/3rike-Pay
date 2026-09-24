@@ -3,6 +3,7 @@ import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
 import {
   prisma,
+  getSession,
   updateSession,
   resetSession,
   createUserProfile,
@@ -22,11 +23,8 @@ const logger = createLogger("flow");
 const router = Router();
 
 async function getLatestFlowData(userId: string) {
-  const session = await prisma.userSession.findFirst({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
-  return (session?.flowData as any) || {};
+  const session = await getSession(userId);
+  return (session.flowData as any) || {};
 }
 
 async function saveFlowData(userId: string, data: Record<string, unknown>) {

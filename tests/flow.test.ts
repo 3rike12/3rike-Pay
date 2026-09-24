@@ -20,6 +20,7 @@ vi.mock("@/services/database", () => ({
     userSession: { findFirst: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn() },
   },
+  getSession: vi.fn(),
   updateSession: vi.fn().mockResolvedValue(undefined),
   resetSession: vi.fn().mockResolvedValue(undefined),
   createUserProfile: vi.fn().mockResolvedValue(undefined),
@@ -45,6 +46,7 @@ import { decryptFlowRequest, encryptFlowResponse } from "@/utils/flowCrypto";
 import { autoramp } from "@/services/autoramp";
 import {
   prisma,
+  getSession,
   updateSession,
   resetSession,
   getUserWithDetails,
@@ -57,7 +59,7 @@ const mockDecrypt = vi.mocked(decryptFlowRequest);
 const mockGetUser = vi.mocked(getUserWithDetails);
 const mockDryRun = vi.mocked(handleDryRunFlow);
 const mockIdentity = vi.mocked(autoramp.initiateIdentityVerification);
-const mockFindSession = vi.mocked(prisma.userSession.findFirst);
+const mockGetSession = vi.mocked(getSession);
 const mockUpdateUser = vi.mocked(prisma.user.update);
 
 function buildApp() {
@@ -91,7 +93,7 @@ describe("KYC flow webhook", () => {
     vi.clearAllMocks();
     mockDryRun.mockResolvedValue(null);
     mockGetUser.mockResolvedValue({ id: "user-1", kycStatus: "none" } as any);
-    mockFindSession.mockResolvedValue(null);
+    mockGetSession.mockResolvedValue({ flowData: {} } as any);
   });
 
   it("responds to ping with active status", async () => {
