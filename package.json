@@ -18,7 +18,8 @@
     "db:generate:sqlite": "prisma generate --schema=prisma/schema.sqlite.prisma",
     "db:push:sqlite": "prisma db push --schema=prisma/schema.sqlite.prisma",
     "db:studio:sqlite": "prisma studio --schema=prisma/schema.sqlite.prisma",
-    "db:seed": "ts-node prisma/seed.ts"
+    "db:seed": "ts-node prisma/seed.ts",
+    "send:revalidation": "node scripts/send-revalidation.js"
   },
   "keywords": [
     "whatsapp",
