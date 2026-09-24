@@ -234,6 +234,8 @@ async function handleAccountCreated(data: any) {
 /**
  * Fires when a sub-account receives money (a bank deposit into the user's
  * account number). Notify the account holder in chat.
+ *
+ * Payload (SafeHaven): { amount, accountNumber, debitAccountName, ... }
  */
 async function handleSubaccountInflow(data: any) {
   const accountNumber = String(data.accountNumber ?? data.account_number ?? "").replace(/[^0-9]/g, "");
@@ -252,9 +254,8 @@ async function handleSubaccountInflow(data: any) {
     return;
   }
 
-  const rawAmount = data.amount ?? data.creditAmount ?? data.creditedAmount ?? data.value;
-  const amount = Number(rawAmount);
-  const sender = data.sender ?? data.senderName ?? data.originatorName ?? data.narration ?? "Bank deposit";
+  const amount = Number(data.amount);
+  const sender = data.debitAccountName || data.debitAccountNumber || "Bank deposit";
 
   await whatsapp.sendTextMessage(
     bankAccount.user.phone,

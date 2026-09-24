@@ -232,7 +232,17 @@ describe("AutoRamp webhook", () => {
 
       const res = await postAutoramp(
         buildApp(),
-        { event: "subaccount.inflow", data: { accountNumber: "5015575517", amount: 50000, sender: "GTBank" } },
+        {
+          event: "subaccount.inflow",
+          data: {
+            amount: 50000,
+            accountNumber: "5015575517",
+            paymentReference: "SHW-INFLOW-1",
+            debitAccountName: "SENDER",
+            creditAccountName: "MARTINS",
+            status: "Completed",
+          },
+        },
         "sig"
       );
 
@@ -245,6 +255,10 @@ describe("AutoRamp webhook", () => {
         expect(sendText).toHaveBeenCalledWith(
           "08012345678",
           expect.stringContaining("5015575517")
+        );
+        expect(sendText).toHaveBeenCalledWith(
+          "08012345678",
+          expect.stringContaining("SENDER")
         );
       });
     });
