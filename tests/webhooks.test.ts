@@ -263,6 +263,97 @@ describe("AutoRamp webhook", () => {
       });
     });
 
+    it("account.credit notifies the account holder of a deposit", async () => {
+      findBank.mockResolvedValue({
+        id: "ba1",
+        userId: "u1",
+        accountNumber: "0117964837",
+        user: { id: "u1", phone: "08012345678" },
+      } as any);
+
+      const res = await postAutoramp(
+        buildApp(),
+        {
+          event: "account.credit",
+          data: {
+            amount: 500,
+            creditAccountNumber: "0117964837",
+            creditAccountName: "MARTINS",
+            debitAccountName: "SALIUTECH",
+            status: "COMPLETED",
+          },
+        },
+        "sig"
+      );
+
+      expect(res.status).toBe(200);
+      await vi.waitFor(() => {
+        expect(sendText).toHaveBeenCalledWith(
+          "08012345678",
+          expect.stringContaining("Deposit Received")
+        );
+        expect(sendText).toHaveBeenCalledWith(
+          "08012345678",
+          expect.stringContaining("SALIUTECH")
+        );
+      });
+    });
+
+    it("bank_transfer.completed marks the transaction complete and notifies", async () => {
+      findTxn.mockResolvedValue({
+        id: "t1",
+        userId: "u1",
+        amount: 1000,
+        accountName: "Payee Ltd",
+        bankName: "GTBank",
+        bankAccount: "0123456789",
+        reference: "ref-1",
+        metadata: {},
+      } as any);
+      findUser.mockResolvedValue({ id: "u1", phone: "0801", name: "Jane" } as any);
+
+      const res = await postAutoramp(
+        buildApp(),
+        { event: "bank_transfer.completed", data: { reference: "ref-1", amount: "1000.00", status: "COMPLETED" } },
+        "sig"
+      );
+
+      expect(res.status).toBe(200);
+      await vi.waitFor(() => {
+        expect(updateTxn).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) })
+        );
+        expect(sendTemplate).toHaveBeenCalled();
+      });
+    });
+
+    it("bank_transfer.completed with FAILED status marks it failed", async () => {
+      findTxn.mockResolvedValue({
+        id: "t1",
+        userId: "u1",
+        amount: 1000,
+        accountName: "Payee Ltd",
+        bankName: "GTBank",
+        bankAccount: "0123456789",
+        reference: "ref-1",
+        metadata: {},
+      } as any);
+      findUser.mockResolvedValue({ id: "u1", phone: "0801", name: "Jane" } as any);
+
+      const res = await postAutoramp(
+        buildApp(),
+        { event: "bank_transfer.completed", data: { reference: "ref-1", amount: "1000.00", status: "FAILED" } },
+        "sig"
+      );
+
+      expect(res.status).toBe(200);
+      await vi.waitFor(() => {
+        expect(updateTxn).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) })
+        );
+      });
+    });
+
     it("ignores unknown events but still acks", async () => {
       const res = await postAutoramp(buildApp(), { event: "something.weird", data: { reference: "ref-1" } }, "sig");
       expect(res.status).toBe(200);

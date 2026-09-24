@@ -186,12 +186,18 @@ router.post("/autoramp", async (req: Request, res: Response) => {
       case "offramp.failed":
         await handleOfframpEvent(event, data);
         break;
+      case "subaccount.inflow":
+      case "account.credit":
+        await handleInflow(data);
+        break;
+      case "bank_transfer.completed":
       case "transfer.completed":
       case "transfer.failed":
-        await handleTransferEvent(event, data);
+        await handleBankTransfer(event, data);
         break;
-      case "subaccount.inflow":
-        await handleSubaccountInflow(data);
+      case "swap.updated":
+      case "vas.updated":
+        await handleTransactionUpdated(data);
         break;
       default:
         logger.info("Unhandled AutoRamp event", { event });
@@ -232,15 +238,15 @@ async function handleAccountCreated(data: any) {
 }
 
 /**
- * Fires when a sub-account receives money (a bank deposit into the user's
- * account number). Notify the account holder in chat.
- *
- * Payload (SafeHaven): { amount, accountNumber, debitAccountName, ... }
+ * Fires when money lands in an account:
+ * - `subaccount.inflow` (SafeHaven) uses `data.accountNumber`
+ * - `account.credit` uses `data.creditAccountNumber`
+ * Notify the account holder in chat.
  */
-async function handleSubaccountInflow(data: any) {
-  const accountNumber = String(data.accountNumber ?? data.account_number ?? "").replace(/[^0-9]/g, "");
+async function handleInflow(data: any) {
+  const accountNumber = String(data.accountNumber ?? data.creditAccountNumber ?? "").replace(/[^0-9]/g, "");
   if (!accountNumber) {
-    logger.warn("subaccount.inflow missing accountNumber", { data: JSON.stringify(data) });
+    logger.warn("inflow event missing account number", { data: JSON.stringify(data) });
     return;
   }
 
@@ -250,7 +256,7 @@ async function handleSubaccountInflow(data: any) {
   });
 
   if (!bankAccount?.user) {
-    logger.warn("subaccount.inflow for unknown account", { accountNumber });
+    logger.warn("inflow event for unknown account", { accountNumber });
     return;
   }
 
@@ -263,22 +269,27 @@ async function handleSubaccountInflow(data: any) {
   );
 }
 
+/** Normalise AutoRamp statuses (PENDING/PROCESSING/COMPLETED/FAILED/CANCELLED) to our lowercase values. */
+function normalizeStatus(event: string, data: any): string {
+  const raw = String(data.status || "").toLowerCase();
+  if (["pending", "processing", "completed", "failed", "cancelled"].includes(raw)) {
+    return raw;
+  }
+  if (event.endsWith(".completed")) return "completed";
+  if (event.endsWith(".failed")) return "failed";
+  return "processing";
+}
+
 async function handleOnrampEvent(event: string, data: any) {
   logger.info("Onramp event", { event, reference: data.reference, status: data.status });
 
   if (data.reference) {
-    const statusMap: Record<string, string> = {
-      "onramp.completed": "completed",
-      "onramp.failed": "failed",
-      "onramp.updated": "processing",
-    };
-
     const transaction = await prisma.transaction.findFirst({
       where: { reference: data.reference },
     });
 
     if (transaction) {
-      const newStatus = statusMap[event] || data.status?.toLowerCase() || "processing";
+      const newStatus = normalizeStatus(event, data);
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
@@ -290,12 +301,12 @@ async function handleOnrampEvent(event: string, data: any) {
       // Notify user via WhatsApp
       if (transaction.recipientPhone) {
         const { whatsapp } = await import("../services/whatsapp");
-        if (event === "onramp.completed") {
+        if (newStatus === "completed") {
           await whatsapp.sendTextMessage(
             transaction.recipientPhone,
             `Your payment of ${formatAmount(transaction.amount)} has been completed!`
           );
-        } else if (event === "onramp.failed") {
+        } else if (newStatus === "failed") {
           await whatsapp.sendTextMessage(
             transaction.recipientPhone,
             `Your payment could not be processed. Please try again or contact support.`
@@ -315,16 +326,10 @@ async function handleOfframpEvent(event: string, data: any) {
     });
 
     if (transaction) {
-      const statusMap: Record<string, string> = {
-        "offramp.completed": "completed",
-        "offramp.failed": "failed",
-        "offramp.updated": "processing",
-      };
-
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
-          status: statusMap[event] || "processing",
+          status: normalizeStatus(event, data),
           metadata: { ...((transaction.metadata as any) || {}), autorampData: data },
         },
       });
@@ -332,7 +337,24 @@ async function handleOfframpEvent(event: string, data: any) {
   }
 }
 
-async function handleTransferEvent(event: string, data: any) {
+/** Generic status sync for *.updated events we don't otherwise special-case. */
+async function handleTransactionUpdated(data: any) {
+  const reference = data.reference;
+  if (!reference) return;
+
+  const transaction = await prisma.transaction.findFirst({ where: { reference } });
+  if (!transaction) return;
+
+  await prisma.transaction.update({
+    where: { id: transaction.id },
+    data: {
+      status: normalizeStatus("", data),
+      metadata: { ...((transaction.metadata as any) || {}), autorampData: data },
+    },
+  });
+}
+
+async function handleBankTransfer(event: string, data: any) {
   logger.info("Transfer event", { event, reference: data.reference, status: data.status });
 
   if (data.reference) {
@@ -341,7 +363,7 @@ async function handleTransferEvent(event: string, data: any) {
     });
 
     if (transaction) {
-      const newStatus = event === "transfer.completed" ? "completed" : "failed";
+      const newStatus = normalizeStatus(event, data);
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
@@ -353,7 +375,7 @@ async function handleTransferEvent(event: string, data: any) {
       const { whatsapp } = await import("../services/whatsapp");
       const user = await prisma.user.findUnique({ where: { id: transaction.userId } });
       if (user) {
-        if (event === "transfer.completed") {
+        if (newStatus === "completed") {
           const amount = formatAmount(transaction.amount);
           const recipient = transaction.accountName || "Recipient";
           const bank = transaction.bankName || "Bank";
