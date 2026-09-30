@@ -24,6 +24,7 @@ model User {
   credentials   UserCredential?
   sessions      UserSession[]
   transactions  Transaction[]
+  wallets       Wallet[]
 }
 
 // ============================================
@@ -112,6 +113,45 @@ model Transaction {
   updatedAt       DateTime @updatedAt
 
   @@index([userId])
+  @@index([reference])
+}
+
+// ============================================
+// Wallet (per-user, per-currency balance)
+// ============================================
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  currency  String   @default("RWF")
+  balance   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@unique([userId, currency])
+  @@index([userId])
+}
+
+// ============================================
+// Ledger (internal source of truth for balances)
+// Each entry records a change and the running balance after it.
+// ============================================
+model LedgerEntry {
+  id             String   @id @default(uuid())
+  walletId       String
+  wallet         Wallet   @relation(fields: [walletId], references: [id])
+  direction      String   // credit | debit
+  amount         Float
+  currency       String   @default("RWF")
+  runningBalance Float    // balance in the wallet after this entry
+  reference      String   // external tx ref (tx_ref, transfer ref, etc.)
+  description    String?
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  @@index([walletId])
   @@index([reference])
 }
 
