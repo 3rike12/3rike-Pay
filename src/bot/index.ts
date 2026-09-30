@@ -10,7 +10,15 @@ import {
   logWebhookEvent,
   prisma,
 } from "@/services/database";
-import { generateReference, generateTransactionReference, formatAmount, extractAmount, redactSensitiveText, redactPhone, parseTransferRequest } from "@/utils/helpers";
+import { generateReference, generateTransactionReference, formatAmount, extractAmount, redactSensitiveText, redactPhone, parseTransferRequest, parseProductCreateRequest, parseInvoiceRequest, stripProductIntent, toRwandaPhone, parseAmountFromText, formatCurrency } from "@/utils/helpers";
+import {
+  chargeInvoice,
+  createDraftInvoice,
+  createProduct,
+  expireStaleInvoices,
+  listProducts,
+  renderInvoiceSummary,
+} from "@/services/invoice";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
 import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
@@ -177,12 +185,217 @@ async function startSendMoneyCommand(phone: string, user: any) {
   return whatsapp.sendTextMessage(phone, MESSAGES.SEND_MONEY.PROMPT_AMOUNT);
 }
 
+// ============================================
+// Merchant catalogue (products)
+// ============================================
+
+async function saveProduct(phone: string, user: any, name: string, price: number) {
+  try {
+    const product = await createProduct({
+      merchantId: user.id,
+      name,
+      price,
+      currency: "RWF",
+    });
+    await resetSession(user.id);
+    return whatsapp.sendTextMessage(
+      phone,
+      MESSAGES.BUSINESS.PRODUCT.CREATED(product.name, formatCurrency(product.price))
+    );
+  } catch (error: any) {
+    logger.error("Failed to create product", { userId: user.id, error: error.message });
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PRODUCT.ERROR);
+  }
+}
+
+/**
+ * /product [name] [price] - also the entry point for the main-menu
+ * "Add Product" row and the "product" trigger in idle.
+ */
+async function handleProductCommand(phone: string, user: any, args: string) {
+  const input = args.trim();
+
+  const parsed = input ? parseProductCreateRequest(input, false) : null;
+  if (parsed) {
+    return saveProduct(phone, user, parsed.name, parsed.price);
+  }
+
+  // No price yet: anything left after removing the intent phrase is the name.
+  const name = stripProductIntent(input);
+  if (!name) {
+    await updateSession(user.id, SESSION_STATE.PRODUCT_CREATE, { step: "name" });
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PRODUCT.PROMPT_NAME);
+  }
+
+  await updateSession(user.id, SESSION_STATE.PRODUCT_CREATE, { step: "price", name });
+  return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PRODUCT.PROMPT_PRICE(name));
+}
+
+async function handleListProducts(phone: string, user: any) {
+  try {
+    const products = await listProducts(user.id);
+    if (products.length === 0) {
+      return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PRODUCT.LIST_EMPTY);
+    }
+    const body = products
+      .map((p, i) => `${i + 1}. ${p.name} - ${formatCurrency(p.price, p.currency)}`)
+      .join("\n");
+    return whatsapp.sendTextMessage(
+      phone,
+      `${MESSAGES.BUSINESS.PRODUCT.LIST_HEADER}\n${body}${MESSAGES.BUSINESS.PRODUCT.LIST_FOOTER}`
+    );
+  } catch (error: any) {
+    logger.error("Failed to list products", { userId: user.id, error: error.message });
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PRODUCT.ERROR);
+  }
+}
+
+// ============================================
+// Invoice / payment request
+// ============================================
+
+type InvoiceLine = { name: string; qty: number; unitPrice: number | null };
+
+type InvoiceDraft = {
+  items: InvoiceLine[];
+  buyerPhone: string | null;
+  priceIndex?: number;
+  draftId?: string;
+};
+
+/** Price for an item name from the merchant's own catalogue, else null. */
+async function lookupProductPrice(merchantId: string, name: string): Promise<number | null> {
+  try {
+    const products = await listProducts(merchantId);
+    const needle = name.toLowerCase().trim();
+    const exact = products.find((p) => p.name.toLowerCase() === needle);
+    if (exact) return exact.price;
+    const partial = products.find((p) => {
+      const hay = p.name.toLowerCase();
+      return hay.includes(needle) || needle.includes(hay);
+    });
+    return partial ? partial.price : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Walk a draft through the missing pieces: prices (from the catalogue, one
+ * question each when unknown), then the buyer's number, then confirmation.
+ */
+async function advanceInvoice(phone: string, user: any, draft: InvoiceDraft) {
+  for (let i = 0; i < draft.items.length; i++) {
+    if (draft.items[i].unitPrice !== null && draft.items[i].unitPrice !== undefined) continue;
+
+    const price = await lookupProductPrice(user.id, draft.items[i].name);
+    if (price === null) {
+      await updateSession(user.id, SESSION_STATE.INVOICE_PRICE, { ...draft, priceIndex: i });
+      return whatsapp.sendTextMessage(
+        phone,
+        MESSAGES.BUSINESS.INVOICE.PROMPT_PRICE(draft.items[i].name)
+      );
+    }
+    draft.items[i].unitPrice = price;
+  }
+
+  if (!draft.buyerPhone) {
+    await updateSession(user.id, SESSION_STATE.INVOICE_PHONE, draft);
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_PHONE);
+  }
+
+  return showInvoiceConfirm(phone, user, draft);
+}
+
+async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft) {
+  const total = draft.items.reduce((sum, item) => sum + item.qty * (item.unitPrice || 0), 0);
+  const lines = draft.items
+    .map((item) => `- ${item.qty} x ${item.name}: ${formatCurrency(item.qty * (item.unitPrice || 0))}`)
+    .join("\n");
+
+  await updateSession(user.id, SESSION_STATE.INVOICE_CONFIRM, draft);
+  return whatsapp.sendTextMessage(
+    phone,
+    `*Confirm invoice*\n\n${lines}\n\n*Total: ${formatCurrency(total)}*\nBuyer: ${draft.buyerPhone}${MESSAGES.BUSINESS.INVOICE.CONFIRM_HINT}`
+  );
+}
+
+/**
+ * /invoice [items...] - entry point for the command, the main-menu row and
+ * the "invoice" trigger in idle.
+ */
+async function handleInvoiceCommand(phone: string, user: any, args: string) {
+  await expireStaleInvoices(user.id).catch(() => {});
+
+  const input = args.trim();
+  if (input) {
+    const parsed = parseInvoiceRequest(input, false);
+    if (parsed) {
+      return advanceInvoice(phone, user, {
+        items: parsed.items,
+        buyerPhone: parsed.buyerPhone,
+      });
+    }
+  }
+
+  await updateSession(user.id, SESSION_STATE.INVOICE_ITEMS, {});
+  return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS);
+}
+
+/**
+ * Fire the charge for a confirmed draft. The draft invoice is created before
+ * the charge (and reused on retry) so a failed charge never leaves a
+ * half-built second invoice behind.
+ */
+async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
+  try {
+    let draftId = draft.draftId;
+    if (!draftId) {
+      const created = await createDraftInvoice({
+        merchantId: user.id,
+        buyerPhone: draft.buyerPhone || "",
+        items: draft.items.map((i) => ({
+          name: i.name,
+          qty: i.qty,
+          unitPrice: Number(i.unitPrice || 0),
+        })),
+      });
+      draftId = created.id;
+      await updateSession(user.id, SESSION_STATE.INVOICE_CONFIRM, { ...draft, draftId });
+    }
+
+    const result = await chargeInvoice({ merchantId: user.id, invoiceId: draftId });
+
+    await resetSession(user.id);
+
+    const summary = renderInvoiceSummary(result.invoice as any);
+    const tail = result.paymentUrl
+      ? MESSAGES.BUSINESS.INVOICE.ISSUED(result.paymentUrl)
+      : MESSAGES.BUSINESS.INVOICE.ISSUED_NO_URL;
+
+    return whatsapp.sendTextMessage(phone, `*Payment request issued*\n\n${summary}\n\n${tail}`);
+  } catch (error: any) {
+    logger.error("Failed to issue invoice", {
+      userId: user.id,
+      error: error.message,
+    });
+    // Stay in the confirm state: the draft is saved, "yes" retries it.
+    return whatsapp.sendTextMessage(
+      phone,
+      MESSAGES.BUSINESS.INVOICE.ERROR(error.message || "unknown error")
+    );
+  }
+}
+
 /**
  * Hashtable of slash commands. Keys are the command token with `/`, `_` and
  * `-` stripped (so /check_balance, /check-balance and /balance all map to the
  * same entry). Values are handlers; the dispatcher resets the session first.
+ * Handlers may take the rest of the message as `args`.
  */
-const SLASH_COMMANDS: Record<string, (phone: string, user: any) => Promise<unknown>> = {
+type SlashHandler = (phone: string, user: any, args?: string) => Promise<unknown>;
+
+const SLASH_COMMANDS: Record<string, SlashHandler> = {
   balance: handleCheckBalance,
   checkbalance: handleCheckBalance,
   bal: handleCheckBalance,
@@ -197,6 +410,13 @@ const SLASH_COMMANDS: Record<string, (phone: string, user: any) => Promise<unkno
   cancel: (phone) => whatsapp.sendTextMessage(phone, MESSAGES.CANCEL),
   kyc: startKyc,
   verify: startKyc,
+  product: (phone, user, args) => handleProductCommand(phone, user, args || ""),
+  addproduct: (phone, user, args) => handleProductCommand(phone, user, args || ""),
+  products: (phone, user) => handleListProducts(phone, user),
+  catalog: (phone, user) => handleListProducts(phone, user),
+  catalogue: (phone, user) => handleListProducts(phone, user),
+  invoice: (phone, user, args) => handleInvoiceCommand(phone, user, args || ""),
+  newinvoice: (phone, user, args) => handleInvoiceCommand(phone, user, args || ""),
 };
 
 // ============================================
@@ -293,13 +513,16 @@ export async function handleMessage(
   // typing one. The token is normalised so /check_balance, /check-balance and
   // /balance all resolve to the same action.
   if (lower.startsWith("/")) {
-    const cmd = lower.split(/\s+/)[0].slice(1).replace(/[_-]/g, "").toLowerCase();
+    const raw = messageText.trim().slice(1);
+    const first = raw.split(/\s+/)[0] || "";
+    const cmd = first.replace(/[_-]/g, "").toLowerCase();
+    const args = raw.slice(first.length).trim();
     const handler = SLASH_COMMANDS[cmd];
     if (!handler) {
       return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
     }
     await resetSession(user.id);
-    return handler(phone, user);
+    return handler(phone, user, args);
   }
 
   // ---- "Create wallet" taps ----
@@ -424,6 +647,16 @@ export async function handleMessage(
         return await handleBuyAirtimeAmount(phone, user, flowData, messageText);
       case SESSION_STATE.BUY_AIRTIME_CONFIRM:
         return await handleBuyAirtimeConfirm(phone, user);
+      case SESSION_STATE.PRODUCT_CREATE:
+        return await handleProductCreate(phone, user, flowData, messageText);
+      case SESSION_STATE.INVOICE_ITEMS:
+        return await handleInvoiceItems(phone, user, flowData, messageText);
+      case SESSION_STATE.INVOICE_PRICE:
+        return await handleInvoicePrice(phone, user, flowData, messageText);
+      case SESSION_STATE.INVOICE_PHONE:
+        return await handleInvoicePhone(phone, user, flowData, messageText);
+      case SESSION_STATE.INVOICE_CONFIRM:
+        return await handleInvoiceConfirm(phone, user, flowData, action, messageText);
       case SESSION_STATE.KYC_FLOW:
         // Form is open on the user's phone; the Flow endpoint owns the steps.
         // If they are already verified, the session is stale (form completed but
@@ -456,8 +689,20 @@ export async function handleMessage(
 async function handleIdle(phone: string, user: any, action?: string, text?: string) {
   const t = (text || "").toLowerCase();
 
+  // No cron in this repo: sweep expired invoices whenever the merchant
+  // next talks to us.
+  await expireStaleInvoices(user.id).catch(() => {});
+
   if (action === "btn_kyc" || action === "kyc") {
     return startKyc(phone, user);
+  }
+
+  // Main-menu Business rows.
+  if (action === "create_product") {
+    return handleProductCommand(phone, user, "");
+  }
+  if (action === "create_invoice") {
+    return handleInvoiceCommand(phone, user, "");
   }
 
   if (action === SESSION_STATE.SEND_MONEY) {
@@ -493,6 +738,24 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
 
   if (action === "btn_menu") {
     return sendMenuForUser(phone, user);
+  }
+
+  // Invoice / product come before SEND_MONEY: "payment request" contains
+  // "pay", which SEND_MONEY matches on.
+  if (TRIGGERS.INVOICE.some((kw) => t.includes(kw))) {
+    const parsed = parseInvoiceRequest(text || "");
+    if (parsed) {
+      return advanceInvoice(phone, user, {
+        items: parsed.items,
+        buyerPhone: parsed.buyerPhone,
+      });
+    }
+    await updateSession(user.id, SESSION_STATE.INVOICE_ITEMS, {});
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS);
+  }
+
+  if (TRIGGERS.PRODUCT.some((kw) => t.includes(kw))) {
+    return handleProductCommand(phone, user, text || "");
   }
 
   // Check for trigger words in free text
@@ -750,6 +1013,103 @@ async function handleBuyAirtimeConfirm(phone: string, user: any) {
   // TODO: integrate airtime purchase via AutoRamp VAS
   await resetSession(user.id);
   return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
+}
+
+// ============================================
+// Product / invoice state handlers
+// ============================================
+
+async function handleProductCreate(phone: string, user: any, flowData: FlowData, text: string) {
+  const step = (flowData.step as string) || "name";
+
+  if (step === "name") {
+    // The merchant may have skipped ahead and pasted "Batteries 1000".
+    const parsed = parseProductCreateRequest(text, false);
+    if (parsed) {
+      return saveProduct(phone, user, parsed.name, parsed.price);
+    }
+    const name = text.replace(/\s+/g, " ").trim();
+    if (!name) {
+      return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PRODUCT.PROMPT_NAME);
+    }
+    await updateSession(user.id, SESSION_STATE.PRODUCT_CREATE, { step: "price", name });
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PRODUCT.PROMPT_PRICE(name));
+  }
+
+  const price = parseAmountFromText(text);
+  if (!price || price <= 0) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PRODUCT.INVALID_PRICE);
+  }
+  return saveProduct(phone, user, String(flowData.name || ""), price);
+}
+
+async function handleInvoiceItems(phone: string, user: any, _flowData: FlowData, text: string) {
+  const parsed = parseInvoiceRequest(text, false);
+  if (!parsed) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.INVALID_ITEMS);
+  }
+  return advanceInvoice(phone, user, {
+    items: parsed.items,
+    buyerPhone: parsed.buyerPhone,
+  });
+}
+
+async function handleInvoicePrice(phone: string, user: any, flowData: FlowData, text: string) {
+  const draft = flowData as unknown as InvoiceDraft;
+  const price = parseAmountFromText(text);
+  const index = draft.priceIndex ?? 0;
+
+  if (!price || price <= 0) {
+    const name = draft.items[index]?.name || "this item";
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_PRICE(name));
+  }
+
+  const items = draft.items.map((item, i) => (i === index ? { ...item, unitPrice: price } : item));
+  const next: InvoiceDraft = { ...draft, items };
+  delete next.priceIndex;
+
+  return advanceInvoice(phone, user, next);
+}
+
+async function handleInvoicePhone(phone: string, user: any, flowData: FlowData, text: string) {
+  const buyerPhone = toRwandaPhone(text.trim());
+  if (!buyerPhone) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.INVALID_PHONE);
+  }
+  return showInvoiceConfirm(phone, user, { ...(flowData as unknown as InvoiceDraft), buyerPhone });
+}
+
+async function handleInvoiceConfirm(
+  phone: string,
+  user: any,
+  flowData: FlowData,
+  action?: string,
+  text?: string
+) {
+  const draft = flowData as unknown as InvoiceDraft;
+  const choice = (action || text || "").toLowerCase().trim();
+
+  if (action === "cancel_invoice" || ["cancel", "no", "stop"].includes(choice)) {
+    await resetSession(user.id);
+    return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
+  }
+
+  const confirmed =
+    action === "confirm_invoice" || ["yes", "y", "confirm", "ok", "send", "go"].includes(choice);
+
+  if (!confirmed) {
+    return whatsapp.sendTextMessage(
+      phone,
+      "Reply *yes* to send the payment request, or *cancel* to stop."
+    );
+  }
+
+  if (!draft.buyerPhone || draft.items.length === 0) {
+    await resetSession(user.id);
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.INVALID_ITEMS);
+  }
+
+  return issueAndCharge(phone, user, draft);
 }
 
 // ============================================
