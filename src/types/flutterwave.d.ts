@@ -91,11 +91,30 @@ declare module "flutterwave-node-v3" {
 
     Transaction: {
       verify: (payload: TransactionVerifyPayload) => Promise<FlutterwaveResponse>;
+      verify_by_tx: (payload: { tx_ref: string }) => Promise<FlutterwaveResponse>;
       fetch: (payload?: Record<string, unknown>) => Promise<FlutterwaveResponse>;
+      fee: (payload: { amount: string | number; currency: string }) => Promise<FlutterwaveResponse>;
+      refund: (payload: { id: string | number; amount?: string | number }) => Promise<FlutterwaveResponse>;
     };
 
     Transfer: {
       initiate: (payload: TransferPayload) => Promise<FlutterwaveResponse>;
+      fetch: (payload?: Record<string, unknown>) => Promise<FlutterwaveResponse>;
+      get_a_transfer: (payload: { id: string | number }) => Promise<FlutterwaveResponse>;
+    };
+
+    Settlement: {
+      fetch: (payload: { id: string | number; from?: string; to?: string }) => Promise<FlutterwaveResponse>;
+      fetch_all: (payload?: Record<string, unknown>) => Promise<FlutterwaveResponse>;
+    };
+
+    Misc: {
+      bal: (payload?: Record<string, unknown>) => Promise<FlutterwaveResponse>;
+      bal_currency: (payload: { currency: string }) => Promise<FlutterwaveResponse>;
+    };
+
+    Bank: {
+      country: (payload: { country: string }) => Promise<FlutterwaveResponse>;
     };
   }
 
