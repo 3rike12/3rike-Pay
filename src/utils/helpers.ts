@@ -20,6 +20,61 @@ export function formatAmount(amount: number): string {
 }
 
 /**
+ * Currency-agnostic amount formatter. RWF has no subunit in practice, so
+ * fraction digits are dropped; the code is spelled out ("RWF 5,000") because
+ * the symbol form renders inconsistently across ICU versions.
+ */
+export function formatCurrency(amount: number, currency = "RWF"): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    currencyDisplay: "code",
+    minimumFractionDigits: 0,
+  }).format(amount);
+}
+
+/**
+ * Rwanda mobile prefixes per RURA's National Numbering Plan:
+ * 072/073 (Airtel), 077 (KTRN), 078/079 (MTN). 10 digits national,
+ * 12 with the 250 country code.
+ */
+const RWANDA_MOBILE_PREFIXES = ["072", "073", "077", "078", "079"];
+
+/**
+ * Normalise any Rwanda phone input to the 10-digit national form
+ * (0781234567) that the RWF mobile-money charge endpoint expects.
+ *
+ * Accepts +250781234567, 250781234567, 0781234567 and 781234567.
+ * Returns null when the number is not a plausible Rwanda mobile number -
+ * callers must treat null as a hard validation error rather than sending
+ * a malformed number to Flutterwave.
+ *
+ * NOTE: Flutterwave's own Rwanda docs show a Ghanaian number
+ * (054709929220), so the exact representation they route on is only
+ * confirmable in sandbox. Flip RWANDA_PHONE_LOCAL below if it rejects.
+ */
+export function toRwandaPhone(phone: string): string | null {
+  const cleaned = (phone || "").replace(/[^0-9]/g, "");
+  let national: string | null = null;
+
+  if (cleaned.length === 12 && cleaned.startsWith("250")) {
+    national = "0" + cleaned.slice(3);
+  } else if (cleaned.length === 10 && cleaned.startsWith("0")) {
+    national = cleaned;
+  } else if (cleaned.length === 9 && cleaned.startsWith("7")) {
+    national = "0" + cleaned;
+  }
+
+  if (!national) return null;
+  return RWANDA_MOBILE_PREFIXES.some((p) => national!.startsWith(p)) ? national : null;
+}
+
+/** Backwards-compatible check built on toRwandaPhone. */
+export function isRwandaPhone(phone: string): boolean {
+  return toRwandaPhone(phone) !== null;
+}
+
+/**
  * Normalise to local Nigerian format (0803...), which is what the AutoRamp /
  * Nigerian bank APIs expect.
  *
