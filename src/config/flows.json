@@ -24,7 +24,7 @@
     "description": "Account revalidation (identity + OTP). Definition: flows/revalidation.json"
   },
   "BUSINESS": {
-    "id": "",
+    "id": "1113851111296695",
     "cta": "Set Up",
     "firstScreen": "BUSINESS_DETAILS",
     "description": "Merchant business profile (name/email/phone/RDB). Definition: flows/business.json"
