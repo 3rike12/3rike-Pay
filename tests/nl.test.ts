@@ -1,0 +1,158 @@
+import { describe, it, expect } from "vitest";
+import {
+  toRwandaPhone,
+  isRwandaPhone,
+  formatCurrency,
+  parseProductCreateRequest,
+  parseInvoiceRequest,
+} from "@/utils/helpers";
+
+describe("toRwandaPhone", () => {
+  it("accepts every Rwanda number shape", () => {
+    expect(toRwandaPhone("+250781234567")).toBe("0781234567");
+    expect(toRwandaPhone("250781234567")).toBe("0781234567");
+    expect(toRwandaPhone("0781234567")).toBe("0781234567");
+    expect(toRwandaPhone("781234567")).toBe("0781234567");
+    expect(toRwandaPhone("078 123 4567")).toBe("0781234567");
+    expect(toRwandaPhone("+250 78 123 4567")).toBe("0781234567");
+  });
+
+  it("accepts all Rwanda mobile prefixes (Airtel, KTRN, MTN)", () => {
+    expect(toRwandaPhone("0721234567")).toBe("0721234567");
+    expect(toRwandaPhone("0731234567")).toBe("0731234567");
+    expect(toRwandaPhone("0771234567")).toBe("0771234567");
+    expect(toRwandaPhone("0781234567")).toBe("0781234567");
+    expect(toRwandaPhone("0791234567")).toBe("0791234567");
+  });
+
+  it("rejects numbers that are not Rwanda mobiles", () => {
+    expect(toRwandaPhone("0751234567")).toBeNull(); // unknown prefix
+    expect(toRwandaPhone("054709929220")).toBeNull(); // Ghana (docs bug)
+    expect(toRwandaPhone("+15551234567")).toBeNull(); // US
+    expect(toRwandaPhone("12345")).toBeNull();
+    expect(toRwandaPhone("")).toBeNull();
+    expect(toRwandaPhone("not a number")).toBeNull();
+  });
+
+  it("isRwandaPhone mirrors toRwandaPhone", () => {
+    expect(isRwandaPhone("0781234567")).toBe(true);
+    expect(isRwandaPhone("0751234567")).toBe(false);
+  });
+});
+
+describe("formatCurrency", () => {
+  it("renders RWF with code and no fraction digits", () => {
+    expect(formatCurrency(5000, "RWF")).toBe("RWF 5,000");
+    expect(formatCurrency(1500)).toBe("RWF 1,500");
+    expect(formatCurrency(0, "RWF")).toBe("RWF 0");
+  });
+
+  it("keeps other currencies working", () => {
+    expect(formatCurrency(1000, "NGN")).toBe("NGN 1,000");
+  });
+});
+
+describe("parseProductCreateRequest", () => {
+  it("parses the common shapes", () => {
+    expect(parseProductCreateRequest("product Batteries 1000")).toEqual({
+      name: "Batteries",
+      price: 1000,
+    });
+    expect(parseProductCreateRequest("add product: Umbrella at 5000")).toEqual({
+      name: "Umbrella",
+      price: 5000,
+    });
+    expect(parseProductCreateRequest("new product 1kg rice RWF 2500")).toEqual({
+      name: "1kg rice",
+      price: 2500,
+    });
+    expect(parseProductCreateRequest("product Water bottle 1,500")).toEqual({
+      name: "Water bottle",
+      price: 1500,
+    });
+    expect(parseProductCreateRequest("add item Coke @ 700")).toEqual({
+      name: "Coke",
+      price: 700,
+    });
+  });
+
+  it("returns null without intent, price or name", () => {
+    expect(parseProductCreateRequest("hello there")).toBeNull();
+    expect(parseProductCreateRequest("product Batteries")).toBeNull();
+    expect(parseProductCreateRequest("product 1500")).toBeNull();
+    expect(parseProductCreateRequest("")).toBeNull();
+  });
+
+  it("can skip the intent check when the caller already established it", () => {
+    expect(parseProductCreateRequest("Batteries 1000", false)).toEqual({
+      name: "Batteries",
+      price: 1000,
+    });
+  });
+});
+
+describe("parseInvoiceRequest", () => {
+  it("parses items and the buyer phone", () => {
+    const result = parseInvoiceRequest(
+      "invoice 3 batteries and 2 water for 0781234567"
+    );
+    expect(result?.buyerPhone).toBe("0781234567");
+    expect(result?.items).toEqual([
+      { name: "batteries", qty: 3, unitPrice: null },
+      { name: "water", qty: 2, unitPrice: null },
+    ]);
+  });
+
+  it("parses inline prices", () => {
+    const result = parseInvoiceRequest("charge 0781234567 2 waters at 1500");
+    expect(result?.buyerPhone).toBe("0781234567");
+    expect(result?.items).toEqual([
+      { name: "waters", qty: 2, unitPrice: 1500 },
+    ]);
+  });
+
+  it("accepts international phone shapes", () => {
+    const result = parseInvoiceRequest(
+      "bill 1 water bottle at 1000 to +250781234567"
+    );
+    expect(result?.buyerPhone).toBe("0781234567");
+    expect(result?.items).toEqual([
+      { name: "water bottle", qty: 1, unitPrice: 1000 },
+    ]);
+  });
+
+  it("treats a big leading number as a price, not a count", () => {
+    const result = parseInvoiceRequest("invoice 1000 water bottle");
+    expect(result?.items).toEqual([
+      { name: "water bottle", qty: 1, unitPrice: 1000 },
+    ]);
+  });
+
+  it("treats small leading numbers as quantities", () => {
+    const result = parseInvoiceRequest("invoice 3 batteries");
+    expect(result?.items).toEqual([
+      { name: "batteries", qty: 3, unitPrice: null },
+    ]);
+  });
+
+  it("parses comma separated lines", () => {
+    const result = parseInvoiceRequest(
+      "invoice 2 rice, 3 soda for 0781234567"
+    );
+    expect(result?.items).toEqual([
+      { name: "rice", qty: 2, unitPrice: null },
+      { name: "soda", qty: 3, unitPrice: null },
+    ]);
+  });
+
+  it("returns null without intent or items", () => {
+    expect(parseInvoiceRequest("hello there")).toBeNull();
+    expect(parseInvoiceRequest("invoice")).toBeNull();
+    expect(parseInvoiceRequest("invoice for 0781234567")).toBeNull();
+  });
+
+  it("leaves buyerPhone null when the message has no number", () => {
+    const result = parseInvoiceRequest("invoice 3 batteries");
+    expect(result?.buyerPhone).toBeNull();
+  });
+});
