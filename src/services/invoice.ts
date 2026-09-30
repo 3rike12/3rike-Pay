@@ -469,6 +469,18 @@ export async function expireStaleInvoices(merchantId?: string) {
 // Rendering
 // --------------------------------------------
 
+/** 2026-09-30T15:10:53.538Z -> "30 Sep 2026, 15:10 UTC" */
+function formatExpiry(date: Date): string {
+  const iso = date.toISOString();
+  const [datePart, timePart] = iso.split("T");
+  const [year, month, day] = datePart.split("-");
+  const monthName = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ][parseInt(month, 10) - 1];
+  return `${day} ${monthName} ${year}, ${timePart.slice(0, 5)} UTC`;
+}
+
 /**
  * Invoice summary shown to the MERCHANT. Never sent to a buyer - they
  * only ever see Flutterwave's own prompt.
@@ -503,7 +515,7 @@ export function renderInvoiceSummary(
   lines.push(`Buyer: ${invoice.buyerPhone}`);
   lines.push(`Status: ${invoice.status}`);
   if (invoice.expiresAt) {
-    lines.push(`Expires: ${invoice.expiresAt.toISOString()}`);
+    lines.push(`Expires: ${formatExpiry(invoice.expiresAt)}`);
   }
   if (options.showInternalRef) {
     lines.push(`Reference (internal): ${invoice.reference}`);
