@@ -14,11 +14,20 @@ vi.mock("@/services/redis", () => ({
 
 const chargeRwandaMobileMoney = vi.fn();
 const extractPaymentUrl = vi.fn();
+const verifyTransactionByTxRef = vi.fn();
+const sendTextMessage = vi.fn().mockResolvedValue(true);
 
 vi.mock("@/services/flutterwave", () => ({
   flutterwave: {
     chargeRwandaMobileMoney: (...args: any[]) => chargeRwandaMobileMoney(...args),
     extractPaymentUrl: (...args: any[]) => extractPaymentUrl(...args),
+    verifyTransactionByTxRef: (...args: any[]) => verifyTransactionByTxRef(...args),
+  },
+}));
+
+vi.mock("@/services/whatsapp", () => ({
+  whatsapp: {
+    sendTextMessage: (...args: any[]) => sendTextMessage(...args),
   },
 }));
 
@@ -68,6 +77,7 @@ vi.mock("@/db/prisma", () => ({
         transactionRow = { ...transactionRow, ...args.data };
         return transactionRow;
       }),
+      updateMany: vi.fn(async () => ({ count: 1 })),
     },
     product: {
       findMany: vi.fn(async () => []),
@@ -77,18 +87,21 @@ vi.mock("@/db/prisma", () => ({
   },
 }));
 
-import { chargeInvoice, settleInvoicePayment } from "@/services/invoice";
+import { chargeInvoice, settleInvoicePayment, verifyInvoicePayment, renderPaidInvoiceMessage } from "@/services/invoice";
 import { flutterwave } from "@/services/flutterwave";
 import { prisma } from "@/db/prisma";
 
 const charge = vi.mocked(chargeRwandaMobileMoney as any);
 const extract = vi.mocked(extractPaymentUrl as any);
+const verify = vi.mocked(verifyTransactionByTxRef as any);
+const notify = vi.mocked(sendTextMessage as any);
 const credit = vi.mocked(ledgerCredit as any);
 
 function seedInvoice(overrides: Row = {}) {
   invoiceRow = {
     id: "inv_1",
     merchantId: "merch_1",
+    merchant: { id: "merch_1", phone: "0771234567" },
     buyerPhone: "0781234567",
     items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
     amount: 3000,
@@ -200,6 +213,12 @@ describe("settleInvoicePayment", () => {
     const second = await settleInvoicePayment("3RIKE-20260930-ABC123");
     expect(second.settled).toBe(false);
     expect(credit).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0]).toBe("0771234567");
+    expect(notify.mock.calls[0][1]).toContain("Payment Received");
+    expect(notify.mock.calls[0][1]).toContain("RWF 3,000");
+    // The internal reference must never reach a message.
+    expect(notify.mock.calls[0][1]).not.toContain("3RIKE-20260930-ABC123");
   });
 
   it("returns settled=false for an unknown reference", async () => {
@@ -207,5 +226,82 @@ describe("settleInvoicePayment", () => {
     const result = await settleInvoicePayment("does-not-exist");
     expect(result.settled).toBe(false);
     expect(credit).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+describe("verifyInvoicePayment", () => {
+  it("settles when Flutterwave reports success", async () => {
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({ data: { status: "successful" } });
+
+    const result = await verifyInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(result).toBe("settled");
+    expect(invoiceRow.status).toBe("paid");
+    expect(credit).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect((prisma.transaction.updateMany as any).mock.calls[0][0]).toEqual({
+      where: { reference: "3RIKE-20260930-ABC123" },
+      data: { status: "completed" },
+    });
+  });
+
+  it("leaves the invoice pending while Flutterwave still says pending", async () => {
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({ data: { status: "pending" } });
+
+    const result = await verifyInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(result).toBe("pending");
+    expect(invoiceRow.status).toBe("pending_payment");
+    expect(credit).not.toHaveBeenCalled();
+  });
+
+  it("fails the invoice when Flutterwave reports failure", async () => {
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({ data: { status: "failed" } });
+
+    const result = await verifyInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(result).toBe("failed");
+    expect(invoiceRow.status).toBe("failed");
+  });
+
+  it("does not call Flutterwave for an invoice that is already settled", async () => {
+    seedInvoice({ status: "paid" });
+
+    const result = await verifyInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(result).toBe("settled");
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it("treats an unknown reference as unknown", async () => {
+    invoiceRow = null;
+    expect(await verifyInvoicePayment("nope")).toBe("unknown");
+  });
+
+  it("swallows verification errors and stays pending", async () => {
+    seedInvoice({ status: "pending_payment" });
+    verify.mockRejectedValue(new Error("network down"));
+
+    expect(await verifyInvoicePayment("3RIKE-20260930-ABC123")).toBe("pending");
+    expect(invoiceRow.status).toBe("pending_payment");
+  });
+});
+
+describe("renderPaidInvoiceMessage", () => {
+  it("is currency aware and omits the internal reference", () => {
+    const message = renderPaidInvoiceMessage({
+      items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+      amount: 3000,
+      currency: "RWF",
+      buyerPhone: "0781234567",
+    });
+
+    expect(message).toContain("RWF 3,000");
+    expect(message).toContain("3 x batteries: RWF 3,000");
+    expect(message).toContain("Buyer: 0781234567");
   });
 });
