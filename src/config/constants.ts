@@ -337,6 +337,13 @@ export const MESSAGES = {
       ISSUED_NO_URL: messagesJson.BUSINESS.INVOICE.ISSUED_NO_URL,
       ERROR: (reason: string) => render(messagesJson.BUSINESS.INVOICE.ERROR, { reason }),
     },
+    PROFILE: {
+      OPEN: messagesJson.BUSINESS.PROFILE.OPEN,
+      CTA: messagesJson.BUSINESS.PROFILE.CTA,
+      NOT_AVAILABLE: messagesJson.BUSINESS.PROFILE.NOT_AVAILABLE,
+      FAILED: messagesJson.BUSINESS.PROFILE.FAILED,
+      SAVED: (details: string) => render(messagesJson.BUSINESS.PROFILE.SAVED, { details }),
+    },
   },
 
   FLOW: {

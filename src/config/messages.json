@@ -151,6 +151,13 @@
       "ISSUED": "The customer gets a prompt on their phone to approve the payment. If they don't see one, forward them this link:\n{{url}}",
       "ISSUED_NO_URL": "The customer gets a prompt on their phone to approve the payment.",
       "ERROR": "Could not start the payment: {{reason}}\n\nYour invoice is saved - reply *yes* to try again, or *cancel*."
+    },
+    "PROFILE": {
+      "OPEN": "Let's set up your business profile — the details that identify your shop on payment requests.",
+      "CTA": "Set Up",
+      "NOT_AVAILABLE": "Business setup isn't open yet. We'll message you as soon as it is.",
+      "FAILED": "I couldn't open the business form. Please try again in a moment.",
+      "SAVED": "Your business profile is saved.\n\n{{details}}\n\nType /invoice to request payment."
     }
   }
 }

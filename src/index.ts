@@ -13,6 +13,7 @@ import notifyRouter from "@/api/notify";
 import flowRouter from "@/api/flow";
 import transferFlowRouter from "@/api/transferFlow";
 import revalidationFlowRouter from "@/api/revalidationFlow";
+import businessFlowRouter from "@/api/businessFlow";
 import { generalLimiter, transferPinLimiter } from "@/api/middleware/rateLimit";
 
 const app = express();
@@ -62,6 +63,7 @@ app.use("/webhook/notify", notifyRouter);
 app.use("/webhook/flow/kyc", flowRouter);
 app.use("/webhook/flow/transfer", transferPinLimiter, transferFlowRouter);
 app.use("/webhook/flow/revalidation", revalidationFlowRouter);
+app.use("/webhook/flow/business", businessFlowRouter);
 
 // ============================================
 // Serve React frontend (built output)
