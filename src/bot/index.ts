@@ -18,6 +18,7 @@ import {
   expireStaleInvoices,
   listProducts,
   renderInvoiceSummary,
+  scheduleInvoiceVerification,
 } from "@/services/invoice";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
@@ -365,6 +366,8 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
     }
 
     const result = await chargeInvoice({ merchantId: user.id, invoiceId: draftId });
+    // Webhook first, verify-poll as the fallback if it never arrives.
+    scheduleInvoiceVerification(result.txRef);
 
     await resetSession(user.id);
 

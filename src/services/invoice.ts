@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
+import { whatsapp } from "@/services/whatsapp";
 import { withIdempotencyKey } from "@/utils/idempotency";
 import {
   formatCurrency,
@@ -374,7 +375,10 @@ export async function settleInvoicePayment(
   metadata: Record<string, unknown> = {}
 ): Promise<{ settled: boolean; invoice?: unknown; merchantId?: string }> {
   return withIdempotencyKey(`invoice:settle:${reference}`, async () => {
-    const invoice = await prisma.invoice.findUnique({ where: { reference } });
+    const invoice = await prisma.invoice.findUnique({
+      where: { reference },
+      include: { merchant: true },
+    });
     if (!invoice) {
       logger.warn("Settle requested for unknown invoice", { reference });
       return { settled: false };
@@ -403,6 +407,23 @@ export async function settleInvoicePayment(
       metadata: { type: "invoice", invoiceId: invoice.id, ...metadata },
       idempotencyKey: `fw-charge-credit:${reference}`,
     });
+
+    // Notify the merchant here rather than in each caller: settle is the
+    // single winning path (webhook and verify-poller both funnel through it),
+    // so this cannot double-message.
+    if (invoice.merchant?.phone) {
+      try {
+        await whatsapp.sendTextMessage(
+          invoice.merchant.phone,
+          renderPaidInvoiceMessage(invoice)
+        );
+      } catch (error: any) {
+        logger.warn("Paid-invoice notification failed", {
+          reference,
+          error: error?.message,
+        });
+      }
+    }
 
     logger.info("Invoice settled", {
       invoiceId: invoice.id,
@@ -469,8 +490,7 @@ export async function expireStaleInvoices(merchantId?: string) {
 // Rendering
 // --------------------------------------------
 
-/** 2026-09-30T15:10:53.538Z -> "30 Sep 2026, 15:10 UTC" */
-function formatExpiry(date: Date): string {
+/** 2026-09-30T15:10:53.538Z -> "30 Sep 2026, 15:10 UTC" */function formatExpiry(date: Date): string {
   const iso = date.toISOString();
   const [datePart, timePart] = iso.split("T");
   const [year, month, day] = datePart.split("-");
@@ -527,4 +547,108 @@ export function renderInvoiceSummary(
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Merchant-facing "you got paid" message for an invoice. Currency-aware
+ * (RWF for Rwanda) and deliberately omits the internal reference - that ID
+ * is trace-only and never leaves our systems.
+ */
+export function renderPaidInvoiceMessage(invoice: {
+  items: unknown;
+  amount: number;
+  currency: string;
+  buyerPhone: string;
+}): string {
+  const items = (Array.isArray(invoice.items) ? invoice.items : []) as InvoiceItem[];
+  const lines = items
+    .map((item) => `- ${item.qty} x ${item.name}: ${formatCurrency(item.qty * item.unitPrice, invoice.currency)}`)
+    .join("\n");
+
+  return (
+    `*Payment Received*\n\n` +
+    (lines ? `${lines}\n\n` : "") +
+    `*Total: ${formatCurrency(invoice.amount, invoice.currency)}*\n` +
+    `Buyer: ${invoice.buyerPhone}\n\n` +
+    `Your balance has been updated.`
+  );
+}
+
+// --------------------------------------------
+// Verify-polling fallback
+// --------------------------------------------
+
+/**
+ * Ask Flutterwave what happened to a charge and settle/fail accordingly.
+ *
+ * The webhook is the primary signal. This is the safety net for when it
+ * does not arrive - Flutterwave's own docs disagree on whether RWF charges
+ * stay "pending" until the redirect completes, so we poll rather than
+ * assume.
+ *
+ * Returns: "settled" | "failed" | "pending" | "unknown".
+ */
+export async function verifyInvoicePayment(
+  reference: string
+): Promise<"settled" | "failed" | "pending" | "unknown"> {
+  const invoice = await getInvoiceByReference(reference);
+  if (!invoice) return "unknown";
+  if (invoice.status === INVOICE_STATUS.PAID) return "settled";
+  if (
+    invoice.status === INVOICE_STATUS.FAILED ||
+    invoice.status === INVOICE_STATUS.EXPIRED ||
+    invoice.status === INVOICE_STATUS.CANCELLED
+  ) {
+    return "failed";
+  }
+
+  try {
+    const response: any = await flutterwave.verifyTransactionByTxRef(reference);
+    const status = String(response?.data?.status || response?.status || "")
+      .toLowerCase()
+      .trim();
+
+    if (status === "successful") {
+      await settleInvoicePayment(reference, { source: "verify_poll" });
+      await prisma.transaction.updateMany({
+        where: { reference },
+        data: { status: "completed" },
+      });
+      return "settled";
+    }
+
+    if (status === "failed" || status === "cancelled" || status === "abandoned") {
+      await failInvoicePayment(reference, status);
+      await prisma.transaction.updateMany({
+        where: { reference },
+        data: { status: "failed" },
+      });
+      return "failed";
+    }
+
+    return "pending";
+  } catch (error: any) {
+    logger.warn("Invoice verification poll failed", {
+      reference,
+      error: error?.message,
+    });
+    return "pending";
+  }
+}
+
+/**
+ * Fire-and-forget verification attempts after a charge. There is no cron in
+ * this repo, so this is an in-process timer chain; `unref` keeps it from
+ * holding the process open.
+ */
+export function scheduleInvoiceVerification(
+  reference: string,
+  delaysMs: number[] = [15_000, 45_000, 90_000]
+): void {
+  for (const delay of delaysMs) {
+    const timer = setTimeout(() => {
+      verifyInvoicePayment(reference).catch(() => {});
+    }, delay);
+    timer.unref?.();
+  }
 }

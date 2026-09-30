@@ -9,7 +9,7 @@ import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
 import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
-import { cleanPhone, formatAmount, formatCurrency, redactSensitiveText } from "@/utils/helpers";
+import { cleanPhone, formatAmount, redactSensitiveText } from "@/utils/helpers";
 import { failInvoicePayment, getInvoiceByReference, settleInvoicePayment } from "@/services/invoice";
 import { TEMPLATES, KYC_STATUS } from "@/config/constants";
 
@@ -520,16 +520,10 @@ async function handleFlutterwaveChargeCompleted(data: any) {
     const invoice = await getInvoiceByReference(txRef);
 
     if (invoice) {
-      // Invoice path: settleInvoicePayment flips the invoice to paid and
-      // credits the merchant's ledger with the SAME idempotency key the
-      // generic path below uses, so a race between them cannot double-credit.
-      const result = await settleInvoicePayment(txRef, { flutterwave: data });
-      if (result.settled) {
-        await whatsapp.sendTextMessage(
-          transaction.user.phone,
-          renderPaidInvoiceMessage(invoice)
-        );
-      }
+      // Invoice path: settle flips the invoice to paid, credits the merchant
+      // (idempotency key shared with the generic path below, so a race
+      // cannot double-credit) and sends the merchant their receipt.
+      await settleInvoicePayment(txRef, { flutterwave: data });
     } else {
       await ledger.credit({
         userId: transaction.userId,
@@ -549,35 +543,6 @@ async function handleFlutterwaveChargeCompleted(data: any) {
   } else {
     await failInvoicePayment(txRef, status);
   }
-}
-
-/**
- * Merchant-facing "you got paid" message for an invoice. Currency-aware
- * (RWF for Rwanda) and deliberately omits the internal reference - that ID
- * is trace-only and never leaves our systems.
- */
-function renderPaidInvoiceMessage(invoice: {
-  items: unknown;
-  amount: number;
-  currency: string;
-  buyerPhone: string;
-}) {
-  const items = (Array.isArray(invoice.items) ? invoice.items : []) as Array<{
-    name: string;
-    qty: number;
-    unitPrice: number;
-  }>;
-  const lines = items
-    .map((item) => `- ${item.qty} x ${item.name}: ${formatCurrency(item.qty * item.unitPrice, invoice.currency)}`)
-    .join("\n");
-
-  return (
-    `*Payment Received*\n\n` +
-    (lines ? `${lines}\n\n` : "") +
-    `*Total: ${formatCurrency(invoice.amount, invoice.currency)}*\n` +
-    `Buyer: ${invoice.buyerPhone}\n\n` +
-    `Your balance has been updated.`
-  );
 }
 
 async function handleFlutterwaveChargeFailed(data: any) {
