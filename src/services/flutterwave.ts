@@ -16,7 +16,7 @@ class FlutterwaveService {
   private client: FlutterwaveInstance | null = null;
 
   constructor() {
-    const { publicKey, secretKey, isProduction } = config.flutterwave;
+    const { publicKey, secretKey, isProduction } = config.flutterwave ?? {};
 
     if (!publicKey || !secretKey) {
       logger.warn("Flutterwave keys are not configured");
