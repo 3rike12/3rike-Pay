@@ -1,0 +1,114 @@
+{
+  "version": "7.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "BUSINESS_DETAILS": ["SAVED"],
+    "SAVED": []
+  },
+  "screens": [
+    {
+      "id": "BUSINESS_DETAILS",
+      "title": "Business details",
+      "data": {
+        "error_message": {
+          "type": "string",
+          "__example__": ""
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Tell us about your business. These details identify your shop on payment requests."
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.error_message}"
+          },
+          {
+            "type": "Form",
+            "name": "business_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "business_name",
+                "label": "Business name",
+                "required": true,
+                "min-chars": 2,
+                "max-chars": 80,
+                "helper-text": "e.g. Kigali Electronics"
+              },
+              {
+                "type": "TextInput",
+                "name": "business_email",
+                "label": "Email",
+                "input-type": "email",
+                "required": true,
+                "max-chars": 120,
+                "helper-text": "Receipts and payout notices go here"
+              },
+              {
+                "type": "TextInput",
+                "name": "business_phone",
+                "label": "Phone",
+                "required": true,
+                "max-chars": 15,
+                "helper-text": "Rwanda number, e.g. 0781234567"
+              },
+              {
+                "type": "TextInput",
+                "name": "registration_number",
+                "label": "Registration number",
+                "max-chars": 40,
+                "helper-text": "Optional — RDB certificate number"
+              },
+              {
+                "type": "Footer",
+                "label": "Save",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "business_name": "${form.business_name}",
+                    "business_email": "${form.business_email}",
+                    "business_phone": "${form.business_phone}",
+                    "registration_number": "${form.registration_number}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "SAVED",
+      "title": "Business saved",
+      "terminal": true,
+      "success": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Your business details are saved. Check your chat for a summary."
+          },
+          {
+            "type": "Form",
+            "name": "close_form",
+            "children": [
+              {
+                "type": "Footer",
+                "label": "Close",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {}
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

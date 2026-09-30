@@ -86,6 +86,10 @@ export const FLOW_DEFS = {
     ...flowsJson.ACCOUNT_REVALIDATION,
     id: process.env.WHATSAPP_FLOW_REVALIDATION_ID || flowsJson.ACCOUNT_REVALIDATION.id || "",
   },
+  BUSINESS: {
+    ...flowsJson.BUSINESS,
+    id: process.env.WHATSAPP_FLOW_BUSINESS_ID || flowsJson.BUSINESS.id || "",
+  },
 } as const;
 
 export type FlowKey = keyof typeof FLOW_DEFS;
@@ -96,6 +100,7 @@ export const FLOWS = {
   SEND_MONEY: FLOW_DEFS.SEND_MONEY.id,
   BUY_AIRTIME: FLOW_DEFS.BUY_AIRTIME.id,
   ACCOUNT_REVALIDATION: FLOW_DEFS.ACCOUNT_REVALIDATION.id,
+  BUSINESS: FLOW_DEFS.BUSINESS.id,
 } as const;
 
 // ============================================
