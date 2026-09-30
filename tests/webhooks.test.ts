@@ -50,13 +50,36 @@ vi.mock("@/services/database", () => ({
   logWebhookEvent: vi.fn(),
 }));
 
+vi.mock("@/services/flutterwave", () => ({
+  flutterwave: {
+    verifyWebhookSignature: vi.fn(() => true),
+    verifyTransactionByTxRef: vi.fn(),
+    chargeRwandaMobileMoney: vi.fn(),
+    extractPaymentUrl: vi.fn(() => null),
+  },
+}));
+
+vi.mock("@/services/ledger", () => ({
+  ledger: { credit: vi.fn(), debit: vi.fn(), transfer: vi.fn(), getBalance: vi.fn() },
+}));
+
+vi.mock("@/services/invoice", () => ({
+  getInvoiceByReference: vi.fn(),
+  settleInvoicePayment: vi.fn(),
+  failInvoicePayment: vi.fn(),
+}));
+
 import webhooksRouter from "@/api/webhooks";
 import { autoramp } from "@/services/autoramp";
 import { whatsapp } from "@/services/whatsapp";
+import { flutterwave } from "@/services/flutterwave";
+import { ledger } from "@/services/ledger";
+import { getInvoiceByReference, settleInvoicePayment, failInvoicePayment } from "@/services/invoice";
 import { prisma, logWebhookEvent } from "@/services/database";
 import { handleMessage } from "@/bot";
 
 const verifySignature = vi.mocked(autoramp.verifyWebhookSignature);
+const verifyFlutterwaveSignature = vi.mocked(flutterwave.verifyWebhookSignature);
 const sendTemplate = vi.mocked(whatsapp.sendTemplate);
 const sendText = vi.mocked(whatsapp.sendTextMessage);
 const findBank = vi.mocked(prisma.bankAccount.findFirst);
@@ -68,6 +91,10 @@ const updateTxn = vi.mocked(prisma.transaction.update);
 const findEvent = vi.mocked(prisma.webhookEvent.findFirst);
 const createEvent = vi.mocked(prisma.webhookEvent.create);
 const logEvent = vi.mocked(logWebhookEvent);
+const ledgerCredit = vi.mocked(ledger.credit);
+const invoiceForRef = vi.mocked(getInvoiceByReference);
+const settleInvoice = vi.mocked(settleInvoicePayment);
+const failInvoice = vi.mocked(failInvoicePayment);
 
 function buildApp() {
   const app = express();
@@ -434,5 +461,152 @@ describe("WhatsApp webhook (POST) message handling", () => {
     expect(res.status).toBe(200);
     await new Promise((r) => setTimeout(r, 10));
     expect(handleMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("Flutterwave webhook", () => {
+  const invoiceTxn = {
+    id: "tx_1",
+    reference: "3RIKE-INV-1",
+    userId: "user_1",
+    amount: 3000,
+    currency: "RWF",
+    status: "processing",
+    metadata: {},
+    user: { id: "user_1", phone: "250788000111" },
+  };
+
+  const invoice = {
+    id: "inv_1",
+    reference: "3RIKE-INV-1",
+    merchantId: "user_1",
+    amount: 3000,
+    currency: "RWF",
+    status: "pending_payment",
+    buyerPhone: "0781234567",
+    items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+  };
+
+  function postFlutterwave(app: express.Express, payload: unknown) {
+    return request(app)
+      .post("/webhook/flutterwave")
+      .set("verif-hash", "test-signature")
+      .send(payload as any);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    verifyFlutterwaveSignature.mockReturnValue(true);
+    sendText.mockResolvedValue(true);
+    invoiceForRef.mockResolvedValue(null as any);
+    settleInvoice.mockResolvedValue({ settled: true } as any);
+    failInvoice.mockResolvedValue(null as any);
+    (ledgerCredit as any).mockResolvedValue({});
+  });
+
+  it("rejects a request with no signature header", async () => {
+    const app = buildApp();
+    const res = await request(app)
+      .post("/webhook/flutterwave")
+      .send({ event: "charge.completed", data: {} });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects an invalid signature", async () => {
+    verifyFlutterwaveSignature.mockReturnValue(false);
+    const app = buildApp();
+    const res = await request(app)
+      .post("/webhook/flutterwave")
+      .set("verif-hash", "bad")
+      .send({ event: "charge.completed", data: {} });
+    expect(res.status).toBe(401);
+  });
+
+  it("settles an invoice charge instead of running the generic credit", async () => {
+    findTxn.mockResolvedValue(invoiceTxn as any);
+    invoiceForRef.mockResolvedValue(invoice as any);
+
+    const app = buildApp();
+    const res = await postFlutterwave(app, {
+      event: "charge.completed",
+      data: { id: 99, tx_ref: "3RIKE-INV-1", status: "successful" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(settleInvoice).toHaveBeenCalledWith(
+      "3RIKE-INV-1",
+      expect.objectContaining({ flutterwave: expect.anything() })
+    );
+    // The generic credit path must not also run: settle owns the credit.
+    expect(ledgerCredit).not.toHaveBeenCalled();
+    expect(sendText).not.toHaveBeenCalledWith(
+      expect.stringContaining("Reference: 3RIKE-INV-1")
+    );
+    expect(updateTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) })
+    );
+  });
+
+  it("falls back to the generic credit for a non-invoice charge", async () => {
+    findTxn.mockResolvedValue({
+      ...invoiceTxn,
+      reference: "3RIKE-DEP-1",
+      currency: "NGN",
+      amount: 5000,
+    } as any);
+    invoiceForRef.mockResolvedValue(null);
+
+    const app = buildApp();
+    const res = await postFlutterwave(app, {
+      event: "charge.completed",
+      data: { id: 100, tx_ref: "3RIKE-DEP-1", status: "successful" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(settleInvoice).not.toHaveBeenCalled();
+    expect(ledgerCredit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user_1",
+        amount: 5000,
+        reference: "3RIKE-DEP-1",
+        idempotencyKey: "fw-charge-credit:3RIKE-DEP-1",
+      })
+    );
+    expect(sendText).toHaveBeenCalledWith(
+      "250788000111",
+      expect.stringContaining("Reference: 3RIKE-DEP-1")
+    );
+  });
+
+  it("ignores a duplicate delivery for an already-settled transaction", async () => {
+    findTxn.mockResolvedValue({ ...invoiceTxn, status: "completed" } as any);
+    invoiceForRef.mockResolvedValue(invoice as any);
+
+    const app = buildApp();
+    await postFlutterwave(app, {
+      event: "charge.completed",
+      data: { id: 99, tx_ref: "3RIKE-INV-1", status: "successful" },
+    });
+
+    expect(settleInvoice).not.toHaveBeenCalled();
+    expect(updateTxn).not.toHaveBeenCalled();
+  });
+
+  it("fails the invoice when the charge fails", async () => {
+    findTxn.mockResolvedValue(invoiceTxn as any);
+    invoiceForRef.mockResolvedValue(invoice as any);
+
+    const app = buildApp();
+    const res = await postFlutterwave(app, {
+      event: "charge.failed",
+      data: { id: 99, tx_ref: "3RIKE-INV-1", status: "failed" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(failInvoice).toHaveBeenCalledWith("3RIKE-INV-1", "failed");
+    expect(settleInvoice).not.toHaveBeenCalled();
+    expect(updateTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) })
+    );
   });
 });
