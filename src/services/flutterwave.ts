@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { config } from "@/config";
 import { FLUTTERWAVE_SPLIT } from "@/config/constants";
 import { prisma } from "@/db/prisma";
+import { toRwandaPhone } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("flutterwave");
@@ -255,14 +256,42 @@ class FlutterwaveService {
   // ------- Collections (Rwanda mobile money) -------
 
   /**
+   * Generate an order_id. Flutterwave's SDK validator hard-requires
+   * `order_id` whenever currency is RWF (create.js), even though the
+   * published docs omit it - without this every RWF charge throws.
+   */
+  private generateOrderId(): string {
+    const ts = Date.now().toString(36);
+    const rand = crypto.randomBytes(5).toString("hex");
+    return `3RIKE-ORD-${ts}-${rand}`.slice(0, 100);
+  }
+
+  /**
+   * Flutterwave requires an email on every charge, but our buyers are
+   * anonymous. Synthesise a syntactically valid, non-deliverable one from
+   * the payer's number so we never have to ask for it.
+   */
+  private syntheticBuyerEmail(phoneDigits: string): string {
+    return `buyer-${phoneDigits}@pay.3rike.app`;
+  }
+
+  /**
    * Charge a customer's Rwanda mobile money wallet.
-   * Customer authorizes via redirect/callback flow.
+   *
+   * The carrier pushes an authorization prompt to the handset; the
+   * `meta.authorization.redirect` URL in the response is the fallback
+   * confirmation page. We store it on the invoice and let the merchant
+   * forward it if the customer never sees a prompt - we never message the
+   * buyer ourselves.
+   *
+   * Returns the raw Flutterwave response; callers read
+   * `meta.authorization.redirect` from it.
    */
   async chargeRwandaMobileMoney(params: {
     txRef: string;
-    amount: string;
+    amount: number;
     currency?: string;
-    email: string;
+    email?: string;
     phoneNumber: string;
     fullname?: string;
     orderId?: string;
@@ -271,23 +300,35 @@ class FlutterwaveService {
   }) {
     const client = this.ensureClient();
 
+    const phone = toRwandaPhone(params.phoneNumber);
+    if (!phone) {
+      throw new Error(`Not a valid Rwanda mobile number: ${params.phoneNumber}`);
+    }
+
+    const amount = Number(params.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error(`Invalid charge amount: ${params.amount}`);
+    }
+
     const payload: any = {
       tx_ref: params.txRef,
-      order_id: params.orderId,
-      amount: params.amount,
-      currency: params.currency || "RWF",
-      email: params.email,
-      phone_number: params.phoneNumber,
+      order_id: params.orderId || this.generateOrderId(),
+      amount,
+      currency: (params.currency || "RWF").toUpperCase(),
+      email: params.email || this.syntheticBuyerEmail(phone),
+      phone_number: phone,
       fullname: params.fullname,
       redirect_url: params.redirectUrl,
       meta: params.meta,
     };
 
     try {
-      const response = await client.MobileMoney.rwanda(payload);
+      const response: any = await client.MobileMoney.rwanda(payload);
       logger.info("Rwanda mobile money charge initiated", {
         txRef: params.txRef,
-        amount: params.amount,
+        amount,
+        phone,
+        paymentUrl: response?.meta?.authorization?.redirect || null,
       });
       return response;
     } catch (error: any) {
@@ -297,6 +338,11 @@ class FlutterwaveService {
       });
       throw error;
     }
+  }
+
+  /** Pull the authorization/redirect URL out of a charge response. */
+  extractPaymentUrl(response: any): string | null {
+    return response?.meta?.authorization?.redirect || null;
   }
 
   // ------- Transaction Verification -------
