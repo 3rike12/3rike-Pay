@@ -30,7 +30,11 @@ export function formatCurrency(amount: number, currency = "RWF"): string {
     currency,
     currencyDisplay: "code",
     minimumFractionDigits: 0,
-  }).format(amount);
+  })
+    .format(amount)
+    // Intl uses U+00A0 between code and amount; normalise it so the string
+    // is predictable in WhatsApp messages and in tests.
+    .replace(/\u00A0/g, " ");
 }
 
 /**
