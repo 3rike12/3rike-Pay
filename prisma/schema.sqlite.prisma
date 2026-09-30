@@ -33,6 +33,9 @@ model User {
   credentials   UserCredential?
   sessions      UserSession[]
   transactions  Transaction[]
+  wallets       Wallet[]
+  business      Business?
+  flutterwaveSubaccounts FlutterwaveSubaccount[]
 }
 
 // ============================================
@@ -122,6 +125,84 @@ model Transaction {
 
   @@index([userId])
   @@index([reference])
+}
+
+// ============================================
+// Wallet (per-user, per-currency balance)
+// ============================================
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  currency  String   @default("RWF")
+  balance   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@unique([userId, currency])
+  @@index([userId])
+}
+
+// ============================================
+// Ledger (internal source of truth for balances)
+// Each entry records a change and the running balance after it.
+// ============================================
+model LedgerEntry {
+  id             String   @id @default(uuid())
+  walletId       String
+  wallet         Wallet   @relation(fields: [walletId], references: [id])
+  direction      String   // credit | debit
+  amount         Float
+  currency       String   @default("RWF")
+  runningBalance Float    // balance in the wallet after this entry
+  reference      String   // external tx ref (tx_ref, transfer ref, etc.)
+  description    String?
+  metadata       Json
+  createdAt      DateTime @default(now())
+
+  @@index([walletId])
+  @@index([reference])
+}
+
+// ============================================
+// Business / Merchant profile (one-to-one with User)
+// ============================================
+model Business {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id])
+  name               String
+  email              String?
+  phone              String?
+  country            String   @default("RW")
+  registrationNumber String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// ============================================
+// Flutterwave subaccount per user + currency (one-to-many with User)
+// ============================================
+model FlutterwaveSubaccount {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  subaccountId  String   // Flutterwave's RS_... id
+  accountBank   String
+  accountNumber String
+  businessName  String
+  businessEmail String
+  currency      String   @default("RWF")
+  country       String   @default("RW")
+  splitType     String   @default("percentage")
+  splitValue    Float    @default(0.95)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, currency])
+  @@index([userId])
 }
 
 // ============================================
