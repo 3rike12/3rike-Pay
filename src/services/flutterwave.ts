@@ -2,6 +2,7 @@ import Flutterwave, { FlutterwaveInstance } from "flutterwave-node-v3";
 import crypto from "crypto";
 import { config } from "@/config";
 import { FLUTTERWAVE_SPLIT } from "@/config/constants";
+import { prisma } from "@/db/prisma";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("flutterwave");
@@ -40,6 +41,8 @@ class FlutterwaveService {
    * The subaccount_id returned becomes the merchant's wallet reference.
    */
   async createSubaccount(params: {
+    userId: string;
+    currency?: string;
     accountBank: string;
     accountNumber: string;
     businessName: string;
@@ -53,6 +56,19 @@ class FlutterwaveService {
     meta?: Record<string, string>;
   }) {
     const client = this.ensureClient();
+    const currency = (params.currency || "RWF").toUpperCase();
+
+    const existing = await prisma.flutterwaveSubaccount.findUnique({
+      where: { userId_currency: { userId: params.userId, currency } },
+    });
+    if (existing) {
+      logger.info("Subaccount already exists for user + currency", {
+        userId: params.userId,
+        currency,
+        subaccountId: existing.subaccountId,
+      });
+      return existing;
+    }
 
     const payload: any = {
       account_bank: params.accountBank,
@@ -74,15 +90,83 @@ class FlutterwaveService {
     };
 
     try {
-      const response = await client.Subaccount.create(payload);
-      logger.info("Subaccount created", { businessName: params.businessName });
-      return response;
+      const response: any = await client.Subaccount.create(payload);
+      const remoteId = response?.data?.id ?? response?.id;
+      if (!remoteId) {
+        throw new Error("Flutterwave returned no subaccount id");
+      }
+
+      const saved = await prisma.flutterwaveSubaccount.create({
+        data: {
+          userId: params.userId,
+          subaccountId: String(remoteId),
+          accountBank: params.accountBank,
+          accountNumber: params.accountNumber,
+          businessName: params.businessName,
+          businessEmail: params.businessEmail,
+          currency,
+          country: params.country || "RW",
+          splitType: params.splitType || FLUTTERWAVE_SPLIT.TYPE,
+          splitValue: params.splitValue ?? FLUTTERWAVE_SPLIT.VALUE,
+        },
+      });
+      logger.info("Subaccount created and stored", {
+        userId: params.userId,
+        currency,
+        subaccountId: saved.subaccountId,
+      });
+      return saved;
     } catch (error: any) {
       logger.error("Failed to create Flutterwave subaccount", {
         error: error?.message || error,
       });
       throw error;
     }
+  }
+
+  /** Get a stored subaccount for a user by currency (default RWF). */
+  async getSubaccount(userId: string, currency = "RWF") {
+    return prisma.flutterwaveSubaccount.findUnique({
+      where: { userId_currency: { userId, currency: currency.toUpperCase() } },
+    });
+  }
+
+  /** All subaccounts a user owns (one per currency). */
+  async listSubaccounts(userId: string) {
+    return prisma.flutterwaveSubaccount.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  /** One business per user. Returns the existing profile or creates it. */
+  async ensureBusiness(params: {
+    userId: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    country?: string;
+    registrationNumber?: string;
+  }) {
+    const existing = await prisma.business.findUnique({
+      where: { userId: params.userId },
+    });
+    if (existing) return existing;
+
+    return prisma.business.create({
+      data: {
+        userId: params.userId,
+        name: params.name,
+        email: params.email,
+        phone: params.phone,
+        country: params.country || "RW",
+        registrationNumber: params.registrationNumber,
+      },
+    });
+  }
+
+  async getBusiness(userId: string) {
+    return prisma.business.findUnique({ where: { userId } });
   }
 
   async fetchSubaccount(id: string | number) {
