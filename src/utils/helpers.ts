@@ -284,3 +284,201 @@ export function parseTransferRequest(text: string, requireIntent = true): Natura
 
   return { amount, accountNumber, bankName };
 }
+
+// ============================================
+// Natural-language product / invoice parsing
+//
+// Mirrors parseTransferRequest: pure functions, null on any missing part.
+// The caller (bot) decides what to do with a null - either prompt for the
+// missing field or fall into the structured slash-command state.
+// ============================================
+
+function toNumber(raw: string): number {
+  return parseFloat(raw.replace(/,/g, ""));
+}
+
+/**
+ * Extract a price from the tail of a phrase and return the remaining text.
+ * Handles "1000", "1,500", "1500 rwf", "rwf 1500", "at 1500", "@1500",
+ * "each 1500", "price: 1500", "costs 1500".
+ */
+export function extractTrailingPrice(text: string): { price: number | null; rest: string } {
+  let match = text.match(
+    /\s*(?:rwanda\s+)?(?:rwf|frw|francs?)\s*[:\-]?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*$/i
+  );
+  if (match) return { price: toNumber(match[1]), rest: text.slice(0, match.index) };
+
+  match = text.match(
+    /(\d[\d,]*(?:\.\d{1,2})?)\s*(?:rwanda\s+)?(?:rwf|frw|francs?)\s*$/i
+  );
+  if (match) return { price: toNumber(match[1]), rest: text.slice(0, match.index) };
+
+  match = text.match(
+    /\s*(?:at|@|price|each|per|costs?|is|=|:)\s*(?:rwf\s*)?(\d[\d,]*(?:\.\d{1,2})?)\s*$/i
+  );
+  if (match) return { price: toNumber(match[1]), rest: text.slice(0, match.index) };
+
+  match = text.match(/\s+(\d[\d,]*(?:\.\d{1,2})?)\s*$/);
+  if (match) return { price: toNumber(match[1]), rest: text.slice(0, match.index) };
+
+  return { price: null, rest: text };
+}
+
+/** Collapse whitespace and drop punctuation that should not be in a name. */
+function cleanLabel(text: string): string {
+  return text
+    .replace(/["'`“”‘’]/g, "")
+    .replace(/[()[\]{}|/\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const PRODUCT_INTENT_RE =
+  /\b(products?|catalogue|catalog|menu\s+items?|add\s+(?:a\s+)?item|new\s+item)\b/i;
+
+const LEADING_PRODUCT_INTENT_RE =
+  /^(?:please\s+)?(?:add|new|create|register|list)?\s*(?:a\s+|an\s+)?(?:products?|catalogue|catalog|menu\s+items?|add\s+(?:a\s+)?item|new\s+item)\s*[:\-–]?\s*/i;
+
+export interface NaturalProductRequest {
+  name: string;
+  price: number;
+}
+
+/**
+ * Parse a product creation message like:
+ *   "product Batteries 1000"
+ *   "add product: Umbrella at 5000"
+ *   "new product 1kg rice RWF 2500"
+ *
+ * Returns null when the intent or price is missing.
+ */
+export function parseProductCreateRequest(
+  text: string,
+  requireIntent = true
+): NaturalProductRequest | null {
+  if (!text) return null;
+
+  const trimmed = text.trim();
+  if (requireIntent && !PRODUCT_INTENT_RE.test(trimmed)) return null;
+
+  let rest = trimmed.replace(LEADING_PRODUCT_INTENT_RE, "");
+  rest = rest.replace(
+    /(?:\s+(?:for|to|on|please|costs?|at|each|per))+\s*$/i,
+    ""
+  );
+
+  const { price, rest: nameSource } = extractTrailingPrice(rest);
+  if (price === null || price <= 0) return null;
+
+  const name = cleanLabel(nameSource);
+  if (!name) return null;
+
+  return { name, price };
+}
+
+// --------------------------------------------
+// Invoice
+// --------------------------------------------
+
+/**
+ * A Rwanda mobile number in any of the shapes merchants paste:
+ *   0781234567, +250781234567, 250781234567, 781234567
+ */
+const RWANDA_PHONE_RE = /(?:\+?\s?250\s?|0)?7[23789]\d{7}\b/;
+
+const INVOICE_INTENT_RE =
+  /\b(invoice|charge|bill|request\s+(?:a\s+)?payment|payment\s+request|request)\b/i;
+
+const LEADING_INVOICE_INTENT_RE =
+  /^(?:please\s+)?(?:invoice|charge|bill|request\s+(?:a\s+)?payment|payment\s+request|request|payment)\s*[:\-–]?\s*(?:for|of|to|on|a|an|the)?\s*[:\-–]?\s*/i;
+
+const CHUNK_SPLIT_RE = /\s+(?:and|&)\s+|\s*,\s*|\s*\+\s*/i;
+
+export interface NaturalInvoiceLine {
+  name: string;
+  qty: number;
+  /** null = resolve against the merchant's product catalogue later. */
+  unitPrice: number | null;
+}
+
+export interface NaturalInvoiceRequest {
+  /** Normalised 10-digit national number, or null if the message had none. */
+  buyerPhone: string | null;
+  items: NaturalInvoiceLine[];
+}
+
+/**
+ * Parse an invoice request like:
+ *   "invoice 3 batteries and 2 water for 0781234567"
+ *   "charge 0781234567 2 waters at 1500"
+ *   "bill 1000 water bottle to +250781234567"
+ *
+ * Returns null unless the message has invoice intent AND at least one item.
+ * The phone is optional - the bot asks for it when absent.
+ */
+export function parseInvoiceRequest(text: string): NaturalInvoiceRequest | null {
+  if (!text) return null;
+
+  const trimmed = text.trim();
+  if (!INVOICE_INTENT_RE.test(trimmed)) return null;
+
+  let buyerPhone: string | null = null;
+  let remainder = trimmed;
+
+  const phoneMatch = trimmed.match(RWANDA_PHONE_RE);
+  if (phoneMatch) {
+    buyerPhone = toRwandaPhone(phoneMatch[0]);
+    remainder = trimmed.replace(phoneMatch[0], " ");
+  }
+
+  remainder = remainder.replace(LEADING_INVOICE_INTENT_RE, "");
+
+  const items: NaturalInvoiceLine[] = [];
+
+  for (const rawChunk of remainder.split(CHUNK_SPLIT_RE)) {
+    let chunk = rawChunk.replace(
+      /(?:\s+(?:for|to|on|please|the|a|an|of))+\s*$/i,
+      ""
+    ).trim();
+    if (!chunk) continue;
+
+    let qty: number | null = null;
+    let price: number | null = null;
+
+    // Leading quantity: "3 batteries", "3x batteries"
+    let match = chunk.match(/^(?:qty\s*)?(\d{1,4})\s*[x×]?\s+/i);
+    if (match) {
+      qty = parseInt(match[1], 10);
+      chunk = chunk.slice(match[0].length);
+    } else {
+      // Trailing quantity: "batteries x3" - only for small numbers so a
+      // price written as "batteries x 1500" is not mistaken for a count.
+      match = chunk.match(/\s*[x×]\s*(\d{1,4})\s*$/i);
+      if (match && parseInt(match[1], 10) <= 999) {
+        qty = parseInt(match[1], 10);
+        chunk = chunk.slice(0, match.index);
+      }
+    }
+
+    const extracted = extractTrailingPrice(chunk);
+    price = extracted.price;
+    chunk = extracted.rest;
+
+    const name = cleanLabel(chunk);
+    if (!name) continue;
+
+    if (qty && qty > 99 && price === null) {
+      // "invoice 1000 water bottle" - a big leading number with no price
+      // anywhere else is a price, not a count. Counts over 99 written in
+      // chat are rare; put them behind "x" ("water x 150") to be explicit.
+      price = qty;
+      qty = 1;
+    }
+
+    items.push({ name, qty: qty && qty > 0 ? qty : 1, unitPrice: price });
+  }
+
+  if (items.length === 0) return null;
+
+  return { buyerPhone, items };
+}
