@@ -339,6 +339,14 @@ const PRODUCT_INTENT_RE =
 const LEADING_PRODUCT_INTENT_RE =
   /^(?:please\s+)?(?:add|new|create|register|list)?\s*(?:a\s+|an\s+)?(?:products?|catalogue|catalog|menu\s+items?|add\s+(?:a\s+)?item|new\s+item)\s*[:\-–]?\s*/i;
 
+/**
+ * Remove a leading product intent phrase ("add product", "new item", ...)
+ * so the remainder can be used as the raw argument.
+ */
+export function stripProductIntent(text: string): string {
+  return text.replace(LEADING_PRODUCT_INTENT_RE, "").trim();
+}
+
 export interface NaturalProductRequest {
   name: string;
   price: number;
@@ -361,7 +369,7 @@ export function parseProductCreateRequest(
   const trimmed = text.trim();
   if (requireIntent && !PRODUCT_INTENT_RE.test(trimmed)) return null;
 
-  let rest = trimmed.replace(LEADING_PRODUCT_INTENT_RE, "");
+  let rest = stripProductIntent(trimmed);
   rest = rest.replace(
     /(?:\s+(?:for|to|on|please|costs?|at|each|per))+\s*$/i,
     ""
@@ -415,12 +423,18 @@ export interface NaturalInvoiceRequest {
  *
  * Returns null unless the message has invoice intent AND at least one item.
  * The phone is optional - the bot asks for it when absent.
+ *
+ * `requireIntent` lets callers already inside the invoice flow parse bare
+ * item lines ("3 batteries and 2 water") without repeating the keyword.
  */
-export function parseInvoiceRequest(text: string): NaturalInvoiceRequest | null {
+export function parseInvoiceRequest(
+  text: string,
+  requireIntent = true
+): NaturalInvoiceRequest | null {
   if (!text) return null;
 
   const trimmed = text.trim();
-  if (!INVOICE_INTENT_RE.test(trimmed)) return null;
+  if (requireIntent && !INVOICE_INTENT_RE.test(trimmed)) return null;
 
   let buyerPhone: string | null = null;
   let remainder = trimmed;

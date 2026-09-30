@@ -5,6 +5,7 @@ import {
   formatCurrency,
   parseProductCreateRequest,
   parseInvoiceRequest,
+  stripProductIntent,
 } from "@/utils/helpers";
 
 describe("toRwandaPhone", () => {
@@ -154,5 +155,25 @@ describe("parseInvoiceRequest", () => {
   it("leaves buyerPhone null when the message has no number", () => {
     const result = parseInvoiceRequest("invoice 3 batteries");
     expect(result?.buyerPhone).toBeNull();
+  });
+
+  it("parses bare item lines once the caller established intent", () => {
+    expect(parseInvoiceRequest("3 batteries and 2 water", false)).toEqual({
+      buyerPhone: null,
+      items: [
+        { name: "batteries", qty: 3, unitPrice: null },
+        { name: "water", qty: 2, unitPrice: null },
+      ],
+    });
+    expect(parseInvoiceRequest("3 batteries", true)).toBeNull();
+  });
+});
+
+describe("stripProductIntent", () => {
+  it("removes the intent phrase only", () => {
+    expect(stripProductIntent("add product Batteries")).toBe("Batteries");
+    expect(stripProductIntent("product:")).toBe("");
+    expect(stripProductIntent("new item")).toBe("");
+    expect(stripProductIntent("Batteries")).toBe("Batteries");
   });
 });
