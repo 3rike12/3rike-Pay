@@ -35,6 +35,16 @@ export const config = {
     url: process.env.REDIS_URL || "",
   },
 
+  flutterwave: {
+    publicKey: process.env.FLUTTERWAVE_PUBLIC_KEY || "",
+    secretKey: process.env.FLUTTERWAVE_SECRET_KEY || "",
+    webhookSecret: process.env.FLUTTERWAVE_WEBHOOK_SECRET || "",
+    /**
+     * Defaults to false (sandbox). Set FLUTTERWAVE_PRODUCTION=true for live keys.
+     */
+    isProduction: process.env.FLUTTERWAVE_PRODUCTION === "true",
+  },
+
   app: {
     name: process.env.APP_NAME || "3rike Pay",
     currency: process.env.APP_CURRENCY || "NGN",
