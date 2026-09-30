@@ -9,7 +9,8 @@ import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
 import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
-import { cleanPhone, formatAmount, redactSensitiveText } from "@/utils/helpers";
+import { cleanPhone, formatAmount, formatCurrency, redactSensitiveText } from "@/utils/helpers";
+import { failInvoicePayment, getInvoiceByReference, settleInvoicePayment } from "@/services/invoice";
 import { TEMPLATES, KYC_STATUS } from "@/config/constants";
 
 const router = Router();
@@ -516,21 +517,67 @@ async function handleFlutterwaveChargeCompleted(data: any) {
   });
 
   if (isSuccessful) {
-    await ledger.credit({
-      userId: transaction.userId,
-      amount: transaction.amount,
-      currency: transaction.currency,
-      reference: txRef,
-      description: `Flutterwave payment ${txRef}`,
-      metadata: { flutterwave: data },
-      idempotencyKey: `fw-charge-credit:${txRef}`,
-    });
+    const invoice = await getInvoiceByReference(txRef);
 
-    await whatsapp.sendTextMessage(
-      transaction.user.phone,
-      `*Payment Received*\n\nAmount: ${formatAmount(transaction.amount)}\nReference: ${txRef}`
-    );
+    if (invoice) {
+      // Invoice path: settleInvoicePayment flips the invoice to paid and
+      // credits the merchant's ledger with the SAME idempotency key the
+      // generic path below uses, so a race between them cannot double-credit.
+      const result = await settleInvoicePayment(txRef, { flutterwave: data });
+      if (result.settled) {
+        await whatsapp.sendTextMessage(
+          transaction.user.phone,
+          renderPaidInvoiceMessage(invoice)
+        );
+      }
+    } else {
+      await ledger.credit({
+        userId: transaction.userId,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        reference: txRef,
+        description: `Flutterwave payment ${txRef}`,
+        metadata: { flutterwave: data },
+        idempotencyKey: `fw-charge-credit:${txRef}`,
+      });
+
+      await whatsapp.sendTextMessage(
+        transaction.user.phone,
+        `*Payment Received*\n\nAmount: ${formatAmount(transaction.amount)}\nReference: ${txRef}`
+      );
+    }
+  } else {
+    await failInvoicePayment(txRef, status);
   }
+}
+
+/**
+ * Merchant-facing "you got paid" message for an invoice. Currency-aware
+ * (RWF for Rwanda) and deliberately omits the internal reference - that ID
+ * is trace-only and never leaves our systems.
+ */
+function renderPaidInvoiceMessage(invoice: {
+  items: unknown;
+  amount: number;
+  currency: string;
+  buyerPhone: string;
+}) {
+  const items = (Array.isArray(invoice.items) ? invoice.items : []) as Array<{
+    name: string;
+    qty: number;
+    unitPrice: number;
+  }>;
+  const lines = items
+    .map((item) => `- ${item.qty} x ${item.name}: ${formatCurrency(item.qty * item.unitPrice, invoice.currency)}`)
+    .join("\n");
+
+  return (
+    `*Payment Received*\n\n` +
+    (lines ? `${lines}\n\n` : "") +
+    `*Total: ${formatCurrency(invoice.amount, invoice.currency)}*\n` +
+    `Buyer: ${invoice.buyerPhone}\n\n` +
+    `Your balance has been updated.`
+  );
 }
 
 async function handleFlutterwaveChargeFailed(data: any) {
@@ -544,6 +591,8 @@ async function handleFlutterwaveChargeFailed(data: any) {
     where: { id: transaction.id },
     data: { status: "failed", metadata: { ...((transaction.metadata as any) || {}), flutterwaveData: data } },
   });
+
+  await failInvoicePayment(txRef, data.status || "failed");
 }
 
 async function handleFlutterwaveTransferCompleted(data: any) {
