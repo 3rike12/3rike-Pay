@@ -237,7 +237,7 @@ class FlutterwaveService {
     const client = this.ensureClient();
 
     try {
-      const response = await client.Transaction.verify({ tx_ref: txRef });
+      const response = await client.Transaction.verify_by_tx({ tx_ref: txRef });
       logger.info("Transaction verified by tx_ref", { txRef });
       return response;
     } catch (error: any) {
@@ -285,6 +285,150 @@ class FlutterwaveService {
     } catch (error: any) {
       logger.error("Failed to initiate Flutterwave transfer", {
         reference: params.reference,
+        error: error?.message || error,
+      });
+      throw error;
+    }
+  }
+
+  // ------- Balances -------
+
+  async getBalances() {
+    const client = this.ensureClient();
+
+    try {
+      const response = await client.Misc.bal();
+      logger.info("Wallet balances fetched");
+      return response;
+    } catch (error: any) {
+      logger.error("Failed to fetch Flutterwave balances", {
+        error: error?.message || error,
+      });
+      throw error;
+    }
+  }
+
+  async getBalanceByCurrency(currency: string) {
+    const client = this.ensureClient();
+
+    try {
+      const response = await client.Misc.bal_currency({ currency });
+      logger.info("Wallet balance fetched", { currency });
+      return response;
+    } catch (error: any) {
+      logger.error("Failed to fetch Flutterwave balance by currency", {
+        currency,
+        error: error?.message || error,
+      });
+      throw error;
+    }
+  }
+
+  // ------- Settlements -------
+
+  async fetchSettlements(page = 1) {
+    const client = this.ensureClient();
+
+    try {
+      const response = await client.Settlement.fetch_all({ page });
+      logger.info("Settlements fetched", { page });
+      return response;
+    } catch (error: any) {
+      logger.error("Failed to fetch Flutterwave settlements", {
+        error: error?.message || error,
+      });
+      throw error;
+    }
+  }
+
+  async fetchSettlement(id: string | number, from?: string, to?: string) {
+    const client = this.ensureClient();
+
+    const payload: any = { id };
+    if (from) payload.from = from;
+    if (to) payload.to = to;
+
+    try {
+      const response = await client.Settlement.fetch(payload);
+      logger.info("Settlement fetched", { id });
+      return response;
+    } catch (error: any) {
+      logger.error("Failed to fetch Flutterwave settlement", {
+        id,
+        error: error?.message || error,
+      });
+      throw error;
+    }
+  }
+
+  // ------- Transaction History -------
+
+  async fetchTransactions(params?: {
+    from?: string;
+    to?: string;
+    page?: number;
+    subaccount_id?: string;
+    status?: string;
+  }) {
+    const client = this.ensureClient();
+
+    try {
+      const response = await client.Transaction.fetch(params);
+      logger.info("Transactions fetched", { params });
+      return response;
+    } catch (error: any) {
+      logger.error("Failed to fetch Flutterwave transactions", {
+        error: error?.message || error,
+      });
+      throw error;
+    }
+  }
+
+  // ------- Transfer History -------
+
+  async fetchTransfers(params?: { status?: string; page?: number }) {
+    const client = this.ensureClient();
+
+    try {
+      const response = await client.Transfer.fetch(params);
+      logger.info("Transfers fetched", { params });
+      return response;
+    } catch (error: any) {
+      logger.error("Failed to fetch Flutterwave transfers", {
+        error: error?.message || error,
+      });
+      throw error;
+    }
+  }
+
+  async getTransfer(id: string | number) {
+    const client = this.ensureClient();
+
+    try {
+      const response = await client.Transfer.get_a_transfer({ id });
+      logger.info("Transfer fetched", { id });
+      return response;
+    } catch (error: any) {
+      logger.error("Failed to fetch Flutterwave transfer", {
+        id,
+        error: error?.message || error,
+      });
+      throw error;
+    }
+  }
+
+  // ------- Banks -------
+
+  async getBanksByCountry(country = "RW") {
+    const client = this.ensureClient();
+
+    try {
+      const response = await client.Bank.country({ country });
+      logger.info("Banks fetched", { country });
+      return response;
+    } catch (error: any) {
+      logger.error("Failed to fetch Flutterwave banks", {
+        country,
         error: error?.message || error,
       });
       throw error;
