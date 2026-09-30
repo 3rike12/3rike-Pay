@@ -4,7 +4,7 @@ import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("redis");
 
-export const redis = config.redis.url ? new Redis(config.redis.url) : null;
+export const redis = config.redis?.url ? new Redis(config.redis.url) : null;
 
 if (redis) {
   redis.on("error", (err) => {
