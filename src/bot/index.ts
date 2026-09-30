@@ -213,6 +213,32 @@ async function saveProduct(phone: string, user: any, name: string, price: number
  * /product [name] [price] - also the entry point for the main-menu
  * "Add Product" row and the "product" trigger in idle.
  */
+/**
+ * Opens the business-profile Flow. The Flow only works once its id is
+ * configured in src/config/flows.json — without one Meta rejects the request,
+ * so tell the merchant instead of sending a broken button.
+ */
+async function handleBusinessCommand(phone: string, user: any) {
+  const flowId = FLOWS.BUSINESS;
+  if (!flowId) {
+    logger.warn("Business Flow id not configured", { phone: redactPhone(phone) });
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PROFILE.NOT_AVAILABLE);
+  }
+
+  const sent = await whatsapp.sendFlowMessage(
+    phone,
+    MESSAGES.BUSINESS.PROFILE.OPEN,
+    flowId,
+    MESSAGES.BUSINESS.PROFILE.CTA,
+    user.id,
+    "BUSINESS_DETAILS"
+  );
+
+  if (!sent) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PROFILE.FAILED);
+  }
+}
+
 async function handleProductCommand(phone: string, user: any, args: string) {
   const input = args.trim();
 
@@ -420,6 +446,9 @@ const SLASH_COMMANDS: Record<string, SlashHandler> = {
   catalogue: (phone, user) => handleListProducts(phone, user),
   invoice: (phone, user, args) => handleInvoiceCommand(phone, user, args || ""),
   newinvoice: (phone, user, args) => handleInvoiceCommand(phone, user, args || ""),
+  business: (phone, user) => handleBusinessCommand(phone, user),
+  businessprofile: (phone, user) => handleBusinessCommand(phone, user),
+  mybusiness: (phone, user) => handleBusinessCommand(phone, user),
 };
 
 // ============================================
@@ -706,6 +735,9 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
   if (action === "create_invoice") {
     return handleInvoiceCommand(phone, user, "");
+  }
+  if (action === "business_profile") {
+    return handleBusinessCommand(phone, user);
   }
 
   if (action === SESSION_STATE.SEND_MONEY) {

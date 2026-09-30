@@ -42,7 +42,8 @@
         "title": "Business",
         "rows": [
           { "id": "create_invoice", "title": "New Invoice", "description": "Request payment from a customer" },
-          { "id": "create_product", "title": "Add Product", "description": "Add an item to your catalogue" }
+          { "id": "create_product", "title": "Add Product", "description": "Add an item to your catalogue" },
+          { "id": "business_profile", "title": "Business Profile", "description": "Set up your shop details" }
         ]
       },
       {
@@ -87,7 +88,7 @@
     "ERROR": "Could not load transactions. Please try again later."
   },
   "HELP": {
-    "TEXT": "*3rike Pay Commands*\n\n• /start - Open main menu\n• /balance or /check_balance - Check balance\n• /send - Send money\n• /transactions - View transactions\n• /product - Add a product to your catalogue\n• /products - Your product catalogue\n• /invoice - Request payment from a customer\n• /help - Show this help\n• /cancel - Cancel current action\n\nType /cancel at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification\n• Invoices collected over mobile money"
+    "TEXT": "*3rike Pay Commands*\n\n• /start - Open main menu\n• /balance or /check_balance - Check balance\n• /send - Send money\n• /transactions - View transactions\n• /product - Add a product to your catalogue\n• /products - Your product catalogue\n• /invoice - Request payment from a customer\n• /business - Set up your business profile\n• /help - Show this help\n• /cancel - Cancel current action\n\nType /cancel at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification\n• Invoices collected over mobile money"
   },
   "CANCEL": "Session cancelled. Send /start to begin again.",
   "ERROR": {
