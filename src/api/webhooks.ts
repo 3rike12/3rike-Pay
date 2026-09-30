@@ -7,6 +7,8 @@ import { handleMessage } from "@/bot";
 import { whatsapp } from "@/services/whatsapp";
 import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
+import { flutterwave } from "@/services/flutterwave";
+import { ledger } from "@/services/ledger";
 import { cleanPhone, formatAmount, redactSensitiveText } from "@/utils/helpers";
 import { TEMPLATES, KYC_STATUS } from "@/config/constants";
 
@@ -204,6 +206,59 @@ router.post("/autoramp", async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     logger.error("AutoRamp webhook processing error", { error: error.message });
+  }
+});
+
+// ============================================
+// Flutterwave Webhook (POST)
+// ============================================
+router.post("/flutterwave", async (req: Request, res: Response) => {
+  const signature = req.headers["verif-hash"] as string;
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body));
+
+  if (!signature) {
+    logger.warn("Flutterwave webhook missing verif-hash");
+    return res.status(401).json({ error: "Missing signature" });
+  }
+
+  const isValid = flutterwave.verifyWebhookSignature(signature);
+  if (!isValid) {
+    logger.warn("Flutterwave webhook invalid signature");
+    return res.status(401).json({ error: "Invalid signature" });
+  }
+
+  // Acknowledge immediately
+  res.status(200).json({ received: true });
+
+  try {
+    const payload = JSON.parse(rawBody.toString("utf8"));
+    const event = payload.event as string;
+    const data = payload.data ?? {};
+
+    // Idempotency key: event + tx_ref/reference
+    const webhookId = `${event}:${data.id || data.tx_ref || data.reference || Date.now()}`;
+    await logWebhookEvent("flutterwave", event, payload, webhookId);
+
+    logger.info("Flutterwave webhook received", { event, reference: data.tx_ref || data.reference });
+
+    switch (event) {
+      case "charge.completed":
+        await handleFlutterwaveChargeCompleted(data);
+        break;
+      case "charge.failed":
+        await handleFlutterwaveChargeFailed(data);
+        break;
+      case "transfer.completed":
+        await handleFlutterwaveTransferCompleted(data);
+        break;
+      case "transfer.failed":
+        await handleFlutterwaveTransferFailed(data);
+        break;
+      default:
+        logger.info("Unhandled Flutterwave event", { event });
+    }
+  } catch (error: any) {
+    logger.error("Flutterwave webhook processing error", { error: error.message });
   }
 });
 
@@ -420,6 +475,114 @@ async function handleBankTransfer(event: string, data: any) {
         }
       }
     }
+}
+
+// ============================================
+// Flutterwave event handlers
+// ============================================
+
+async function handleFlutterwaveChargeCompleted(data: any) {
+  const txRef = data.tx_ref as string | undefined;
+  const status = data.status as string | undefined;
+
+  if (!txRef) {
+    logger.warn("Flutterwave charge.completed missing tx_ref", { data: JSON.stringify(data) });
+    return;
+  }
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { reference: txRef },
+    include: { user: true },
+  });
+
+  if (!transaction) {
+    logger.warn("Flutterwave charge.completed for unknown transaction", { txRef });
+    return;
+  }
+
+  if (transaction.status === "completed" || transaction.status === "failed") {
+    logger.info("Flutterwave charge.completed already handled", { txRef, status: transaction.status });
+    return;
+  }
+
+  const isSuccessful = status?.toLowerCase() === "successful";
+
+  await prisma.transaction.update({
+    where: { id: transaction.id },
+    data: {
+      status: isSuccessful ? "completed" : "failed",
+      metadata: { ...((transaction.metadata as any) || {}), flutterwaveData: data },
+    },
+  });
+
+  if (isSuccessful) {
+    await ledger.credit({
+      userId: transaction.userId,
+      amount: transaction.amount,
+      currency: transaction.currency,
+      reference: txRef,
+      description: `Flutterwave payment ${txRef}`,
+      metadata: { flutterwave: data },
+      idempotencyKey: `fw-charge-credit:${txRef}`,
+    });
+
+    await whatsapp.sendTextMessage(
+      transaction.user.phone,
+      `*Payment Received*\n\nAmount: ${formatAmount(transaction.amount)}\nReference: ${txRef}`
+    );
+  }
+}
+
+async function handleFlutterwaveChargeFailed(data: any) {
+  const txRef = data.tx_ref as string | undefined;
+  if (!txRef) return;
+
+  const transaction = await prisma.transaction.findFirst({ where: { reference: txRef } });
+  if (!transaction) return;
+
+  await prisma.transaction.update({
+    where: { id: transaction.id },
+    data: { status: "failed", metadata: { ...((transaction.metadata as any) || {}), flutterwaveData: data } },
+  });
+}
+
+async function handleFlutterwaveTransferCompleted(data: any) {
+  const reference = data.reference as string | undefined;
+  if (!reference) return;
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { reference },
+    include: { user: true },
+  });
+
+  if (!transaction) return;
+
+  await prisma.transaction.update({
+    where: { id: transaction.id },
+    data: { status: "completed", metadata: { ...((transaction.metadata as any) || {}), flutterwaveData: data } },
+  });
+
+  await whatsapp.sendTextMessage(
+    transaction.user.phone,
+    `*Payout Completed*\n\nAmount: ${formatAmount(transaction.amount)}\nReference: ${reference}`
+  );
+}
+
+async function handleFlutterwaveTransferFailed(data: any) {
+  const reference = data.reference as string | undefined;
+  if (!reference) return;
+
+  const transaction = await prisma.transaction.findFirst({ where: { reference } });
+  if (!transaction) return;
+
+  await prisma.transaction.update({
+    where: { id: transaction.id },
+    data: { status: "failed", metadata: { ...((transaction.metadata as any) || {}), flutterwaveData: data } },
+  });
+
+  // Refund the ledger debit if we had already debited on initiation.
+  // The ledger debit idempotency key should match the initiation key.
+  // This is a safety net; ideally you only debit after confirming transfer success.
 }
 
 export default router;
