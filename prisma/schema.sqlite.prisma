@@ -36,6 +36,8 @@ model User {
   wallets       Wallet[]
   business      Business?
   flutterwaveSubaccounts FlutterwaveSubaccount[]
+  products      Product[]
+  invoices      Invoice[]
 }
 
 // ============================================
@@ -108,7 +110,7 @@ model Transaction {
   userId          String
   user            User     @relation(fields: [userId], references: [id])
   reference       String   @unique
-  type            String                     // transfer | onramp | offramp | swap
+  type            String                     // transfer | onramp | offramp | swap | invoice
   amount          Float
   currency        String   @default("NGN")
   status          String   @default("pending") // pending | processing | completed | failed
@@ -203,6 +205,52 @@ model FlutterwaveSubaccount {
 
   @@unique([userId, currency])
   @@index([userId])
+}
+
+// ============================================
+// Product (merchant catalogue, created in chat)
+// ============================================
+model Product {
+  id          String   @id @default(uuid())
+  merchantId  String
+  merchant    User     @relation(fields: [merchantId], references: [id])
+  name        String
+  price       Float
+  currency    String   @default("RWF")
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([merchantId])
+}
+
+// ============================================
+// Invoice / payment request (order summary sent to a buyer)
+//
+// `id` and `reference` are INTERNAL trace only - buyers never see either.
+// `reference` doubles as the Flutterwave tx_ref and joins 1:1 to
+// Transaction.reference, which is what the charge webhook looks up.
+// ============================================
+model Invoice {
+  id         String    @id @default(uuid())
+  merchantId String
+  merchant   User      @relation(fields: [merchantId], references: [id])
+  buyerPhone String                           // 10-digit national Rwanda form (078...)
+  items      Json                             // [{ name, qty, unitPrice }] snapshot at issue
+  amount     Float                            // sum(qty * unitPrice)
+  currency   String    @default("RWF")
+  reference  String    @unique                // = Flutterwave tx_ref
+  status     String    @default("draft")      // draft | sent | pending_payment | paid | expired | failed | cancelled
+  paymentUrl String?                          // Flutterwave meta.authorization.redirect
+  paidAt     DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([merchantId])
+  @@index([reference])
+  @@index([status])
 }
 
 // ============================================
