@@ -39,6 +39,13 @@
         ]
       },
       {
+        "title": "Business",
+        "rows": [
+          { "id": "create_invoice", "title": "New Invoice", "description": "Request payment from a customer" },
+          { "id": "create_product", "title": "Add Product", "description": "Add an item to your catalogue" }
+        ]
+      },
+      {
         "title": "Account",
         "rows": [
           { "id": "check_balance", "title": "Check Balance", "description": "View your balance" },
@@ -80,7 +87,7 @@
     "ERROR": "Could not load transactions. Please try again later."
   },
   "HELP": {
-    "TEXT": "*3rike Pay Commands*\n\n• /start - Open main menu\n• /balance or /check_balance - Check balance\n• /send - Send money\n• /transactions - View transactions\n• /help - Show this help\n• /cancel - Cancel current action\n\nType /cancel at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification"
+    "TEXT": "*3rike Pay Commands*\n\n• /start - Open main menu\n• /balance or /check_balance - Check balance\n• /send - Send money\n• /transactions - View transactions\n• /product - Add a product to your catalogue\n• /products - Your product catalogue\n• /invoice - Request payment from a customer\n• /help - Show this help\n• /cancel - Cancel current action\n\nType /cancel at any point to get out of a flow.\n\n*Features:*\n• Send money to any Nigerian bank\n• Check balance\n• KYC verification\n• Invoices collected over mobile money"
   },
   "CANCEL": "Session cancelled. Send /start to begin again.",
   "ERROR": {
@@ -122,5 +129,28 @@
   "FLOW": {
     "ACCOUNT_CREATED": "Your 3rike Pay account is ready\n\nAccount Name: {{accountName}}\nBank: {{bank}}\nAccount Number: {{account}}",
     "ACCOUNT_CREATED_DRY_RUN": "Dry-run complete — no real account was created.\n\nAccount Name: {{accountName}}\nBank: {{bank}}\nAccount Number: {{account}}"
+  },
+  "BUSINESS": {
+    "PRODUCT": {
+      "PROMPT_NAME": "Let's add a product.\n\nWhat is it called?\n\nExample: *Batteries*",
+      "PROMPT_PRICE": "How much is *{{name}}*?\n\nReply with a number, e.g. *1000* or *1500 RWF*.",
+      "CREATED": "Added *{{name}}* - {{price}} to your catalogue.\n\n• /products - see your catalogue\n• /invoice - request payment",
+      "INVALID_PRICE": "That doesn't look like a price. Reply with a number, e.g. *1000*.",
+      "LIST_HEADER": "*Your Catalogue*",
+      "LIST_EMPTY": "Your catalogue is empty.\n\nAdd your first product with:\nproduct Batteries 1000",
+      "LIST_FOOTER": "\n\nType /invoice to request payment.",
+      "ERROR": "Could not save that product. Please try again."
+    },
+    "INVOICE": {
+      "PROMPT_ITEMS": "What should the customer pay for?\n\nExample:\n*3 batteries and 2 water*\n\nInclude the customer's number if you have it:\n*3 batteries for 0781234567*",
+      "PROMPT_PRICE": "How much is *{{name}}*?\n\nReply with a number, e.g. *1500*.",
+      "PROMPT_PHONE": "What's the customer's Rwanda mobile number?\n\nExample: *0781234567* or *+250781234567*",
+      "INVALID_PHONE": "That doesn't look like a Rwanda mobile number.\n\nUse *0781234567* or *+250781234567*.",
+      "INVALID_ITEMS": "I couldn't read that as a list of items.\n\nExample:\n*3 batteries and 2 water*",
+      "CONFIRM_HINT": "\n\nReply *yes* to send the payment request, or *cancel* to stop.",
+      "ISSUED": "The customer gets a prompt on their phone to approve the payment. If they don't see one, forward them this link:\n{{url}}",
+      "ISSUED_NO_URL": "The customer gets a prompt on their phone to approve the payment.",
+      "ERROR": "Could not start the payment: {{reason}}\n\nYour invoice is saved - reply *yes* to try again, or *cancel*."
+    }
   }
 }

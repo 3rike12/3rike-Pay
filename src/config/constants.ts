@@ -37,6 +37,13 @@ export const SESSION_STATE = {
   BUY_AIRTIME_NETWORK: "buy_airtime_network",
   BUY_AIRTIME_AMOUNT: "buy_airtime_amount",
   BUY_AIRTIME_CONFIRM: "buy_airtime_confirm",
+  // Merchant catalogue
+  PRODUCT_CREATE: "product_create",
+  // Invoice / payment request (merchant -> anonymous buyer)
+  INVOICE_ITEMS: "invoice_items",
+  INVOICE_PRICE: "invoice_price",
+  INVOICE_PHONE: "invoice_phone",
+  INVOICE_CONFIRM: "invoice_confirm",
 } as const;
 
 export type SessionState = (typeof SESSION_STATE)[keyof typeof SESSION_STATE];
@@ -49,6 +56,9 @@ export const TRIGGERS = {
   HELP: ["help", "commands", "how"],
   CANCEL: ["cancel", "stop", "exit", "quit"],
   BALANCE: ["balance", "bal", "check balance"],
+  // Checked BEFORE SEND_MONEY: "payment request" contains "pay".
+  INVOICE: ["invoice", "payment request", "request payment", "bill"],
+  PRODUCT: ["product", "catalogue", "catalog"],
   SEND_MONEY: ["send", "transfer", "pay", "send money"],
   AIRTIME: ["airtime", "recharge", "top up", "data"],
   KYC: ["kyc", "verify", "verification", "identity"],
@@ -296,6 +306,33 @@ export const MESSAGES = {
   BANKS: messagesJson.BANKS,
 
   NETWORKS: messagesJson.NETWORKS,
+
+  BUSINESS: {
+    PRODUCT: {
+      PROMPT_NAME: messagesJson.BUSINESS.PRODUCT.PROMPT_NAME,
+      PROMPT_PRICE: (name: string) =>
+        render(messagesJson.BUSINESS.PRODUCT.PROMPT_PRICE, { name }),
+      CREATED: (name: string, price: string) =>
+        render(messagesJson.BUSINESS.PRODUCT.CREATED, { name, price }),
+      INVALID_PRICE: messagesJson.BUSINESS.PRODUCT.INVALID_PRICE,
+      LIST_HEADER: messagesJson.BUSINESS.PRODUCT.LIST_HEADER,
+      LIST_EMPTY: messagesJson.BUSINESS.PRODUCT.LIST_EMPTY,
+      LIST_FOOTER: messagesJson.BUSINESS.PRODUCT.LIST_FOOTER,
+      ERROR: messagesJson.BUSINESS.PRODUCT.ERROR,
+    },
+    INVOICE: {
+      PROMPT_ITEMS: messagesJson.BUSINESS.INVOICE.PROMPT_ITEMS,
+      PROMPT_PRICE: (name: string) =>
+        render(messagesJson.BUSINESS.INVOICE.PROMPT_PRICE, { name }),
+      PROMPT_PHONE: messagesJson.BUSINESS.INVOICE.PROMPT_PHONE,
+      INVALID_PHONE: messagesJson.BUSINESS.INVOICE.INVALID_PHONE,
+      INVALID_ITEMS: messagesJson.BUSINESS.INVOICE.INVALID_ITEMS,
+      CONFIRM_HINT: messagesJson.BUSINESS.INVOICE.CONFIRM_HINT,
+      ISSUED: (url: string) => render(messagesJson.BUSINESS.INVOICE.ISSUED, { url }),
+      ISSUED_NO_URL: messagesJson.BUSINESS.INVOICE.ISSUED_NO_URL,
+      ERROR: (reason: string) => render(messagesJson.BUSINESS.INVOICE.ERROR, { reason }),
+    },
+  },
 
   FLOW: {
     ACCOUNT_CREATED: (bank: string, account: string, accountName: string, dryRun = false) =>
