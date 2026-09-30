@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
+import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
 import { withIdempotencyKey } from "@/utils/idempotency";
 import {
@@ -262,6 +263,100 @@ export async function markPendingPayment(
       paymentUrl: paymentUrl ?? invoice.paymentUrl,
     },
   });
+}
+
+/**
+ * Charge an invoice through Flutterwave's Rwanda mobile-money endpoint.
+ *
+ * Ordering matters:
+ *  1. Persist the Transaction FIRST. The charge webhook looks the payment
+ *     up by reference - a charge that lands before we write the row would
+ *     be dropped as "unknown transaction".
+ *  2. Fire the charge.
+ *  3. Record the authorization URL (the fallback link the merchant may
+ *     forward themselves) and move the invoice to pending_payment.
+ *
+ * `reference` doubles as both tx_ref and order_id, so retrying the same
+ * invoice reaches Flutterwave as the same order rather than a new one.
+ *
+ * Deliberately does NOT pass `network`: the SDK only allows MTN/AIRTEL for
+ * RWF and Rwanda also has KTRN (077). Flutterwave infers it from the number.
+ */
+export async function chargeInvoice(params: {
+  merchantId: string;
+  invoiceId: string;
+  redirectUrl?: string;
+}) {
+  const invoice = await getInvoiceById(params.invoiceId, params.merchantId);
+  if (!invoice) {
+    throw new Error("Invoice not found.");
+  }
+  if (invoice.status === INVOICE_STATUS.PAID) {
+    throw new Error("This invoice is already paid.");
+  }
+  if (!OPEN_STATUSES.includes(invoice.status as InvoiceStatus)) {
+    throw new Error(`This invoice is ${invoice.status} and cannot be charged.`);
+  }
+
+  const reference = invoice.reference;
+
+  // 1. Transaction row, idempotent on the unique reference.
+  let transaction = await prisma.transaction.findUnique({ where: { reference } });
+  if (!transaction) {
+    transaction = await prisma.transaction.create({
+      data: {
+        userId: invoice.merchantId,
+        reference,
+        type: "invoice",
+        amount: invoice.amount,
+        currency: invoice.currency,
+        status: "pending",
+        description: `Payment request to ${invoice.buyerPhone}`,
+        recipientPhone: invoice.buyerPhone,
+        metadata: { invoiceId: invoice.id },
+      },
+    });
+  }
+
+  // 2. Charge.
+  const response = await flutterwave.chargeRwandaMobileMoney({
+    txRef: reference,
+    orderId: reference,
+    amount: invoice.amount,
+    currency: invoice.currency,
+    phoneNumber: invoice.buyerPhone,
+    redirectUrl: params.redirectUrl,
+    meta: { invoice_id: invoice.id, merchant_id: invoice.merchantId },
+  });
+
+  const paymentUrl = flutterwave.extractPaymentUrl(response);
+
+  // 3. Persist the outcome.
+  if (invoice.status === INVOICE_STATUS.DRAFT) {
+    await issueInvoice(invoice.id, params.merchantId, { paymentUrl });
+  }
+  const pending = await markPendingPayment(invoice.id, params.merchantId, paymentUrl);
+
+  await prisma.transaction.update({
+    where: { id: transaction.id },
+    data: {
+      status: "processing",
+      metadata: {
+        invoiceId: invoice.id,
+        paymentUrl,
+        buyerPhone: invoice.buyerPhone,
+      } as Prisma.InputJsonValue,
+    },
+  });
+
+  logger.info("Invoice charged", {
+    invoiceId: invoice.id,
+    reference,
+    amount: invoice.amount,
+    hasPaymentUrl: Boolean(paymentUrl),
+  });
+
+  return { invoice: pending, txRef: reference, paymentUrl };
 }
 
 /**
