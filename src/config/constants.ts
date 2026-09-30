@@ -177,6 +177,20 @@ export const TEMPLATES = {
 export type TemplateKey = keyof typeof TEMPLATES;
 
 // ============================================
+// Flutterwave Subaccount Split Configuration
+// ============================================
+export const FLUTTERWAVE_SPLIT = {
+  /** "percentage" or "flat" — how the merchant subaccount receives its share. */
+  TYPE: (process.env.FLUTTERWAVE_SPLIT_TYPE as "percentage" | "flat") || "percentage",
+  /**
+   * Merchant share per collection.
+   * With TYPE="percentage", 0.95 means the subaccount gets 95% and the platform keeps 5%.
+   * With TYPE="flat", this is a fixed amount credited to the subaccount.
+   */
+  VALUE: Number(process.env.FLUTTERWAVE_SPLIT_VALUE ?? 0.95),
+} as const;
+
+// ============================================
 // Limits
 // ============================================
 export const LIMITS = {
