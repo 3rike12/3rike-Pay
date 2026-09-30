@@ -21,8 +21,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * client stops retrying the same payload.
  */
 function ack(payload: any) {
-  if (payload?.error_message) {
-    logger.warn("Business flow client error", { error: payload.error_message });
+  const error = payload?.data?.error_message || payload?.error_message;
+  if (error) {
+    logger.warn("Business flow client error", { error });
     return { data: { acknowledged: true } };
   }
   return null;
