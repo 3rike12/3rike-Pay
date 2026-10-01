@@ -600,6 +600,63 @@ class FlutterwaveService {
     return null;
   }
 
+  /**
+   * Full v4 push charge: customer -> mobile-money payment method -> charge.
+   *
+   * The charge comes back with `next_action` - normally a
+   * `payment_instruction` the network pushes to the buyer's handset as a
+   * USSD-style prompt they approve directly (no link), or occasionally a
+   * `redirect_url` which callers should relay instead.
+   *
+   * v4 has no per-charge phone field, so the number travels on the payment
+   * method; `reference` is both the charge reference and the idempotency
+   * key, so retrying the same invoice cannot double-charge.
+   */
+  async chargeRwandaMobileMoneyV4(params: {
+    reference: string;
+    amount: number;
+    currency?: string;
+    phoneNumber: string;
+    redirectUrl?: string;
+    meta?: Record<string, unknown>;
+    email?: string;
+  }) {
+    const phone = toRwandaPhone(params.phoneNumber);
+    if (!phone) {
+      throw new Error(`Not a valid Rwanda mobile number: ${params.phoneNumber}`);
+    }
+
+    // v4 customers need an email; same synthetic one the v3 charge uses.
+    const customer = await this.createV4Customer({
+      email: params.email || this.syntheticBuyerEmail(phone),
+      phoneNumber: params.phoneNumber,
+    });
+
+    const paymentMethod = await this.createV4MobileMoneyPaymentMethod({
+      phoneNumber: params.phoneNumber,
+    });
+
+    const charge = await this.createV4Charge({
+      reference: params.reference,
+      amount: params.amount,
+      currency: params.currency,
+      customerId: customer.id,
+      paymentMethodId: paymentMethod.id,
+      redirectUrl: params.redirectUrl,
+      meta: params.meta,
+    });
+
+    logger.info("Rwanda mobile money charge created (v4)", {
+      txRef: params.reference,
+      chargeId: charge?.id,
+      amount: params.amount,
+      phone,
+      nextAction: charge?.next_action?.type ?? null,
+    });
+
+    return charge;
+  }
+
   /** Networks Flutterwave supports for a country (probe/diagnostics). */
   async listV4MobileNetworks(countryCode = "RW") {
     const response = await this.v4Request(

@@ -16,12 +16,20 @@ const chargeRwandaMobileMoney = vi.fn();
 const extractPaymentUrl = vi.fn();
 const verifyTransactionByTxRef = vi.fn();
 const sendTextMessage = vi.fn().mockResolvedValue(true);
+const isV4Enabled = vi.fn(() => false);
+const chargeV4 = vi.fn();
+const extractV4PaymentUrl = vi.fn(() => null);
+const extractV4PaymentInstruction = vi.fn(() => null);
 
 vi.mock("@/services/flutterwave", () => ({
   flutterwave: {
     chargeRwandaMobileMoney: (...args: any[]) => chargeRwandaMobileMoney(...args),
     extractPaymentUrl: (...args: any[]) => extractPaymentUrl(...args),
     verifyTransactionByTxRef: (...args: any[]) => verifyTransactionByTxRef(...args),
+    isV4Enabled: (...args: any[]) => isV4Enabled(...args),
+    chargeRwandaMobileMoneyV4: (...args: any[]) => chargeV4(...args),
+    extractV4PaymentUrl: (...args: any[]) => extractV4PaymentUrl(...args),
+    extractV4PaymentInstruction: (...args: any[]) => extractV4PaymentInstruction(...args),
   },
 }));
 
@@ -96,6 +104,10 @@ const extract = vi.mocked(extractPaymentUrl as any);
 const verify = vi.mocked(verifyTransactionByTxRef as any);
 const notify = vi.mocked(sendTextMessage as any);
 const credit = vi.mocked(ledgerCredit as any);
+const v4Enabled = vi.mocked(isV4Enabled as any);
+const chargePush = vi.mocked(chargeV4 as any);
+const extractPushUrl = vi.mocked(extractV4PaymentUrl as any);
+const extractPushNote = vi.mocked(extractV4PaymentInstruction as any);
 
 function seedInvoice(overrides: Row = {}) {
   invoiceRow = {
@@ -119,6 +131,10 @@ function seedInvoice(overrides: Row = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // v3 stays the default path; individual tests opt into the v4 push.
+  v4Enabled.mockReturnValue(false);
+  extractPushUrl.mockReturnValue(null);
+  extractPushNote.mockReturnValue(null);
   seedInvoice();
 });
 
@@ -188,6 +204,75 @@ describe("chargeInvoice", () => {
     await chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" });
 
     expect((prisma.transaction.create as any).mock.calls.length).toBe(0);
+  });
+
+  it("pushes the payment prompt through v4 instead of handing back a link", async () => {
+    v4Enabled.mockReturnValue(true);
+    chargePush.mockResolvedValue({
+      id: "chg_1",
+      status: "pending",
+      next_action: { type: "payment_instruction", payment_instruction: { note: "Check your phone to approve." } },
+    });
+    extractPushNote.mockReturnValue("Check your phone to approve.");
+
+    const result = await chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" });
+
+    expect(chargePush).toHaveBeenCalledWith({
+      reference: "3RIKE-20260930-ABC123",
+      amount: 3000,
+      currency: "RWF",
+      phoneNumber: "0781234567",
+      redirectUrl: undefined,
+      meta: { invoice_id: "inv_1", merchant_id: "merch_1" },
+    });
+    // The legacy link charge must not run alongside the push.
+    expect(charge).not.toHaveBeenCalled();
+    expect(result.paymentUrl).toBeNull();
+    expect(result.paymentNote).toBe("Check your phone to approve.");
+    expect(result.chargeId).toBe("chg_1");
+    expect(invoiceRow.paymentUrl).toBeNull();
+    expect(invoiceRow.status).toBe("pending_payment");
+    expect(transactionRow.metadata).toMatchObject({ chargeId: "chg_1", paymentNote: "Check your phone to approve." });
+  });
+
+  it("stores the redirect when v4 answers with a link instead of a push", async () => {
+    v4Enabled.mockReturnValue(true);
+    chargePush.mockResolvedValue({
+      id: "chg_2",
+      next_action: { type: "redirect_url", redirect_url: { url: "https://checkout.flutterwave.com/pay/abc" } },
+    });
+    extractPushUrl.mockReturnValue("https://checkout.flutterwave.com/pay/abc");
+
+    const result = await chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" });
+
+    expect(result.paymentUrl).toBe("https://checkout.flutterwave.com/pay/abc");
+    expect(result.paymentNote).toBeNull();
+    expect(invoiceRow.paymentUrl).toBe("https://checkout.flutterwave.com/pay/abc");
+  });
+
+  it("falls back to the v3 link charge when the v4 push is rejected", async () => {
+    v4Enabled.mockReturnValue(true);
+    chargePush.mockRejectedValue(new Error("Currency not supported for RW Mobile Money."));
+    charge.mockResolvedValue({ status: "success" });
+    extract.mockReturnValue("https://checkout.flutterwave.com/v3/hosted/pay/abc");
+
+    const result = await chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" });
+
+    expect(chargePush).toHaveBeenCalledTimes(1);
+    expect(charge).toHaveBeenCalledTimes(1);
+    expect(result.paymentUrl).toBe("https://checkout.flutterwave.com/v3/hosted/pay/abc");
+    expect(result.chargeId).toBeNull();
+    expect(invoiceRow.status).toBe("pending_payment");
+  });
+
+  it("keeps the v3 path when v4 credentials are not configured", async () => {
+    charge.mockResolvedValue({ status: "success" });
+    extract.mockReturnValue(null);
+
+    await chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" });
+
+    expect(chargePush).not.toHaveBeenCalled();
+    expect(charge).toHaveBeenCalledTimes(1);
   });
 });
 

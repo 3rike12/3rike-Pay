@@ -297,21 +297,26 @@ export async function markPendingPayment(
 }
 
 /**
- * Charge an invoice through Flutterwave's Rwanda mobile-money endpoint.
+ * Charge an invoice through Flutterwave.
  *
  * Ordering matters:
  *  1. Persist the Transaction FIRST. The charge webhook looks the payment
  *     up by reference - a charge that lands before we write the row would
  *     be dropped as "unknown transaction".
- *  2. Fire the charge.
- *  3. Record the authorization URL (the fallback link the merchant may
- *     forward themselves) and move the invoice to pending_payment.
+ *  2. Fire the charge - v4 push first (the payment prompt lands on the
+ *     buyer's handset), falling back to the v3 link charge when v4 is not
+ *     configured or rejects the payment.
+ *  3. Record what came back (push instruction, link, charge id) and move
+ *     the invoice to pending_payment.
  *
- * `reference` doubles as both tx_ref and order_id, so retrying the same
- * invoice reaches Flutterwave as the same order rather than a new one.
+ * `reference` doubles as both tx_ref and the v4 charge reference, so
+ * retrying the same invoice reaches Flutterwave as the same order rather
+ * than a new one.
  *
- * Deliberately does NOT pass `network`: the SDK only allows MTN/AIRTEL for
- * RWF and Rwanda also has KTRN (077). Flutterwave infers it from the number.
+ * On the v3 path `network` is deliberately NOT passed: the SDK only allows
+ * MTN/AIRTEL for RWF and Rwanda also has KTRN (077). Flutterwave infers it
+ * from the number. v4 makes `network` mandatory, so the client maps it from
+ * the phone prefix instead.
  */
 export async function chargeInvoice(params: {
   merchantId: string;
@@ -349,18 +354,47 @@ export async function chargeInvoice(params: {
     });
   }
 
-  // 2. Charge.
-  const response = await flutterwave.chargeRwandaMobileMoney({
-    txRef: reference,
-    orderId: reference,
-    amount: invoice.amount,
-    currency: invoice.currency,
-    phoneNumber: invoice.buyerPhone,
-    redirectUrl: params.redirectUrl,
-    meta: { invoice_id: invoice.id, merchant_id: invoice.merchantId },
-  });
+  // 2. Charge. Push when v4 is on; otherwise the v3 link charge.
+  let paymentUrl: string | null = null;
+  let paymentNote: string | null = null;
+  let chargeId: string | null = null;
+  let chargedViaV4 = false;
 
-  const paymentUrl = flutterwave.extractPaymentUrl(response);
+  if (flutterwave.isV4Enabled()) {
+    try {
+      const charge = await flutterwave.chargeRwandaMobileMoneyV4({
+        reference,
+        amount: invoice.amount,
+        currency: invoice.currency,
+        phoneNumber: invoice.buyerPhone,
+        redirectUrl: params.redirectUrl,
+        meta: { invoice_id: invoice.id, merchant_id: invoice.merchantId },
+      });
+      paymentUrl = flutterwave.extractV4PaymentUrl(charge);
+      paymentNote = flutterwave.extractV4PaymentInstruction(charge);
+      chargeId = typeof charge?.id === "string" ? charge.id : null;
+      chargedViaV4 = true;
+    } catch (error: any) {
+      logger.error("v4 push charge failed; retrying with the v3 link charge", {
+        invoiceId: invoice.id,
+        reference,
+        error: error?.message || error,
+      });
+    }
+  }
+
+  if (!chargedViaV4) {
+    const response = await flutterwave.chargeRwandaMobileMoney({
+      txRef: reference,
+      orderId: reference,
+      amount: invoice.amount,
+      currency: invoice.currency,
+      phoneNumber: invoice.buyerPhone,
+      redirectUrl: params.redirectUrl,
+      meta: { invoice_id: invoice.id, merchant_id: invoice.merchantId },
+    });
+    paymentUrl = flutterwave.extractPaymentUrl(response);
+  }
 
   // 3. Persist the outcome.
   if (invoice.status === INVOICE_STATUS.DRAFT) {
@@ -375,6 +409,8 @@ export async function chargeInvoice(params: {
       metadata: {
         invoiceId: invoice.id,
         paymentUrl,
+        paymentNote,
+        chargeId,
         buyerPhone: invoice.buyerPhone,
       } as Prisma.InputJsonValue,
     },
@@ -384,10 +420,12 @@ export async function chargeInvoice(params: {
     invoiceId: invoice.id,
     reference,
     amount: invoice.amount,
+    channel: chargedViaV4 ? "v4-push" : "v3-link",
     hasPaymentUrl: Boolean(paymentUrl),
+    hasPaymentNote: Boolean(paymentNote),
   });
 
-  return { invoice: pending, txRef: reference, paymentUrl };
+  return { invoice: pending, txRef: reference, paymentUrl, paymentNote, chargeId };
 }
 
 /**

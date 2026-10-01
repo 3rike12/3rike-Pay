@@ -362,3 +362,87 @@ describe("webhook signatures", () => {
     expect(flutterwave.verifyV4WebhookSignature(raw, "")).toBe(false);
   });
 });
+
+describe("chargeRwandaMobileMoneyV4", () => {
+  const fetchMock = vi.fn();
+
+  const json = (body: unknown, status = 200) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  });
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    (flutterwave as any).v4Token = null;
+    fetchMock.mockResolvedValueOnce(json({ access_token: "tok-1", expires_in: 600 }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("chains customer -> payment method -> charge with the ids linked", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ status: "success", data: { id: "cus_9" } }))
+      .mockResolvedValueOnce(json({ status: "success", data: { id: "pmd_9" } }))
+      .mockResolvedValueOnce(
+        json({
+          status: "success",
+          data: {
+            id: "chg_9",
+            status: "pending",
+            next_action: {
+              type: "payment_instruction",
+              payment_instruction: { note: "Approve on your phone" },
+            },
+          },
+        })
+      );
+
+    const charge = await flutterwave.chargeRwandaMobileMoneyV4({
+      reference: "3RIKE-20261001-ABC123",
+      amount: 3000,
+      currency: "RWF",
+      phoneNumber: "0781234567",
+      meta: { invoice_id: "inv_1" },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    const customerBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(customerBody.email).toBe("buyer-0781234567@pay.3rike.app");
+    expect(customerBody.phone).toEqual({ country_code: "250", number: "781234567" });
+
+    const pmdBody = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(pmdBody.mobile_money.phone_number).toBe("781234567");
+
+    const chargeBody = JSON.parse(fetchMock.mock.calls[3][1].body);
+    expect(chargeBody).toMatchObject({
+      reference: "3RIKE-20261001-ABC123",
+      amount: 3000,
+      currency: "RWF",
+      customer_id: "cus_9",
+      payment_method_id: "pmd_9",
+      meta: { invoice_id: "inv_1" },
+    });
+
+    expect(charge.id).toBe("chg_9");
+    expect(flutterwave.extractV4PaymentInstruction(charge)).toBe("Approve on your phone");
+    expect(flutterwave.extractV4PaymentUrl(charge)).toBeNull();
+  });
+
+  it("refuses a number that is not a Rwanda mobile number", async () => {
+    await expect(
+      flutterwave.chargeRwandaMobileMoneyV4({
+        reference: "3RIKE-20261001-BADNUM",
+        amount: 100,
+        phoneNumber: "12345",
+      })
+    ).rejects.toThrow(/Not a valid Rwanda mobile number/);
+
+    // No request goes out at all, not even a token.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
