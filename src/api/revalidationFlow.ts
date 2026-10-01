@@ -10,6 +10,7 @@ import {
 } from "@/services/database";
 import { KYC_STATUS } from "@/config/constants";
 import { decryptFlowRequest, encryptFlowResponse, screen } from "@/utils/flowCrypto";
+import { logFlowDecryptFailure } from "@/utils/flowRouter";
 
 const logger = createLogger("revalidation-flow");
 
@@ -124,7 +125,7 @@ router.post("/", async (req: Request, res: Response) => {
     aesKey = decoded.aesKey;
     iv = decoded.iv;
   } catch (error: any) {
-    logger.error("Revalidation flow decryption failed", { error: error.message });
+    logFlowDecryptFailure(logger, req, error);
     return res.status(421).send();
   }
 

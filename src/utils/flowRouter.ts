@@ -23,8 +23,27 @@ export interface FlowDefinition {
   screens: Record<string, (ctx: FlowContext) => Promise<FlowResult>>;
   /** Used for data_exchange on a screen id not listed above. */
   fallback?: (ctx: FlowContext) => Promise<FlowResult>;
-  /** Extra fields logged when a request cannot be decrypted. */
-  onDecryptFailure?: Record<string, unknown>;
+}
+
+/**
+ * Meta pings a Flow endpoint unencrypted to verify it is reachable, and that
+ * arrives with no payload keys at all. Log the shape of whatever did arrive
+ * so a real Flow request that failed to decrypt is distinguishable from that
+ * ping. Shared so every flow endpoint reports identically.
+ */
+export function logFlowDecryptFailure(
+  logger: { error: (message: string, meta?: Record<string, unknown>) => void },
+  req: Request,
+  error: any
+) {
+  const body = (req.body || {}) as Record<string, unknown>;
+  logger.error("Flow request decryption failed", {
+    error: error?.message,
+    bodyKeys: Object.keys(body),
+    encryptedPayload: Boolean(body.encrypted_flow_data),
+    encryptedAesKey: Boolean(body.encrypted_aes_key),
+    userAgent: req.get("user-agent"),
+  });
 }
 
 /**
@@ -51,18 +70,7 @@ export function createFlowRouter(definition: FlowDefinition): Router {
       aesKey = decoded.aesKey;
       iv = decoded.iv;
     } catch (error: any) {
-      // Meta pings the endpoint unencrypted to verify it is reachable; that
-      // arrives with no payload keys at all. Log the shape so a real Flow
-      // request that failed to decrypt is distinguishable from that ping.
-      const body = req.body || {};
-      logger.error("Flow request decryption failed", {
-        error: error.message,
-        bodyKeys: Object.keys(body),
-        encryptedPayload: Boolean(body.encrypted_flow_data),
-        encryptedAesKey: Boolean(body.encrypted_aes_key),
-        userAgent: req.get("user-agent"),
-        ...(definition.onDecryptFailure || {}),
-      });
+      logFlowDecryptFailure(logger, req, error);
       return res.status(421).send();
     }
 
