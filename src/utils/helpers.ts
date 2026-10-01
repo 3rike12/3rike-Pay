@@ -98,8 +98,17 @@ export function cleanPhone(phone: string): string {
  *
  * Sending a local-format number is silently fatal: the API still answers 200
  * with a message id, but the message is never delivered.
+ *
+ * Rwanda numbers are detected first - a buyer's 078... written by the
+ * merchant would otherwise become 23478..., and the confirmation would be
+ * addressed to a Nigerian number that belongs to nobody. The prefixes do not
+ * collide (RW: 072/073/077/078/079, NG: 070/080/081/090/091), so falling
+ * through to the Nigerian rule stays safe.
  */
 export function toWhatsAppPhone(phone: string): string {
+  const rwanda = toRwandaPhone(phone);
+  if (rwanda) return "250" + rwanda.slice(1);
+
   let cleaned = phone.replace(/[^0-9+]/g, "").replace(/^\+/, "");
   if (cleaned.startsWith("0")) cleaned = "234" + cleaned.slice(1);
   return cleaned;

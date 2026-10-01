@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   toRwandaPhone,
   isRwandaPhone,
+  toWhatsAppPhone,
   formatCurrency,
   parseProductCreateRequest,
   parseInvoiceRequest,
@@ -39,6 +40,23 @@ describe("toRwandaPhone", () => {
   it("isRwandaPhone mirrors toRwandaPhone", () => {
     expect(isRwandaPhone("0781234567")).toBe(true);
     expect(isRwandaPhone("0751234567")).toBe(false);
+  });
+});
+
+describe("toWhatsAppPhone", () => {
+  it("renders Rwanda buyers as +250, not as a Nigerian number", () => {
+    expect(toWhatsAppPhone("0781234567")).toBe("250781234567");
+    expect(toWhatsAppPhone("0721234567")).toBe("250721234567");
+    expect(toWhatsAppPhone("+250781234567")).toBe("250781234567");
+    expect(toWhatsAppPhone("250781234567")).toBe("250781234567");
+    expect(toWhatsAppPhone("781234567")).toBe("250781234567");
+  });
+
+  it("still renders Nigerian numbers the old way", () => {
+    expect(toWhatsAppPhone("09167582901")).toBe("2349167582901");
+    expect(toWhatsAppPhone("08031234567")).toBe("2348031234567");
+    expect(toWhatsAppPhone("+2348031234567")).toBe("2348031234567");
+    expect(toWhatsAppPhone("2348031234567")).toBe("2348031234567");
   });
 });
 
