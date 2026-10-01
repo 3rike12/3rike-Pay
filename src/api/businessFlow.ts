@@ -29,27 +29,34 @@ function ack(payload: any) {
   return null;
 }
 
-async function notifyBusinessSaved(userId: string, text: string) {
+async function notifyBusinessSaved(user: { phone: string | null }, text: string) {
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.phone) return;
+    if (!user.phone) return;
     await whatsapp.sendTextMessage(user.phone, text);
   } catch (error: any) {
-    logger.error("Failed to send business saved message", { userId, error: error.message });
+    logger.error("Failed to send business saved message", { error: error.message });
   }
 }
 
 interface BusinessInput {
   name: string;
   email: string;
-  phone: string;
+  phone?: string;
   registrationNumber?: string;
 }
 
-function parseBusinessInput(data: any): { input?: BusinessInput; error?: string } {
+/**
+ * The business phone is never asked for — it is the WhatsApp number the
+ * merchant is messaging from, which the Flow has no access to. It is only
+ * stored for display, so a non-Rwanda number is kept as-is rather than
+ * blocking the save; only a Rwanda number gets normalised to 078… form.
+ */
+function parseBusinessInput(
+  data: any,
+  phone?: string
+): { input?: BusinessInput; error?: string } {
   const name = String(data?.business_name || "").trim();
   const email = String(data?.business_email || "").trim();
-  const rawPhone = String(data?.business_phone || "").trim();
   const registrationNumber = String(data?.registration_number || "").trim() || undefined;
 
   if (name.length < 2 || name.length > 80) {
@@ -58,22 +65,22 @@ function parseBusinessInput(data: any): { input?: BusinessInput; error?: string 
   if (!EMAIL_RE.test(email) || email.length > 120) {
     return { error: "That email address doesn't look right." };
   }
-  const phone = toRwandaPhone(rawPhone);
-  if (!phone) {
-    return { error: "Use a Rwanda mobile number, e.g. 0781234567." };
-  }
 
-  return { input: { name, email, phone, registrationNumber } };
+  return { input: { name, email, phone: phone || undefined, registrationNumber } };
 }
 
 /**
  * Saves the merchant's business profile. Upserts, so re-running the Flow
  * simply updates the existing record.
  */
-async function handleBusinessDetails(userId: string, data: any) {
-  const { input, error } = parseBusinessInput(data);
+async function handleBusinessDetails(userId: string, data: any, screenName: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const raw = String(user?.phone || "").trim();
+  const phone = toRwandaPhone(raw) || raw || undefined;
+
+  const { input, error } = parseBusinessInput(data, phone);
   if (error || !input) {
-    return screen(FIRST_SCREEN, { error_message: error || "Please check your details." });
+    return screen(screenName, { error_message: error || "Please check your details." });
   }
 
   try {
@@ -81,23 +88,25 @@ async function handleBusinessDetails(userId: string, data: any) {
       userId,
       name: input.name,
       email: input.email,
-      phone: input.phone,
+      ...(input.phone ? { phone: input.phone } : {}),
       country: "RW",
       registrationNumber: input.registrationNumber,
     });
   } catch (error: any) {
     logger.error("Failed to save business profile", { userId, error: error.message });
-    return screen(FIRST_SCREEN, { error_message: "Could not save that. Please try again." });
+    return screen(screenName, { error_message: "Could not save that. Please try again." });
   }
 
   const details = [
     `• *${input.name}*`,
-    `• ${input.phone}`,
+    ...(input.phone ? [`• ${input.phone}`] : []),
     `• ${input.email}`,
     ...(input.registrationNumber ? [`• RDB: ${input.registrationNumber}`] : []),
   ].join("\n");
 
-  await notifyBusinessSaved(userId, MESSAGES.BUSINESS.PROFILE.SAVED(details));
+  if (user?.phone) {
+    await notifyBusinessSaved(user, MESSAGES.BUSINESS.PROFILE.SAVED(details));
+  }
   logger.info("Business profile saved", { userId, name: input.name });
 
   return screen(SAVED_SCREEN);
@@ -151,11 +160,12 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (action === "data_exchange") {
-      if (currentScreen === FIRST_SCREEN) {
-        const next = await handleBusinessDetails(userId, data || {});
-        return res.send(encryptFlowResponse(next, aesKey, iv));
+      const screenName = String(currentScreen || FIRST_SCREEN);
+      if (screenName === SAVED_SCREEN) {
+        return res.send(encryptFlowResponse(screen(SAVED_SCREEN), aesKey, iv));
       }
-      return res.send(encryptFlowResponse(screen(FIRST_SCREEN, { error_message: "" }), aesKey, iv));
+      const next = await handleBusinessDetails(userId, data || {}, screenName);
+      return res.send(encryptFlowResponse(next, aesKey, iv));
     }
 
     if (action === "complete") {

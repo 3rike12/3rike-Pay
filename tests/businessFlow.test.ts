@@ -60,7 +60,6 @@ async function post(app: express.Express, payload: Record<string, unknown>) {
 const validForm = {
   business_name: "Kigali Electronics",
   business_email: "shop@kigali.example",
-  business_phone: "+250781234567",
   registration_number: "1234567890",
 };
 
@@ -107,7 +106,9 @@ describe("Business profile flow webhook", () => {
     expect(mockEnsureBusiness).not.toHaveBeenCalled();
   });
 
-  it("saves a valid profile, normalises the phone and notifies the merchant", async () => {
+  it("saves a valid profile using the merchant's own WhatsApp number", async () => {
+    mockFindUser.mockResolvedValue({ id: "user-1", phone: "250788000111" } as any);
+
     const res = await post(
       buildApp(),
       flowPayload({ action: "data_exchange", data: validForm })
@@ -118,13 +119,30 @@ describe("Business profile flow webhook", () => {
       userId: "user-1",
       name: "Kigali Electronics",
       email: "shop@kigali.example",
-      phone: "0781234567",
+      phone: "0788000111",
       country: "RW",
       registrationNumber: "1234567890",
     });
     expect(mockSendText).toHaveBeenCalledWith(
       "250788000111",
       expect.stringContaining("Kigali Electronics")
+    );
+  });
+
+  it("ignores a phone number posted by the form", async () => {
+    mockFindUser.mockResolvedValue({ id: "user-1", phone: "250788000111" } as any);
+
+    const res = await post(
+      buildApp(),
+      flowPayload({
+        action: "data_exchange",
+        data: { ...validForm, business_phone: "0799999999" },
+      })
+    );
+
+    expect(res.body.screen).toBe("SAVED");
+    expect(mockEnsureBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: "0788000111" })
     );
   });
 
@@ -158,18 +176,18 @@ describe("Business profile flow webhook", () => {
     expect(mockSendText).not.toHaveBeenCalled();
   });
 
-  it("rejects a non-Rwanda phone number", async () => {
+  it("keeps a non-Rwanda WhatsApp number as-is instead of rejecting it", async () => {
+    mockFindUser.mockResolvedValue({ id: "user-1", phone: "2349167582901" } as any);
+
     const res = await post(
       buildApp(),
-      flowPayload({
-        action: "data_exchange",
-        data: { ...validForm, business_phone: "08012345678" },
-      })
+      flowPayload({ action: "data_exchange", data: validForm })
     );
 
-    expect(res.body.screen).toBe("BUSINESS_DETAILS");
-    expect(res.body.data.error_message).toMatch(/Rwanda/);
-    expect(mockEnsureBusiness).not.toHaveBeenCalled();
+    expect(res.body.screen).toBe("SAVED");
+    expect(mockEnsureBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: "2349167582901" })
+    );
   });
 
   it("rejects a business name that is too short", async () => {
@@ -199,7 +217,7 @@ describe("Business profile flow webhook", () => {
     expect(mockSendText).not.toHaveBeenCalled();
   });
 
-  it("does not notify when the merchant has no phone on file", async () => {
+  it("saves without a phone when the merchant has none on file", async () => {
     mockFindUser.mockResolvedValue({ id: "user-1", phone: null } as any);
 
     const res = await post(
@@ -208,6 +226,9 @@ describe("Business profile flow webhook", () => {
     );
 
     expect(res.body.screen).toBe("SAVED");
+    expect(mockEnsureBusiness).toHaveBeenCalledWith(
+      expect.not.objectContaining({ phone: expect.anything() })
+    );
     expect(mockSendText).not.toHaveBeenCalled();
   });
 

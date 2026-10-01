@@ -20,7 +20,7 @@
         "children": [
           {
             "type": "TextBody",
-            "text": "Tell us about your business. These details identify your shop on payment requests."
+            "text": "Tell us about your business. These details identify your shop on payment requests. We'll use your WhatsApp number as your business phone."
           },
           {
             "type": "TextBody",
@@ -50,14 +50,6 @@
               },
               {
                 "type": "TextInput",
-                "name": "business_phone",
-                "label": "Phone",
-                "required": true,
-                "max-chars": 15,
-                "helper-text": "Rwanda number, e.g. 0781234567"
-              },
-              {
-                "type": "TextInput",
                 "name": "registration_number",
                 "label": "Registration number",
                 "max-chars": 40,
@@ -71,7 +63,6 @@
                   "payload": {
                     "business_name": "${form.business_name}",
                     "business_email": "${form.business_email}",
-                    "business_phone": "${form.business_phone}",
                     "registration_number": "${form.registration_number}"
                   }
                 }
