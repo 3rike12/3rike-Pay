@@ -580,21 +580,15 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
     await sendBuyerPaymentRequest(result.invoice as any, result.paymentUrl, result.paymentNote);
 
     const summary = renderInvoiceSummary(result.invoice as any);
-    const tail = result.paymentUrl
-      ? MESSAGES.BUSINESS.INVOICE.ISSUED(result.paymentUrl)
-      : result.paymentNote
-        ? MESSAGES.BUSINESS.INVOICE.ISSUED_PUSH
+    const tail = result.paymentNote
+      ? MESSAGES.BUSINESS.INVOICE.ISSUED_PUSH
+      : result.paymentUrl
+        ? MESSAGES.BUSINESS.INVOICE.ISSUED
         : MESSAGES.BUSINESS.INVOICE.ISSUED_NO_URL;
     const body = `*Payment request issued*\n\n${summary}\n\n${tail}`;
 
-    // One message, not two: the QR image carries the full body as its
-    // caption. Plain text only when there is no link to encode or the QR
-    // could not be uploaded.
-    const qrSent = result.paymentUrl
-      ? await sendPaymentQr(phone, result.paymentUrl, body)
-      : false;
-    if (qrSent) return true;
-
+    // The merchant gets their summary as plain text - the payment link and
+    // QR belong to the buyer's message, not the merchant's.
     return whatsapp.sendTextMessage(phone, body);
   } catch (error: any) {
     logger.error("Failed to issue invoice", {

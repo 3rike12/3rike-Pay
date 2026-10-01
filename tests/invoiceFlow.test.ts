@@ -348,7 +348,7 @@ describe("invoice conversation", () => {
       buyerPhone: "0781234567",
     });
 
-    const reply = await say("yes");
+    await say("yes");
 
     expect(h.createDraftInvoice).toHaveBeenCalledWith({
       merchantId: "user_1",
@@ -360,24 +360,28 @@ describe("invoice conversation", () => {
       invoiceId: "inv_new",
     });
     expect(h.scheduleInvoiceVerification).toHaveBeenCalledWith("3RIKE-TEST-1");
-    expect(reply).toContain("Payment request issued");
-    expect(reply).toContain("https://checkout.flutterwave.com/v3/hosted/pay/abc");
     expect(h.resetSession).toHaveBeenCalled();
     expect(h.session.state).toBe("idle");
-    // Two QR messages: the buyer gets the payment link first, then the
-    // merchant gets their summary carrying the same link as a caption.
-    expect(h.sendTextMessage).not.toHaveBeenCalled();
-    expect(whatsapp.uploadMedia).toHaveBeenCalledTimes(2);
+
+    // The buyer gets the payment link as a QR image...
+    expect(whatsapp.uploadMedia).toHaveBeenCalledTimes(1);
     expect(vi.mocked(whatsapp.uploadMedia).mock.calls[0][1]).toBe("image/png");
+    expect(whatsapp.sendImageMessage).toHaveBeenCalledTimes(1);
     expect(whatsapp.sendImageMessage).toHaveBeenCalledWith(
       "0781234567",
       "media-1",
-      expect.stringContaining("Payment request")
+      expect.stringContaining("https://checkout.flutterwave.com/v3/hosted/pay/abc")
     );
-    expect(whatsapp.sendImageMessage).toHaveBeenCalledWith(
+
+    // ...the merchant gets a plain-text summary with no link and no QR.
+    expect(h.sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(h.sendTextMessage).toHaveBeenCalledWith(
       PHONE,
-      "media-1",
       expect.stringContaining("Payment request issued")
+    );
+    expect(h.sendTextMessage).toHaveBeenCalledWith(
+      PHONE,
+      expect.not.stringContaining("https://")
     );
   });
 
@@ -386,7 +390,7 @@ describe("invoice conversation", () => {
       items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
       buyerPhone: "0781234567",
     });
-    // One rejection per QR send: buyer first, then the merchant.
+    // The buyer's QR upload fails, so their message falls back to text.
     vi.mocked(whatsapp.uploadMedia)
       .mockRejectedValueOnce(new Error("upload failed"))
       .mockRejectedValueOnce(new Error("upload failed"));

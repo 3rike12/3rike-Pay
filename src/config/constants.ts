@@ -335,7 +335,7 @@ export const MESSAGES = {
       INVALID_PHONE: messagesJson.BUSINESS.INVOICE.INVALID_PHONE,
       INVALID_ITEMS: messagesJson.BUSINESS.INVOICE.INVALID_ITEMS,
       CONFIRM_HINT: messagesJson.BUSINESS.INVOICE.CONFIRM_HINT,
-      ISSUED: (url: string) => render(messagesJson.BUSINESS.INVOICE.ISSUED, { url }),
+      ISSUED: messagesJson.BUSINESS.INVOICE.ISSUED,
       ISSUED_NO_URL: messagesJson.BUSINESS.INVOICE.ISSUED_NO_URL,
       ISSUED_PUSH: messagesJson.BUSINESS.INVOICE.ISSUED_PUSH,
       BUYER_REQUEST: (items: string, total: string, url: string) =>
