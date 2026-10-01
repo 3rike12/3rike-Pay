@@ -7,6 +7,7 @@ import {
   parseInvoiceRequest,
   stripProductIntent,
 } from "@/utils/helpers";
+import { TRIGGERS } from "@/config/constants";
 
 describe("toRwandaPhone", () => {
   it("accepts every Rwanda number shape", () => {
@@ -155,6 +156,25 @@ describe("parseInvoiceRequest", () => {
       { name: "airtime", qty: 1, unitPrice: 500 },
       { name: "data bundle", qty: 1, unitPrice: 2000 },
     ]);
+  });
+
+  it("reaches the bot trigger list for every shape the parser accepts", () => {
+    const messages = [
+      "charge 0781234567 2 waters at 1500",
+      "invoice 3 batteries",
+      "bill 1000 water bottle",
+      "request payment for 1 soda at 300",
+      "payment request: airtime 500",
+      "payment 500 water",
+      "request 3 water",
+    ];
+    for (const message of messages) {
+      const lower = message.toLowerCase();
+      expect(
+        TRIGGERS.INVOICE.some((kw) => lower.includes(kw)),
+        `no TRIGGERS.INVOICE keyword matched: ${message}`
+      ).toBe(true);
+    }
   });
 
   it("returns null without intent or items", () => {

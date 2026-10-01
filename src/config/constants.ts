@@ -56,8 +56,10 @@ export const TRIGGERS = {
   HELP: ["help", "commands", "how"],
   CANCEL: ["cancel", "stop", "exit", "quit"],
   BALANCE: ["balance", "bal", "check balance"],
-  // Checked BEFORE SEND_MONEY: "payment request" contains "pay".
-  INVOICE: ["invoice", "payment request", "request payment", "bill"],
+  // Checked BEFORE SEND_MONEY: "payment request" contains "pay". Kept in
+  // sync with INVOICE_INTENT_RE in utils/helpers.ts — a phrase the parser
+  // accepts but this list misses falls straight through to the menu.
+  INVOICE: ["invoice", "charge", "payment request", "request payment", "payment", "request", "bill"],
   PRODUCT: ["product", "catalogue", "catalog"],
   SEND_MONEY: ["send", "transfer", "pay", "send money"],
   AIRTIME: ["airtime", "recharge", "top up", "data"],
