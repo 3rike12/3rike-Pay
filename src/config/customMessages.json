@@ -203,6 +203,10 @@
     "params": [],
     "description": "Transaction history error."
   },
+  "HELP.UNKNOWN_TEXT": {
+    "params": [],
+    "description": "Shown when typed text matches no command."
+  },
   "HELP.TEXT": {
     "params": [],
     "description": "Command list and help."

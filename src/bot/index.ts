@@ -825,6 +825,13 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     return startKyc(phone, user);
   }
 
+  // Typed something we don't recognise: a short hint beats re-dumping the
+  // whole menu. An unmatched button tap still gets the menu back, so anyone
+  // reopening an old menu message lands somewhere useful.
+  if (!action && t.trim()) {
+    return whatsapp.sendTextMessage(phone, MESSAGES.HELP.UNKNOWN_TEXT);
+  }
+
   return sendMenuForUser(phone, user);
 }
 
