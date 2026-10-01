@@ -425,6 +425,7 @@ class FlutterwaveService {
       method?: "GET" | "POST" | "PUT";
       body?: unknown;
       idempotencyKey?: string;
+      headers?: Record<string, string>;
     } = {}
   ): Promise<T> {
     const { apiBase } = config.flutterwave;
@@ -437,6 +438,7 @@ class FlutterwaveService {
         "Content-Type": "application/json",
         // Flutterwave requires 12-255 chars; a UUID fits.
         "X-Trace-Id": crypto.randomUUID(),
+        ...options.headers,
       };
       if (options.idempotencyKey) {
         headers["X-Idempotency-Key"] = options.idempotencyKey;
@@ -569,6 +571,12 @@ class FlutterwaveService {
       body: payload,
       // Same invoice retried => same idempotency key => one charge.
       idempotencyKey: params.reference,
+      // Sandbox only: when configured (e.g. scenario:auth_redirect) the
+      // charge answers with Flutterwave's mock approval page instead of a
+      // push that no mock number can ever authorise.
+      headers: config.flutterwave.scenarioKey
+        ? { "X-Scenario-Key": config.flutterwave.scenarioKey }
+        : undefined,
     });
     if (!response?.data?.id) {
       throw new Error("Flutterwave returned no charge id");

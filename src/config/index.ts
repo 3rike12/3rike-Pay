@@ -72,6 +72,13 @@ export const config = {
     tokenUrl:
       process.env.FLUTTERWAVE_TOKEN_URL ||
       "https://idp.flutterwave.com/realms/flutterwave/protocol/openid-connect/token",
+    /**
+     * Sandbox testing aid, sent as `X-Scenario-Key` on charge requests only.
+     * `scenario:auth_redirect` makes a test charge answer with a clickable
+     * link to Flutterwave's mock page, where you can approve or decline it
+     * (mock numbers never authorise a push). Leave unset in production.
+     */
+    scenarioKey: process.env.FLUTTERWAVE_SCENARIO_KEY || "",
   },
 
   app: {

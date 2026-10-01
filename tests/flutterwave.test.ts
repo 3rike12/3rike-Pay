@@ -13,6 +13,7 @@ vi.mock("@/config", () => ({
       apiBase: "https://developersandbox-api.flutterwave.com",
       tokenUrl: "https://idp.example/token",
       webhookSecret: "flw-secret",
+      scenarioKey: "",
     },
   },
 }));
@@ -223,6 +224,34 @@ describe("v4 push charge client", () => {
     expect(flutterwave.extractV4PaymentInstruction(charge)).toBe(
       "Approve this payment on your phone."
     );
+  });
+
+  it("sends the sandbox scenario key on charges when configured", async () => {
+    const { config } = await import("@/config");
+    const flutterwaveConfig = config.flutterwave as any;
+    const original = flutterwaveConfig.scenarioKey;
+    flutterwaveConfig.scenarioKey = "scenario:auth_redirect";
+    fetchMock
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(
+        json({
+          status: "success",
+          data: { id: "chg_3", next_action: { type: "redirect_url", redirect_url: { url: "https://pay.example/mock" } } },
+        })
+      );
+
+    try {
+      await flutterwave.createV4Charge({
+        reference: "3RIKE-20261001-SCEN",
+        amount: 100,
+        customerId: "cus_1",
+        paymentMethodId: "pmd_1",
+      });
+    } finally {
+      flutterwaveConfig.scenarioKey = original;
+    }
+
+    expect(fetchMock.mock.calls[1][1].headers["X-Scenario-Key"]).toBe("scenario:auth_redirect");
   });
 
   it("reads the redirect URL when Flutterwave answers with one instead", async () => {
