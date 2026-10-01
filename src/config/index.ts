@@ -1,6 +1,12 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+/**
+ * True when FLUTTERWAVE_PRODUCTION=true - drives both the v3 SDK and the
+ * v4 (OAuth) API base URL.
+ */
+const isFlutterwaveProduction = process.env.FLUTTERWAVE_PRODUCTION === "true";
+
 export const config = {
   port: parseInt(process.env.PORT || "3000", 10),
   nodeEnv: process.env.NODE_ENV || "development",
@@ -42,7 +48,30 @@ export const config = {
     /**
      * Defaults to false (sandbox). Set FLUTTERWAVE_PRODUCTION=true for live keys.
      */
-    isProduction: process.env.FLUTTERWAVE_PRODUCTION === "true",
+    isProduction: isFlutterwaveProduction,
+
+    /**
+     * v4 API (OAuth client credentials). This is the API that can push a
+     * payment prompt straight to the buyer's handset instead of sending a
+     * link. The push charge flow only runs when both values are set - with
+     * them missing we fall back to the v3 redirect charge.
+     */
+    clientId: process.env.FLUTTERWAVE_CLIENT_ID || "",
+    clientSecret: process.env.FLUTTERWAVE_CLIENT_SECRET || "",
+    /**
+     * v4 API base URL. Sandbox for test keys; the docs call the live
+     * environment "f4bexperience". Override with FLUTTERWAVE_API_BASE if
+     * Flutterwave hands out a different production host.
+     */
+    apiBase:
+      process.env.FLUTTERWAVE_API_BASE ||
+      (isFlutterwaveProduction
+        ? "https://f4bexperience.flutterwave.com"
+        : "https://developersandbox-api.flutterwave.com"),
+    /** OAuth token endpoint - same realm for sandbox and production. */
+    tokenUrl:
+      process.env.FLUTTERWAVE_TOKEN_URL ||
+      "https://idp.flutterwave.com/realms/flutterwave/protocol/openid-connect/token",
   },
 
   app: {
