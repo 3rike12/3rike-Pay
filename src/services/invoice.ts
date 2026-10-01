@@ -645,6 +645,21 @@ export async function verifyInvoicePayment(
 
   try {
     const response: any = await flutterwave.verifyTransactionByTxRef(reference);
+    // Top-level `status: "error"` means Flutterwave has no transaction at all
+    // for this reference (data is null) - usually a charge that never got
+    // created. Keep polling, but make the reason visible instead of sitting
+    // on "pending" in silence.
+    if (
+      String(response?.status || "").toLowerCase() === "error" &&
+      !response?.data
+    ) {
+      logger.warn("Flutterwave has no transaction for this invoice", {
+        reference,
+        message: response?.message ?? "unknown",
+      });
+      return "pending";
+    }
+
     const status = String(response?.data?.status || response?.status || "")
       .toLowerCase()
       .trim();

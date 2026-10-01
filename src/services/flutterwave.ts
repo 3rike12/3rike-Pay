@@ -324,6 +324,21 @@ class FlutterwaveService {
 
     try {
       const response: any = await client.MobileMoney.rwanda(payload);
+      // The SDK resolves Flutterwave error bodies instead of rejecting them
+      // (rave.base.js only logs telemetry), so a rejected charge arrives here
+      // looking like a success - and no transaction ever gets created. Verify
+      // then answers "No transaction was found for this id".
+      const envelope = String(response?.status ?? "").toLowerCase().trim();
+      if (envelope !== "success") {
+        const message =
+          response?.message || "Flutterwave rejected the mobile money charge";
+        logger.error("Rwanda mobile money charge rejected by Flutterwave", {
+          txRef: params.txRef,
+          code: response?.code ?? null,
+          message,
+        });
+        throw new Error(message);
+      }
       logger.info("Rwanda mobile money charge initiated", {
         txRef: params.txRef,
         amount,
@@ -374,6 +389,7 @@ class FlutterwaveService {
       logger.info("Transaction verified by tx_ref", {
         txRef,
         status: body?.data?.status ?? body?.status ?? "unknown",
+        message: body?.message ?? null,
       });
       return response;
     } catch (error: any) {
