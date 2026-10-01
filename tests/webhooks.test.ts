@@ -53,6 +53,7 @@ vi.mock("@/services/database", () => ({
 vi.mock("@/services/flutterwave", () => ({
   flutterwave: {
     verifyWebhookSignature: vi.fn(() => true),
+    verifyV4WebhookSignature: vi.fn(() => true),
     verifyTransactionByTxRef: vi.fn(),
     chargeRwandaMobileMoney: vi.fn(),
     extractPaymentUrl: vi.fn(() => null),
@@ -80,6 +81,7 @@ import { handleMessage } from "@/bot";
 
 const verifySignature = vi.mocked(autoramp.verifyWebhookSignature);
 const verifyFlutterwaveSignature = vi.mocked(flutterwave.verifyWebhookSignature);
+const verifyV4Signature = vi.mocked(flutterwave.verifyV4WebhookSignature);
 const sendTemplate = vi.mocked(whatsapp.sendTemplate);
 const sendText = vi.mocked(whatsapp.sendTextMessage);
 const findBank = vi.mocked(prisma.bankAccount.findFirst);
@@ -99,6 +101,7 @@ const failInvoice = vi.mocked(failInvoicePayment);
 function buildApp() {
   const app = express();
   app.use("/webhook/autoramp", express.raw({ type: "application/json" }));
+  app.use("/webhook/flutterwave", express.raw({ type: "application/json" }));
   app.use(express.json());
   app.use("/webhook", webhooksRouter);
   return app;
@@ -494,9 +497,18 @@ describe("Flutterwave webhook", () => {
       .send(payload as any);
   }
 
+  /** v4 delivery: `flutterwave-signature` HMAC header instead of verif-hash. */
+  function postFlutterwaveV4(app: express.Express, payload: unknown, signature = "hmac-sig") {
+    return request(app)
+      .post("/webhook/flutterwave")
+      .set("flutterwave-signature", signature)
+      .send(payload as any);
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     verifyFlutterwaveSignature.mockReturnValue(true);
+    verifyV4Signature.mockReturnValue(true);
     sendText.mockResolvedValue(true);
     invoiceForRef.mockResolvedValue(null as any);
     settleInvoice.mockResolvedValue({ settled: true } as any);
@@ -608,5 +620,53 @@ describe("Flutterwave webhook", () => {
     expect(updateTxn).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) })
     );
+  });
+
+  it("verifies a v4 HMAC signature instead of verif-hash", async () => {
+    findTxn.mockResolvedValue(invoiceTxn as any);
+    invoiceForRef.mockResolvedValue(invoice as any);
+
+    const app = buildApp();
+    const res = await postFlutterwaveV4(app, {
+      webhook_id: "wbk_1",
+      type: "charge.completed",
+      data: { id: "chg_1", reference: "3RIKE-INV-1", status: "succeeded" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(verifyV4Signature).toHaveBeenCalledWith(expect.any(Buffer), "hmac-sig");
+    expect(verifyFlutterwaveSignature).not.toHaveBeenCalled();
+    expect(settleInvoice).toHaveBeenCalledWith(
+      "3RIKE-INV-1",
+      expect.objectContaining({ flutterwave: expect.anything() })
+    );
+    expect(updateTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) })
+    );
+  });
+
+  it("rejects an invalid v4 signature", async () => {
+    verifyV4Signature.mockReturnValue(false);
+    const app = buildApp();
+    const res = await postFlutterwaveV4(app, {
+      type: "charge.completed",
+      data: { reference: "3RIKE-INV-1" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("fails the invoice when a v4 charge.completed carries a failed status", async () => {
+    findTxn.mockResolvedValue(invoiceTxn as any);
+    invoiceForRef.mockResolvedValue(invoice as any);
+
+    const app = buildApp();
+    const res = await postFlutterwaveV4(app, {
+      type: "charge.completed",
+      data: { id: "chg_1", reference: "3RIKE-INV-1", status: "failed" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(failInvoice).toHaveBeenCalledWith("3RIKE-INV-1", "failed");
+    expect(settleInvoice).not.toHaveBeenCalled();
   });
 });

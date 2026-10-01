@@ -35,10 +35,13 @@ app.use(cors());
 app.use(morgan("combined"));
 app.use(generalLimiter);
 
-// Raw body for AutoRamp webhook signature verification.
+// Raw body for webhook signature verification.
 // MUST be registered before express.json() - the first body parser to run wins,
-// and the HMAC is computed over the exact bytes AutoRamp sent.
+// and the HMAC is computed over the exact bytes the sender sent.
 app.use("/webhook/autoramp", express.raw({ type: "application/json" }));
+// Flutterwave v4 signs the raw payload (HMAC-SHA256); v3 sends a plain
+// secret-hash header. Raw covers both.
+app.use("/webhook/flutterwave", express.raw({ type: "application/json" }));
 
 // Parse JSON
 app.use(express.json({ limit: "10mb" }));

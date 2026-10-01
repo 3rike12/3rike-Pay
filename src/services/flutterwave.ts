@@ -890,6 +890,37 @@ class FlutterwaveService {
       return false;
     }
   }
+
+  /**
+   * Verify a v4 webhook signature. v4 changed the scheme: the
+   * `flutterwave-signature` header is base64(HMAC-SHA256(rawBody, secret))
+   * rather than the secret itself, so this must be fed the exact bytes
+   * Flutterwave sent (which is why /webhook/flutterwave parses raw).
+   */
+  verifyV4WebhookSignature(rawBody: Buffer | string, signature: string): boolean {
+    const expected = config.flutterwave.webhookSecret;
+
+    if (!expected) {
+      logger.warn("FLUTTERWAVE_WEBHOOK_SECRET is not set; webhook verification will fail");
+      return false;
+    }
+    if (!signature) return false;
+
+    try {
+      const computed = crypto
+        .createHmac("sha256", expected)
+        .update(rawBody)
+        .digest("base64");
+
+      const received = Buffer.from(signature, "utf8");
+      const want = Buffer.from(computed, "utf8");
+      if (received.length !== want.length) return false;
+      return crypto.timingSafeEqual(received, want);
+    } catch (error: any) {
+      logger.error("v4 webhook signature verification failed", { error: error.message });
+      return false;
+    }
+  }
 }
 
 export const flutterwave = new FlutterwaveService();

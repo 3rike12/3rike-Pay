@@ -12,6 +12,7 @@ vi.mock("@/config", () => ({
       clientSecret: "csecret_test",
       apiBase: "https://developersandbox-api.flutterwave.com",
       tokenUrl: "https://idp.example/token",
+      webhookSecret: "flw-secret",
     },
   },
 }));
@@ -326,5 +327,38 @@ describe("v4 push charge client", () => {
     await expect(
       flutterwave.createV4Customer({ email: "not-an-email" })
     ).rejects.toThrow("must be an email format");
+  });
+});
+
+describe("webhook signatures", () => {
+  const raw = Buffer.from(
+    JSON.stringify({ type: "charge.completed", data: { reference: "3RIKE-INV-1" } })
+  );
+
+  it("accepts the matching legacy verif-hash", () => {
+    expect(flutterwave.verifyWebhookSignature("flw-secret")).toBe(true);
+  });
+
+  it("rejects a mismatched legacy verif-hash", () => {
+    expect(flutterwave.verifyWebhookSignature("wrong")).toBe(false);
+  });
+
+  it("accepts the base64 HMAC-SHA256 of the raw body (v4)", async () => {
+    const crypto = await import("node:crypto");
+    const signature = crypto.createHmac("sha256", "flw-secret").update(raw).digest("base64");
+
+    expect(flutterwave.verifyV4WebhookSignature(raw, signature)).toBe(true);
+  });
+
+  it("rejects a v4 signature when the body was altered", async () => {
+    const crypto = await import("node:crypto");
+    const signature = crypto.createHmac("sha256", "flw-secret").update(raw).digest("base64");
+    const tampered = Buffer.from(raw.toString("utf8").replace("3RIKE-INV-1", "3RIKE-INV-2"));
+
+    expect(flutterwave.verifyV4WebhookSignature(tampered, signature)).toBe(false);
+  });
+
+  it("rejects a v4 signature when none is sent", () => {
+    expect(flutterwave.verifyV4WebhookSignature(raw, "")).toBe(false);
   });
 });

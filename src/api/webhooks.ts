@@ -214,15 +214,23 @@ router.post("/autoramp", async (req: Request, res: Response) => {
 // Flutterwave Webhook (POST)
 // ============================================
 router.post("/flutterwave", async (req: Request, res: Response) => {
-  const signature = req.headers["verif-hash"] as string;
-  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body));
+  // v3 signs with a plain secret-hash header (`verif-hash`); v4 replaced it
+  // with `flutterwave-signature`, an HMAC over the raw body. Accept either -
+  // which one arrives tells us which API sent the event.
+  const legacySignature = req.headers["verif-hash"] as string | undefined;
+  const v4Signature = req.headers["flutterwave-signature"] as string | undefined;
+  const rawBody = Buffer.isBuffer(req.body)
+    ? req.body
+    : Buffer.from(JSON.stringify(req.body));
 
-  if (!signature) {
-    logger.warn("Flutterwave webhook missing verif-hash");
+  if (!legacySignature && !v4Signature) {
+    logger.warn("Flutterwave webhook missing signature header");
     return res.status(401).json({ error: "Missing signature" });
   }
 
-  const isValid = flutterwave.verifyWebhookSignature(signature);
+  const isValid = legacySignature
+    ? flutterwave.verifyWebhookSignature(legacySignature)
+    : flutterwave.verifyV4WebhookSignature(rawBody, v4Signature as string);
   if (!isValid) {
     logger.warn("Flutterwave webhook invalid signature");
     return res.status(401).json({ error: "Invalid signature" });
@@ -233,7 +241,8 @@ router.post("/flutterwave", async (req: Request, res: Response) => {
 
   try {
     const payload = JSON.parse(rawBody.toString("utf8"));
-    const event = payload.event as string;
+    // v3 calls it `event`, v4 calls it `type` - same switch handles both.
+    const event = (payload.type || payload.event) as string;
     const data = payload.data ?? {};
 
     // Idempotency key: event + tx_ref/reference
@@ -483,11 +492,13 @@ async function handleBankTransfer(event: string, data: any) {
 // ============================================
 
 async function handleFlutterwaveChargeCompleted(data: any) {
-  const txRef = data.tx_ref as string | undefined;
+  // v3 calls the field tx_ref; v4 calls it reference. Both are our
+  // invoice/transaction reference.
+  const txRef = (data.tx_ref ?? data.reference) as string | undefined;
   const status = data.status as string | undefined;
 
   if (!txRef) {
-    logger.warn("Flutterwave charge.completed missing tx_ref", { data: JSON.stringify(data) });
+    logger.warn("Flutterwave charge.completed missing reference", { data: JSON.stringify(data) });
     return;
   }
 
@@ -506,7 +517,9 @@ async function handleFlutterwaveChargeCompleted(data: any) {
     return;
   }
 
-  const isSuccessful = status?.toLowerCase() === "successful";
+  // v3 answers "successful", v4 answers "succeeded".
+  const normalised = status?.toLowerCase();
+  const isSuccessful = normalised === "successful" || normalised === "succeeded";
 
   await prisma.transaction.update({
     where: { id: transaction.id },
@@ -546,7 +559,7 @@ async function handleFlutterwaveChargeCompleted(data: any) {
 }
 
 async function handleFlutterwaveChargeFailed(data: any) {
-  const txRef = data.tx_ref as string | undefined;
+  const txRef = (data.tx_ref ?? data.reference) as string | undefined;
   if (!txRef) return;
 
   const transaction = await prisma.transaction.findFirst({ where: { reference: txRef } });
