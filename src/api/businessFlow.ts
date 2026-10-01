@@ -59,7 +59,16 @@ function parseBusinessInput(
  * simply updates the existing record.
  */
 async function handleBusinessDetails(ctx: FlowContext): Promise<FlowResult> {
-  const user = await prisma.user.findUnique({ where: { id: ctx.userId } });
+  // The phone is display-only, so a failed read must not block the save.
+  let user: { phone: string | null } | null = null;
+  try {
+    user = await prisma.user.findUnique({ where: { id: ctx.userId } });
+  } catch (error: any) {
+    logger.error("Business flow could not read the merchant", {
+      userId: ctx.userId,
+      error: error.message,
+    });
+  }
   const raw = String(user?.phone || "").trim();
   const phone = toRwandaPhone(raw) || raw || undefined;
 
@@ -78,6 +87,11 @@ async function handleBusinessDetails(ctx: FlowContext): Promise<FlowResult> {
       registrationNumber: input.registrationNumber,
     });
   } catch (error: any) {
+    logger.error("Business flow failed to save the profile", {
+      userId: ctx.userId,
+      error: error.message,
+      stack: error.stack,
+    });
     return screen(ctx.screen, { error_message: "Could not save that. Please try again." });
   }
 
