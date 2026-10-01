@@ -14,7 +14,6 @@ import flowRouter from "@/api/flow";
 import transferFlowRouter from "@/api/transferFlow";
 import revalidationFlowRouter from "@/api/revalidationFlow";
 import businessFlowRouter from "@/api/businessFlow";
-import merchantApiRouter from "@/api/merchant";
 import { generalLimiter, transferPinLimiter } from "@/api/middleware/rateLimit";
 
 const app = express();
@@ -66,9 +65,6 @@ app.use("/webhook/flow/transfer", transferPinLimiter, transferFlowRouter);
 app.use("/webhook/flow/revalidation", revalidationFlowRouter);
 app.use("/webhook/flow/business", businessFlowRouter);
 
-// Merchant read API (x-api-key): balance + paged invoices.
-app.use("/api", merchantApiRouter);
-
 // ============================================
 // Serve React frontend (built output)
 // ============================================
@@ -96,7 +92,7 @@ if (hasFrontend) {
     res.json({
       service: config.app.name,
       status: "running",
-      message: "Frontend not built. API is available under /api and /webhook.",
+      message: "Frontend not built. Webhooks are available under /webhook.",
     });
   });
 }
