@@ -123,7 +123,17 @@ router.post("/", async (req: Request, res: Response) => {
     aesKey = decoded.aesKey;
     iv = decoded.iv;
   } catch (error: any) {
-    logger.error("Business flow request decryption failed", { error: error.message });
+    // Distinguish Meta's unencrypted health-check ping (no payload keys at all)
+    // from a real Flow request that failed to decrypt.
+    const body = req.body || {};
+    const bodyKeys = Object.keys(body);
+    logger.error("Business flow request decryption failed", {
+      error: error.message,
+      bodyKeys,
+      encryptedPayload: Boolean(body.encrypted_flow_data),
+      encryptedAesKey: Boolean(body.encrypted_aes_key),
+      userAgent: req.get("user-agent"),
+    });
     return res.status(421).send();
   }
 
@@ -174,7 +184,12 @@ router.post("/", async (req: Request, res: Response) => {
 
     return res.send(encryptFlowResponse(screen(FIRST_SCREEN, { error_message: "" }), aesKey, iv));
   } catch (error: any) {
-    logger.error("Business flow request failed", { action, error: error.message });
+    logger.error("Business flow request failed", {
+      action,
+      screen: currentScreen,
+      error: error.message,
+      stack: error.stack,
+    });
     return res.send(
       encryptFlowResponse(
         screen(FIRST_SCREEN, { error_message: "Something went wrong. Try again." }),
