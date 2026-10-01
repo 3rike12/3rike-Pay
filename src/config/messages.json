@@ -149,7 +149,7 @@
       "PROMPT_PHONE": "What's the customer's Rwanda mobile number?\n\nExample: *0781234567* or *+250781234567*",
       "INVALID_PHONE": "That doesn't look like a Rwanda mobile number.\n\nUse *0781234567* or *+250781234567*.",
       "INVALID_ITEMS": "I couldn't read that as a list of items.\n\nExample:\n*3 batteries and 2 water*",
-      "CONFIRM_HINT": "\n\nReply *yes* to send the payment request, or *cancel* to stop.",
+      "CONFIRM_HINT": "\n\nTap *Yes* to send the payment request, or *No* to stop.",
       "ISSUED": "The customer gets a prompt on their phone to approve the payment. If they don't see one, forward them this link:\n{{url}}",
       "ISSUED_NO_URL": "The customer gets a prompt on their phone to approve the payment.",
       "ERROR": "Could not start the payment: {{reason}}\n\nYour invoice is saved - reply *yes* to try again, or *cancel*."

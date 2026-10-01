@@ -21,6 +21,7 @@ const h = vi.hoisted(() => {
       bankAccount: null as any,
     },
     sendTextMessage: vi.fn(),
+    sendButtonsMessage: vi.fn(),
     createProduct: vi.fn(),
     listProducts: vi.fn(),
     createDraftInvoice: vi.fn(),
@@ -37,7 +38,7 @@ const h = vi.hoisted(() => {
 vi.mock("@/services/whatsapp", () => ({
   whatsapp: {
     sendTextMessage: (...args: any[]) => h.sendTextMessage(...args),
-    sendButtonsMessage: vi.fn().mockResolvedValue(true),
+    sendButtonsMessage: (...args: any[]) => h.sendButtonsMessage(...args),
     sendListMessage: vi.fn().mockResolvedValue(true),
     sendTemplate: vi.fn().mockResolvedValue(true),
     sendFlowMessage: vi.fn().mockResolvedValue(true),
@@ -83,16 +84,23 @@ import { SESSION_STATE, MESSAGES } from "@/config/constants";
 
 const PHONE = "250788000111";
 
-/** Drive one inbound message and return the last plain text we sent. */
+/**
+ * Drive one inbound message and return the last body we sent, whether it
+ * went out as plain text or as an interactive button message.
+ */
 async function say(text: string, buttonId?: string) {
+  const textBefore = h.sendTextMessage.mock.calls.length;
+  const buttonsBefore = h.sendButtonsMessage.mock.calls.length;
   await handleMessage(
     PHONE,
     "Test Merchant",
     text,
     buttonId ? { id: buttonId, title: "" } : undefined
   );
-  const calls = h.sendTextMessage.mock.calls;
-  return calls.length ? String(calls[calls.length - 1][1]) : "";
+  const textCalls = h.sendTextMessage.mock.calls.slice(textBefore);
+  const buttonCalls = h.sendButtonsMessage.mock.calls.slice(buttonsBefore);
+  const last = buttonCalls.length ? buttonCalls : textCalls;
+  return last.length ? String(last[last.length - 1][1]) : "";
 }
 
 function setSession(state: string, flowData: Record<string, unknown> = {}) {
@@ -104,6 +112,7 @@ beforeEach(() => {
 
   h.session = { state: "idle", flowData: {} };
   h.sendTextMessage.mockResolvedValue(true);
+  h.sendButtonsMessage.mockResolvedValue(true);
 
   h.getSession.mockImplementation(async () => h.session);
   h.updateSession.mockImplementation(async (_id: string, state: string, flowData: Record<string, unknown>) => {
@@ -260,6 +269,12 @@ describe("invoice conversation", () => {
     expect(reply).toContain("*Confirm invoice*");
     expect(reply).toContain("Total: RWF 3,000");
     expect(reply).toContain("Buyer: 0781234567");
+    // Confirmation arrives as buttons, not as "type yes".
+    expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([
+      { id: "confirm_invoice", title: "Yes" },
+      { id: "cancel_invoice", title: "No" },
+    ]);
+    expect(reply).toContain("Tap *Yes*");
   });
 
   it("asks for the buyer number when the item message has none", async () => {

@@ -341,9 +341,15 @@ async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft)
     .join("\n");
 
   await updateSession(user.id, SESSION_STATE.INVOICE_CONFIRM, draft);
-  return whatsapp.sendTextMessage(
+  // Same shape as the transfer confirm: a Yes/No reply beats making people
+  // type it. Typed "yes"/"cancel" still works in handleInvoiceConfirm.
+  return whatsapp.sendButtonsMessage(
     phone,
-    `*Confirm invoice*\n\n${lines}\n\n*Total: ${formatCurrency(total)}*\nBuyer: ${draft.buyerPhone}${MESSAGES.BUSINESS.INVOICE.CONFIRM_HINT}`
+    `*Confirm invoice*\n\n${lines}\n\n*Total: ${formatCurrency(total)}*\nBuyer: ${draft.buyerPhone}${MESSAGES.BUSINESS.INVOICE.CONFIRM_HINT}`,
+    [
+      { id: "confirm_invoice", title: "Yes" },
+      { id: "cancel_invoice", title: "No" },
+    ]
   );
 }
 
