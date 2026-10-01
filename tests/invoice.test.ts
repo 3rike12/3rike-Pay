@@ -20,6 +20,7 @@ const isV4Enabled = vi.fn(() => false);
 const chargeV4 = vi.fn();
 const extractV4PaymentUrl = vi.fn(() => null);
 const extractV4PaymentInstruction = vi.fn(() => null);
+const retrieveV4Charge = vi.fn(() => null);
 
 vi.mock("@/services/flutterwave", () => ({
   flutterwave: {
@@ -30,6 +31,7 @@ vi.mock("@/services/flutterwave", () => ({
     chargeRwandaMobileMoneyV4: (...args: any[]) => chargeV4(...args),
     extractV4PaymentUrl: (...args: any[]) => extractV4PaymentUrl(...args),
     extractV4PaymentInstruction: (...args: any[]) => extractV4PaymentInstruction(...args),
+    retrieveV4Charge: (...args: any[]) => retrieveV4Charge(...args),
   },
 }));
 
@@ -108,6 +110,7 @@ const v4Enabled = vi.mocked(isV4Enabled as any);
 const chargePush = vi.mocked(chargeV4 as any);
 const extractPushUrl = vi.mocked(extractV4PaymentUrl as any);
 const extractPushNote = vi.mocked(extractV4PaymentInstruction as any);
+const retrievePushCharge = vi.mocked(retrieveV4Charge as any);
 
 function seedInvoice(overrides: Row = {}) {
   invoiceRow = {
@@ -135,6 +138,7 @@ beforeEach(() => {
   v4Enabled.mockReturnValue(false);
   extractPushUrl.mockReturnValue(null);
   extractPushNote.mockReturnValue(null);
+  retrievePushCharge.mockResolvedValue(null as any);
   seedInvoice();
 });
 
@@ -389,6 +393,68 @@ describe("verifyInvoicePayment", () => {
 
     expect(await verifyInvoicePayment("3RIKE-20260930-ABC123")).toBe("pending");
     expect(invoiceRow.status).toBe("pending_payment");
+  });
+
+  it("reads the v4 charge by id when the push flow recorded one", async () => {
+    seedInvoice({ status: "pending_payment" });
+    transactionRow = {
+      id: "tx_1",
+      reference: "3RIKE-20260930-ABC123",
+      metadata: { chargeId: "chg_1" },
+    };
+    v4Enabled.mockReturnValue(true);
+    retrievePushCharge.mockResolvedValue({ id: "chg_1", status: "succeeded" });
+
+    const result = await verifyInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(result).toBe("settled");
+    expect(retrievePushCharge).toHaveBeenCalledWith("chg_1");
+    expect(verify).not.toHaveBeenCalled();
+    expect(invoiceRow.status).toBe("paid");
+  });
+
+  it("stays pending while the v4 charge is still pending", async () => {
+    seedInvoice({ status: "pending_payment" });
+    transactionRow = {
+      id: "tx_1",
+      reference: "3RIKE-20260930-ABC123",
+      metadata: { chargeId: "chg_1" },
+    };
+    v4Enabled.mockReturnValue(true);
+    retrievePushCharge.mockResolvedValue({ id: "chg_1", status: "PENDING" });
+
+    expect(await verifyInvoicePayment("3RIKE-20260930-ABC123")).toBe("pending");
+    expect(invoiceRow.status).toBe("pending_payment");
+    expect(credit).not.toHaveBeenCalled();
+  });
+
+  it("fails the invoice when the v4 charge fails", async () => {
+    seedInvoice({ status: "pending_payment" });
+    transactionRow = {
+      id: "tx_1",
+      reference: "3RIKE-20260930-ABC123",
+      metadata: { chargeId: "chg_1" },
+    };
+    v4Enabled.mockReturnValue(true);
+    retrievePushCharge.mockResolvedValue({ id: "chg_1", status: "FAILED" });
+
+    expect(await verifyInvoicePayment("3RIKE-20260930-ABC123")).toBe("failed");
+    expect(invoiceRow.status).toBe("failed");
+  });
+
+  it("keeps polling when Flutterwave no longer knows the v4 charge", async () => {
+    seedInvoice({ status: "pending_payment" });
+    transactionRow = {
+      id: "tx_1",
+      reference: "3RIKE-20260930-ABC123",
+      metadata: { chargeId: "chg_1" },
+    };
+    v4Enabled.mockReturnValue(true);
+    retrievePushCharge.mockResolvedValue(null);
+
+    expect(await verifyInvoicePayment("3RIKE-20260930-ABC123")).toBe("pending");
+    expect(invoiceRow.status).toBe("pending_payment");
+    expect(verify).not.toHaveBeenCalled();
   });
 });
 

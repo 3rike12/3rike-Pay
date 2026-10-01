@@ -744,27 +744,47 @@ export async function verifyInvoicePayment(
   }
 
   try {
-    const response: any = await flutterwave.verifyTransactionByTxRef(reference);
-    // Top-level `status: "error"` means Flutterwave has no transaction at all
-    // for this reference (data is null) - usually a charge that never got
-    // created. Keep polling, but make the reason visible instead of sitting
-    // on "pending" in silence.
-    if (
-      String(response?.status || "").toLowerCase() === "error" &&
-      !response?.data
-    ) {
-      logger.warn("Flutterwave has no transaction for this invoice", {
-        reference,
-        message: response?.message ?? "unknown",
-      });
-      return "pending";
+    // The v4 push flow records the charge id (`chg_...`) on the transaction
+    // when it is created; with one in hand the charge itself is the source
+    // of truth. Otherwise fall back to the v3 lookup by reference.
+    const transaction = await prisma.transaction.findUnique({ where: { reference } });
+    const chargeId =
+      typeof (transaction?.metadata as any)?.chargeId === "string"
+        ? ((transaction?.metadata as any).chargeId as string)
+        : null;
+
+    let status: string | null = null;
+
+    if (chargeId && flutterwave.isV4Enabled()) {
+      const charge: any = await flutterwave.retrieveV4Charge(chargeId);
+      if (!charge) {
+        logger.warn("Flutterwave has no v4 charge for this invoice", { reference, chargeId });
+        return "pending";
+      }
+      status = String(charge.status || "").toLowerCase().trim();
+    } else {
+      const response: any = await flutterwave.verifyTransactionByTxRef(reference);
+      // Top-level `status: "error"` means Flutterwave has no transaction at all
+      // for this reference (data is null) - usually a charge that never got
+      // created. Keep polling, but make the reason visible instead of sitting
+      // on "pending" in silence.
+      if (
+        String(response?.status || "").toLowerCase() === "error" &&
+        !response?.data
+      ) {
+        logger.warn("Flutterwave has no transaction for this invoice", {
+          reference,
+          message: response?.message ?? "unknown",
+        });
+        return "pending";
+      }
+      status = String(response?.data?.status || response?.status || "")
+        .toLowerCase()
+        .trim();
     }
 
-    const status = String(response?.data?.status || response?.status || "")
-      .toLowerCase()
-      .trim();
-
-    if (status === "successful") {
+    // v3 says "successful", v4 says "succeeded".
+    if (status === "successful" || status === "succeeded") {
       await settleInvoicePayment(reference, { source: "verify_poll" });
       await prisma.transaction.updateMany({
         where: { reference },
