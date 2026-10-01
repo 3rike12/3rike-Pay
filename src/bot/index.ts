@@ -16,6 +16,7 @@ import {
   createDraftInvoice,
   createProduct,
   expireStaleInvoices,
+  listInvoices,
   listProducts,
   renderInvoiceSummary,
   scheduleInvoiceVerification,
@@ -279,6 +280,100 @@ async function handleListProducts(phone: string, user: any) {
 }
 
 // ============================================
+// Invoice list - paged, so a merchant never gets one huge message
+// ============================================
+
+/** Rows per list message: 9 invoices + an optional "Next page" row = 10. */
+const INVOICES_PAGE_SIZE = 9;
+
+const INVOICE_STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  pending_payment: "Pending",
+  paid: "Paid",
+  expired: "Expired",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+function invoiceStatusLabel(status: string): string {
+  return INVOICE_STATUS_LABELS[status] || status;
+}
+
+/** Compact line for a list row: "2 x waters, 1 x soda". */
+function invoiceItemsLabel(items: unknown): string {
+  const list = Array.isArray(items) ? (items as InvoiceLine[]) : [];
+  const label = list.map((item) => `${item.qty} x ${item.name}`).join(", ");
+  return label.length > 48 ? `${label.slice(0, 47)}…` : label;
+}
+
+async function handleInvoicesList(phone: string, user: any, offset: number) {
+  try {
+    // One extra row: if it comes back we know there is a next page without
+    // having to count the whole table.
+    const page = await listInvoices(user.id, {
+      limit: INVOICES_PAGE_SIZE + 1,
+      offset,
+    });
+
+    const invoices = page.items.slice(0, INVOICES_PAGE_SIZE);
+    const hasMore = page.items.length > INVOICES_PAGE_SIZE;
+
+    if (invoices.length === 0) {
+      return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICES.LIST_EMPTY);
+    }
+
+    const rows = invoices.map((invoice) => ({
+      id: `invoice:${invoice.id}`,
+      title: `${formatCurrency(invoice.amount, invoice.currency)} · ${invoiceStatusLabel(
+        invoice.status
+      )}`.slice(0, 24),
+      description: [invoiceItemsLabel(invoice.items), invoice.buyerPhone]
+        .filter(Boolean)
+        .join(" · "),
+    }));
+
+    if (hasMore) {
+      rows.push({
+        id: `invoices:${offset + INVOICES_PAGE_SIZE}`,
+        title: MESSAGES.BUSINESS.INVOICES.NEXT_PAGE_TITLE,
+        description: MESSAGES.BUSINESS.INVOICES.NEXT_PAGE_DESC,
+      });
+    }
+
+    const body =
+      `${MESSAGES.BUSINESS.INVOICES.LIST_HEADER}\n` +
+      `Showing ${offset + 1}-${offset + invoices.length} of ${page.total}\n\n` +
+      `Tap a row to see the full invoice.`;
+
+    return whatsapp.sendListMessage(
+      phone,
+      body,
+      MESSAGES.BUSINESS.INVOICES.LIST_BUTTON,
+      [{ title: MESSAGES.BUSINESS.INVOICES.LIST_SECTION, rows }]
+    );
+  } catch (error: any) {
+    logger.error("Failed to list invoices", { userId: user.id, error: error.message });
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICES.ERROR);
+  }
+}
+
+async function handleInvoiceDetail(phone: string, user: any, invoiceId: string) {
+  try {
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: invoiceId, merchantId: user.id },
+    });
+    if (!invoice) {
+      return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICES.NOT_FOUND);
+    }
+    return whatsapp.sendTextMessage(phone, renderInvoiceSummary(invoice));
+  } catch (error: any) {
+    logger.error("Failed to load invoice detail", { userId: user.id, error: error.message });
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICES.ERROR);
+  }
+}
+
+// ============================================
 // Invoice / payment request
 // ============================================
 
@@ -483,6 +578,9 @@ const SLASH_COMMANDS: Record<string, SlashHandler> = {
   catalogue: (phone, user) => handleListProducts(phone, user),
   invoice: (phone, user, args) => handleInvoiceCommand(phone, user, args || ""),
   newinvoice: (phone, user, args) => handleInvoiceCommand(phone, user, args || ""),
+  invoices: (phone, user) => handleInvoicesList(phone, user, 0),
+  listinvoices: (phone, user) => handleInvoicesList(phone, user, 0),
+  myinvoices: (phone, user) => handleInvoicesList(phone, user, 0),
   business: (phone, user) => handleBusinessCommand(phone, user),
   businessprofile: (phone, user) => handleBusinessCommand(phone, user),
   mybusiness: (phone, user) => handleBusinessCommand(phone, user),
@@ -764,6 +862,19 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
 
   if (action === "btn_kyc" || action === "kyc") {
     return startKyc(phone, user);
+  }
+
+  // Invoice list: menu row / /invoices -> page one, "invoices:<offset>" ->
+  // a later page, "invoice:<id>" -> one invoice's detail.
+  if (action === "invoices") {
+    return handleInvoicesList(phone, user, 0);
+  }
+  if (action?.startsWith("invoices:")) {
+    const offset = parseInt(action.slice("invoices:".length), 10);
+    return handleInvoicesList(phone, user, Number.isInteger(offset) && offset > 0 ? offset : 0);
+  }
+  if (action?.startsWith("invoice:")) {
+    return handleInvoiceDetail(phone, user, action.slice("invoice:".length));
   }
 
   // Main-menu Business rows.
