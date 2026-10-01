@@ -7,6 +7,7 @@ import { withIdempotencyKey } from "@/utils/idempotency";
 import {
   formatCurrency,
   generateTransactionReference,
+  redactPhone,
   toRwandaPhone,
 } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
@@ -417,12 +418,24 @@ export async function settleInvoicePayment(
           invoice.merchant.phone,
           renderPaidInvoiceMessage(invoice)
         );
+        logger.info("Paid-invoice notification sent", {
+          reference,
+          phone: redactPhone(invoice.merchant.phone),
+        });
       } catch (error: any) {
         logger.warn("Paid-invoice notification failed", {
           reference,
           error: error?.message,
         });
       }
+    } else {
+      // Never fail the settlement over a missing number, but make the skip
+      // visible - otherwise a paid invoice with no merchant message is
+      // indistinguishable from a send failure.
+      logger.warn("Paid-invoice notification skipped: merchant has no phone", {
+        reference,
+        merchantId: invoice.merchantId,
+      });
     }
 
     logger.info("Invoice settled", {

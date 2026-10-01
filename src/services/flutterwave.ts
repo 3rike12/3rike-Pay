@@ -368,7 +368,13 @@ class FlutterwaveService {
 
     try {
       const response = await client.Transaction.verify_by_tx({ tx_ref: txRef });
-      logger.info("Transaction verified by tx_ref", { txRef });
+      // Log the verdict, not just the call: "verified but never settled" and
+      // "settled but never notified" are two different bugs.
+      const body = response as any;
+      logger.info("Transaction verified by tx_ref", {
+        txRef,
+        status: body?.data?.status ?? body?.status ?? "unknown",
+      });
       return response;
     } catch (error: any) {
       logger.error("Failed to verify Flutterwave transaction by tx_ref", {
