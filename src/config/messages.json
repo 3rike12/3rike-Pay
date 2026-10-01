@@ -152,6 +152,7 @@
       "CONFIRM_HINT": "\n\nTap *Yes* to send the payment request, or *No* to stop.",
       "ISSUED": "The customer gets a prompt on their phone to approve the payment. If they don't see one, forward them this link:\n{{url}}",
       "ISSUED_NO_URL": "The customer gets a prompt on their phone to approve the payment.",
+      "QR_CAPTION": "*Scan to pay*\n\n{{summary}}\n\n{{url}}",
       "ERROR": "Could not start the payment: {{reason}}\n\nYour invoice is saved - reply *yes* to try again, or *cancel*."
     },
     "PROFILE": {

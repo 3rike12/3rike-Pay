@@ -39,6 +39,8 @@ vi.mock("@/services/whatsapp", () => ({
   whatsapp: {
     sendTextMessage: (...args: any[]) => h.sendTextMessage(...args),
     sendButtonsMessage: (...args: any[]) => h.sendButtonsMessage(...args),
+    uploadMedia: vi.fn().mockResolvedValue("media-1"),
+    sendImageMessage: vi.fn().mockResolvedValue(true),
     sendListMessage: vi.fn().mockResolvedValue(true),
     sendTemplate: vi.fn().mockResolvedValue(true),
     sendFlowMessage: vi.fn().mockResolvedValue(true),
@@ -80,6 +82,7 @@ vi.mock("@/services/invoice", () => ({
 }));
 
 import { handleMessage } from "@/bot";
+import { whatsapp } from "@/services/whatsapp";
 import { SESSION_STATE, MESSAGES } from "@/config/constants";
 
 const PHONE = "250788000111";
@@ -351,6 +354,28 @@ describe("invoice conversation", () => {
     expect(reply).toContain("Payment request issued");
     expect(reply).toContain("https://checkout.flutterwave.com/v3/hosted/pay/abc");
     expect(h.resetSession).toHaveBeenCalled();
+    expect(h.session.state).toBe("idle");
+    // The link also goes out as a scannable QR image.
+    expect(whatsapp.uploadMedia).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(whatsapp.uploadMedia).mock.calls[0][1]).toBe("image/png");
+    expect(whatsapp.sendImageMessage).toHaveBeenCalledWith(
+      PHONE,
+      "media-1",
+      expect.stringContaining("Scan to pay")
+    );
+  });
+
+  it("still issues the invoice when the QR cannot be sent", async () => {
+    setSession(SESSION_STATE.INVOICE_CONFIRM, {
+      items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+      buyerPhone: "0781234567",
+    });
+    vi.mocked(whatsapp.uploadMedia).mockRejectedValueOnce(new Error("upload failed"));
+
+    const reply = await say("yes");
+
+    expect(reply).toContain("Payment request issued");
+    expect(whatsapp.sendImageMessage).not.toHaveBeenCalled();
     expect(h.session.state).toBe("idle");
   });
 

@@ -100,6 +100,51 @@ class WhatsAppService {
     }
   }
 
+  /**
+   * Uploads a buffer to WhatsApp and returns its media id. The Cloud API only
+   * accepts media by id or by a public URL, so generated images (the payment
+   * QR) go through here rather than being linked from somewhere else.
+   */
+  async uploadMedia(buffer: Buffer, mimeType: string, filename: string): Promise<string> {
+    // The client posts JSON by default, which would serialise FormData into a
+    // JSON object - the content type has to be overridden per request.
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("type", mimeType);
+    form.append("file", new Blob([buffer], { type: mimeType }), filename);
+
+    const { data } = await this.client.post("/media", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 30000,
+    });
+
+    if (!data?.id) {
+      throw new Error(`Media upload returned no id: ${JSON.stringify(data)}`);
+    }
+    return String(data.id);
+  }
+
+  async sendImageMessage(to: string, mediaId: string, caption?: string): Promise<boolean> {
+    try {
+      const payload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "image",
+        image: caption ? { id: mediaId, caption } : { id: mediaId },
+      };
+      const { data } = await this.client.post("/messages", payload);
+      logger.info(`Image sent to ${to}`, { messageId: data.messages?.[0]?.id });
+      return true;
+    } catch (error: any) {
+      logger.error("Failed to send image", {
+        to,
+        error: error.response?.data || error.message,
+      });
+      return false;
+    }
+  }
+
   async sendListMessage(
     to: string,
     bodyText: string,

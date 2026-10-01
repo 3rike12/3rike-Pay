@@ -337,6 +337,8 @@ export const MESSAGES = {
       CONFIRM_HINT: messagesJson.BUSINESS.INVOICE.CONFIRM_HINT,
       ISSUED: (url: string) => render(messagesJson.BUSINESS.INVOICE.ISSUED, { url }),
       ISSUED_NO_URL: messagesJson.BUSINESS.INVOICE.ISSUED_NO_URL,
+      QR_CAPTION: (summary: string, url: string) =>
+        render(messagesJson.BUSINESS.INVOICE.QR_CAPTION, { summary, url }),
       ERROR: (reason: string) => render(messagesJson.BUSINESS.INVOICE.ERROR, { reason }),
     },
     PROFILE: {

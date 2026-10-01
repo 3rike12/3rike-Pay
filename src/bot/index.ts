@@ -21,6 +21,7 @@ import {
   scheduleInvoiceVerification,
 } from "@/services/invoice";
 import { createLogger } from "@/utils/logger";
+import { paymentQrPng } from "@/utils/qr";
 import { config } from "@/config";
 import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
 
@@ -376,6 +377,29 @@ async function handleInvoiceCommand(phone: string, user: any, args: string) {
 }
 
 /**
+ * Send the payment link as a scannable QR image. Never throws - a merchant
+ * showing their phone screen needs the QR, but the plain link above is the
+ * fallback if this fails for any reason.
+ */
+async function sendPaymentQr(phone: string, url: string, summary: string) {
+  try {
+    const png = await paymentQrPng(url);
+    const mediaId = await whatsapp.uploadMedia(png, "image/png", "payment-qr.png");
+    await whatsapp.sendImageMessage(
+      phone,
+      mediaId,
+      MESSAGES.BUSINESS.INVOICE.QR_CAPTION(summary, url)
+    );
+  } catch (error: any) {
+    logger.error("Failed to send payment QR", {
+      phone: redactPhone(phone),
+      error: error.message,
+      stack: error.stack,
+    });
+  }
+}
+
+/**
  * Fire the charge for a confirmed draft. The draft invoice is created before
  * the charge (and reused on retry) so a failed charge never leaves a
  * half-built second invoice behind.
@@ -408,7 +432,18 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
       ? MESSAGES.BUSINESS.INVOICE.ISSUED(result.paymentUrl)
       : MESSAGES.BUSINESS.INVOICE.ISSUED_NO_URL;
 
-    return whatsapp.sendTextMessage(phone, `*Payment request issued*\n\n${summary}\n\n${tail}`);
+    const sent = await whatsapp.sendTextMessage(
+      phone,
+      `*Payment request issued*\n\n${summary}\n\n${tail}`
+    );
+
+    // Best-effort: the message above already carries the link, so a QR that
+    // fails to render or upload must not undo an issued invoice.
+    if (result.paymentUrl) {
+      await sendPaymentQr(phone, result.paymentUrl, summary);
+    }
+
+    return sent;
   } catch (error: any) {
     logger.error("Failed to issue invoice", {
       userId: user.id,
