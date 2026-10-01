@@ -397,8 +397,11 @@ const RWANDA_PHONE_RE = /(?:\+?\s?250\s?|0)?7[23789]\d{7}\b/;
 const INVOICE_INTENT_RE =
   /\b(invoice|charge|bill|request\s+(?:a\s+)?payment|payment\s+request|request)\b/i;
 
+// The optional leading keyword is stripped along with one optional filler
+// word, but that filler must be a whole word on its own — otherwise
+// "payment request: airtime ..." loses the leading "a" of "airtime".
 const LEADING_INVOICE_INTENT_RE =
-  /^(?:please\s+)?(?:invoice|charge|bill|request\s+(?:a\s+)?payment|payment\s+request|request|payment)\s*[:\-–]?\s*(?:for|of|to|on|a|an|the)?\s*[:\-–]?\s*/i;
+  /^(?:please\s+)?(?:invoice|charge|bill|request\s+(?:a\s+)?payment|payment\s+request|request|payment)\s*[:\-–]?\s*(?:(?:for|of|to|on|a|an|the)(?=\s)|)\s*[:\-–]?\s*/i;
 
 const CHUNK_SPLIT_RE = /\s+(?:and|&)\s+|\s*,\s*|\s*\+\s*/i;
 

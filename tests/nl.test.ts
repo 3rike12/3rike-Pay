@@ -146,6 +146,17 @@ describe("parseInvoiceRequest", () => {
     ]);
   });
 
+  it("does not eat the first letter of an item after stripping the keyword", () => {
+    const result = parseInvoiceRequest(
+      "payment request: airtime 500, data bundle 2000 to 250781234567"
+    );
+    expect(result?.buyerPhone).toBe("0781234567");
+    expect(result?.items).toEqual([
+      { name: "airtime", qty: 1, unitPrice: 500 },
+      { name: "data bundle", qty: 1, unitPrice: 2000 },
+    ]);
+  });
+
   it("returns null without intent or items", () => {
     expect(parseInvoiceRequest("hello there")).toBeNull();
     expect(parseInvoiceRequest("invoice")).toBeNull();
