@@ -696,15 +696,42 @@ export async function verifyInvoicePayment(
  * Fire-and-forget verification attempts after a charge. There is no cron in
  * this repo, so this is an in-process timer chain; `unref` keeps it from
  * holding the process open.
+ *
+ * The chain follows the payment page: Rwanda charges only settle once the
+ * buyer opens the redirect URL and the provider authorizes it (test mode
+ * auto-authorizes a few seconds after the page is opened, and a real buyer
+ * may take minutes). It stops as soon as the invoice leaves "pending" so a
+ * settled or expired invoice is not polled for the rest of the schedule.
  */
+const POLL_DELAYS_MS = [
+  15_000, // immediate safety net for the webhook
+  45_000,
+  90_000,
+  180_000,
+  300_000,
+  600_000,
+  1_200_000, // last check before the 30-minute invoice expiry
+];
+
 export function scheduleInvoiceVerification(
   reference: string,
-  delaysMs: number[] = [15_000, 45_000, 90_000]
+  delaysMs: number[] = POLL_DELAYS_MS
 ): void {
-  for (const delay of delaysMs) {
+  const run = (index: number) => {
+    if (index >= delaysMs.length) return;
     const timer = setTimeout(() => {
-      verifyInvoicePayment(reference).catch(() => {});
-    }, delay);
+      verifyInvoicePayment(reference)
+        .then((result) => {
+          if (result === "settled" || result === "failed" || result === "unknown") {
+            return;
+          }
+          run(index + 1);
+        })
+        .catch(() => {
+          run(index + 1);
+        });
+    }, delaysMs[index]);
     timer.unref?.();
-  }
+  };
+  run(0);
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/config", () => ({
   config: {
@@ -87,7 +87,7 @@ vi.mock("@/db/prisma", () => ({
   },
 }));
 
-import { chargeInvoice, settleInvoicePayment, verifyInvoicePayment, renderPaidInvoiceMessage } from "@/services/invoice";
+import { chargeInvoice, scheduleInvoiceVerification, settleInvoicePayment, verifyInvoicePayment, renderPaidInvoiceMessage } from "@/services/invoice";
 import { flutterwave } from "@/services/flutterwave";
 import { prisma } from "@/db/prisma";
 
@@ -288,6 +288,36 @@ describe("verifyInvoicePayment", () => {
 
     expect(await verifyInvoicePayment("3RIKE-20260930-ABC123")).toBe("pending");
     expect(invoiceRow.status).toBe("pending_payment");
+  });
+});
+
+describe("scheduleInvoiceVerification", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("stops polling as soon as the invoice settles", async () => {
+    vi.useFakeTimers();
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({ data: { status: "successful" } });
+
+    scheduleInvoiceVerification("3RIKE-20260930-ABC123", [10, 20, 30]);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(invoiceRow?.status).toBe("paid");
+  });
+
+  it("keeps polling while the buyer has not completed the payment", async () => {
+    vi.useFakeTimers();
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({ data: { status: "pending" } });
+
+    scheduleInvoiceVerification("3RIKE-20260930-ABC123", [10, 20, 30]);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(verify).toHaveBeenCalledTimes(3);
+    expect(invoiceRow?.status).toBe("pending_payment");
   });
 });
 
