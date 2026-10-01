@@ -94,16 +94,19 @@ const PHONE = "250788000111";
 async function say(text: string, buttonId?: string) {
   const textBefore = h.sendTextMessage.mock.calls.length;
   const buttonsBefore = h.sendButtonsMessage.mock.calls.length;
+  const imagesBefore = vi.mocked(whatsapp.sendImageMessage).mock.calls.length;
   await handleMessage(
     PHONE,
     "Test Merchant",
     text,
     buttonId ? { id: buttonId, title: "" } : undefined
   );
-  const textCalls = h.sendTextMessage.mock.calls.slice(textBefore);
+  const imageCalls = vi.mocked(whatsapp.sendImageMessage).mock.calls.slice(imagesBefore);
+  if (imageCalls.length) return String(imageCalls[imageCalls.length - 1][2] ?? "");
   const buttonCalls = h.sendButtonsMessage.mock.calls.slice(buttonsBefore);
-  const last = buttonCalls.length ? buttonCalls : textCalls;
-  return last.length ? String(last[last.length - 1][1]) : "";
+  if (buttonCalls.length) return String(buttonCalls[buttonCalls.length - 1][1]);
+  const textCalls = h.sendTextMessage.mock.calls.slice(textBefore);
+  return textCalls.length ? String(textCalls[textCalls.length - 1][1]) : "";
 }
 
 function setSession(state: string, flowData: Record<string, unknown> = {}) {
@@ -355,17 +358,18 @@ describe("invoice conversation", () => {
     expect(reply).toContain("https://checkout.flutterwave.com/v3/hosted/pay/abc");
     expect(h.resetSession).toHaveBeenCalled();
     expect(h.session.state).toBe("idle");
-    // The link also goes out as a scannable QR image.
+    // One message: the QR image, carrying the full body as its caption.
+    expect(h.sendTextMessage).not.toHaveBeenCalled();
     expect(whatsapp.uploadMedia).toHaveBeenCalledTimes(1);
     expect(vi.mocked(whatsapp.uploadMedia).mock.calls[0][1]).toBe("image/png");
     expect(whatsapp.sendImageMessage).toHaveBeenCalledWith(
       PHONE,
       "media-1",
-      expect.stringContaining("Scan to pay")
+      expect.stringContaining("Payment request issued")
     );
   });
 
-  it("still issues the invoice when the QR cannot be sent", async () => {
+  it("falls back to a plain-text message when the QR cannot be sent", async () => {
     setSession(SESSION_STATE.INVOICE_CONFIRM, {
       items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
       buyerPhone: "0781234567",
@@ -376,6 +380,7 @@ describe("invoice conversation", () => {
 
     expect(reply).toContain("Payment request issued");
     expect(whatsapp.sendImageMessage).not.toHaveBeenCalled();
+    expect(h.sendTextMessage).toHaveBeenCalledTimes(1);
     expect(h.session.state).toBe("idle");
   });
 

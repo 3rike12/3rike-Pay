@@ -377,25 +377,23 @@ async function handleInvoiceCommand(phone: string, user: any, args: string) {
 }
 
 /**
- * Send the payment link as a scannable QR image. Never throws - a merchant
- * showing their phone screen needs the QR, but the plain link above is the
- * fallback if this fails for any reason.
+ * Send the issued-invoice message as a QR image, captioned with the same
+ * body the plain-text message would carry so the merchant only ever has one
+ * thing to forward. Returns false when it could not be sent, and never
+ * throws - the caller falls back to plain text.
  */
-async function sendPaymentQr(phone: string, url: string, summary: string) {
+async function sendPaymentQr(phone: string, url: string, caption: string): Promise<boolean> {
   try {
     const png = await paymentQrPng(url);
     const mediaId = await whatsapp.uploadMedia(png, "image/png", "payment-qr.png");
-    await whatsapp.sendImageMessage(
-      phone,
-      mediaId,
-      MESSAGES.BUSINESS.INVOICE.QR_CAPTION(summary, url)
-    );
+    return await whatsapp.sendImageMessage(phone, mediaId, caption);
   } catch (error: any) {
     logger.error("Failed to send payment QR", {
       phone: redactPhone(phone),
       error: error.message,
       stack: error.stack,
     });
+    return false;
   }
 }
 
@@ -431,19 +429,17 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
     const tail = result.paymentUrl
       ? MESSAGES.BUSINESS.INVOICE.ISSUED(result.paymentUrl)
       : MESSAGES.BUSINESS.INVOICE.ISSUED_NO_URL;
+    const body = `*Payment request issued*\n\n${summary}\n\n${tail}`;
 
-    const sent = await whatsapp.sendTextMessage(
-      phone,
-      `*Payment request issued*\n\n${summary}\n\n${tail}`
-    );
+    // One message, not two: the QR image carries the full body as its
+    // caption. Plain text only when there is no link to encode or the QR
+    // could not be uploaded.
+    const qrSent = result.paymentUrl
+      ? await sendPaymentQr(phone, result.paymentUrl, body)
+      : false;
+    if (qrSent) return true;
 
-    // Best-effort: the message above already carries the link, so a QR that
-    // fails to render or upload must not undo an issued invoice.
-    if (result.paymentUrl) {
-      await sendPaymentQr(phone, result.paymentUrl, summary);
-    }
-
-    return sent;
+    return whatsapp.sendTextMessage(phone, body);
   } catch (error: any) {
     logger.error("Failed to issue invoice", {
       userId: user.id,
