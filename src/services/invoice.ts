@@ -196,12 +196,40 @@ export async function getInvoiceByReference(reference: string) {
   return prisma.invoice.findUnique({ where: { reference } });
 }
 
-export async function listInvoices(merchantId: string, status?: InvoiceStatus) {
-  return prisma.invoice.findMany({
-    where: status ? { merchantId, status } : { merchantId },
-    orderBy: { createdAt: "desc" },
-    take: 25,
-  });
+export interface InvoicePage {
+  items: Awaited<ReturnType<typeof prisma.invoice.findMany>>;
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Paged invoice list, newest first. Never returns the whole history in one
+ * call - the hard cap on `limit` is what keeps a single request from pulling
+ * every invoice a merchant has ever raised.
+ */
+export async function listInvoices(
+  merchantId: string,
+  options: { status?: InvoiceStatus; limit?: number; offset?: number } = {}
+): Promise<InvoicePage> {
+  const limit = Math.min(Math.max(options.limit ?? 25, 1), 100);
+  const offset = Math.max(options.offset ?? 0, 0);
+  const where = {
+    merchantId,
+    ...(options.status ? { status: options.status } : {}),
+  };
+
+  const [items, total] = await Promise.all([
+    prisma.invoice.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.invoice.count({ where }),
+  ]);
+
+  return { items, total, limit, offset };
 }
 
 /**

@@ -1,49 +1,14 @@
 import { Router, Request, Response } from "express";
-import crypto from "crypto";
-import { config } from "@/config";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("notify");
 import { notifyUser, notifyBulk, notifyPayment, notifyKyc, notifyWelcomeCreateWallet } from "@/services/notifications";
 import { prisma } from "@/db/prisma";
+import { requireApiKey } from "@/api/middleware/auth";
 
 const router = Router();
 
-// ============================================
-// Auth middleware - validate API key
-// ============================================
-
-function authenticateWebhook(req: Request, res: Response, next: Function) {
-  const apiKey = req.headers["x-api-key"] as string;
-
-  if (!apiKey) {
-    return res.status(401).json({ error: "Missing x-api-key header" });
-  }
-
-  // Compare with stored webhook secret (constant-time comparison)
-  const expected = config.webhook.secret;
-  if (!expected) {
-    logger.warn("No webhook secret configured");
-    return res.status(500).json({ error: "Webhook not configured" });
-  }
-
-  const received = Buffer.from(apiKey, "utf8");
-  const secret = Buffer.from(expected, "utf8");
-
-  // timingSafeEqual throws on length mismatch, which would surface as a 500
-  // on this publicly-reachable route - a wrong length is just a wrong key.
-  const isValid =
-    received.length === secret.length && crypto.timingSafeEqual(received, secret);
-
-  if (!isValid) {
-    logger.warn("Invalid webhook API key", { ip: req.ip });
-    return res.status(403).json({ error: "Invalid API key" });
-  }
-
-  next();
-}
-
-router.use(authenticateWebhook);
+router.use(requireApiKey);
 
 // ============================================
 // POST /webhook/notify - Send single notification

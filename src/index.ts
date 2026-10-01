@@ -14,6 +14,7 @@ import flowRouter from "@/api/flow";
 import transferFlowRouter from "@/api/transferFlow";
 import revalidationFlowRouter from "@/api/revalidationFlow";
 import businessFlowRouter from "@/api/businessFlow";
+import merchantApiRouter from "@/api/merchant";
 import { generalLimiter, transferPinLimiter } from "@/api/middleware/rateLimit";
 
 const app = express();
@@ -64,6 +65,9 @@ app.use("/webhook/flow/kyc", flowRouter);
 app.use("/webhook/flow/transfer", transferPinLimiter, transferFlowRouter);
 app.use("/webhook/flow/revalidation", revalidationFlowRouter);
 app.use("/webhook/flow/business", businessFlowRouter);
+
+// Merchant read API (x-api-key): balance + paged invoices.
+app.use("/api", merchantApiRouter);
 
 // ============================================
 // Serve React frontend (built output)
