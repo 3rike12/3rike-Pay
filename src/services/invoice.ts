@@ -686,19 +686,27 @@ export function renderPaidInvoiceMessage(invoice: {
 }
 
 /**
- * Buyer-facing "you owe / tap to pay" message. The buyer has to open the
- * redirect URL before Flutterwave talks to their provider, so this link is
- * the thing that actually starts the payment.
+ * Buyer-facing "you owe / pay now" message.
+ *
+ * Three shapes, in priority order:
+ *  - link: the buyer taps a hosted page (v3, or a v4 redirect charge);
+ *  - push note: the payment prompt is already on their handset (v4 push);
+ *  - neither: nothing went out yet - say so rather than invent a link.
  */
 export function renderBuyerRequestMessage(
   invoice: { items: unknown; amount: number; currency: string },
-  paymentUrl?: string | null
+  paymentUrl?: string | null,
+  paymentNote?: string | null
 ): string {
   const items = invoiceItemLines(invoice);
   const total = formatCurrency(invoice.amount, invoice.currency);
-  return paymentUrl
-    ? MESSAGES.BUSINESS.INVOICE.BUYER_REQUEST(items, total, paymentUrl)
-    : MESSAGES.BUSINESS.INVOICE.BUYER_REQUEST_NO_URL(items, total);
+  if (paymentUrl) {
+    return MESSAGES.BUSINESS.INVOICE.BUYER_REQUEST(items, total, paymentUrl);
+  }
+  if (paymentNote) {
+    return MESSAGES.BUSINESS.INVOICE.BUYER_REQUEST_PUSH(items, total, `\n\n${paymentNote}`);
+  }
+  return MESSAGES.BUSINESS.INVOICE.BUYER_REQUEST_NO_URL(items, total);
 }
 
 /**

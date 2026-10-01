@@ -494,16 +494,19 @@ async function sendPaymentQr(phone: string, url: string, caption: string): Promi
 }
 
 /**
- * Send the payment request to the BUYER. Flutterwave only returns a redirect
- * URL - nothing reaches the buyer's handset until they open that page - so
- * this message is what actually starts the payment.
+ * Send the payment request to the BUYER.
+ *
+ * Two ways the charge reaches them: a link they open (v3, or a v4 redirect
+ * charge), or - on the v4 push flow - a payment prompt Flutterwave lands on
+ * their handset directly, which this message simply points at.
  *
  * Best effort: a buyer who is not on WhatsApp must never block the merchant's
  * invoice, so every failure is logged and swallowed.
  */
 async function sendBuyerPaymentRequest(
   invoice: { id?: string; buyerPhone?: string | null } | null | undefined,
-  paymentUrl: string | null | undefined
+  paymentUrl: string | null | undefined,
+  paymentNote?: string | null
 ): Promise<boolean> {
   const buyerPhone = invoice?.buyerPhone;
   if (!buyerPhone) {
@@ -512,22 +515,25 @@ async function sendBuyerPaymentRequest(
     });
     return false;
   }
-  if (!paymentUrl) {
-    logger.warn("Buyer payment request skipped: no payment link", {
+  if (!paymentUrl && !paymentNote) {
+    logger.warn("Buyer payment request skipped: no payment link or prompt", {
       invoiceId: invoice.id,
       phone: redactPhone(buyerPhone),
     });
     return false;
   }
 
-  const body = renderBuyerRequestMessage(invoice as any, paymentUrl);
+  const body = renderBuyerRequestMessage(invoice as any, paymentUrl, paymentNote);
   try {
-    const qrSent = await sendPaymentQr(buyerPhone, paymentUrl, body);
+    // The QR carries the link; a push has nothing to encode, so it goes
+    // out as plain text pointing at the prompt on the buyer's handset.
+    const qrSent = paymentUrl ? await sendPaymentQr(buyerPhone, paymentUrl, body) : false;
     if (!qrSent) await whatsapp.sendTextMessage(buyerPhone, body);
     logger.info("Buyer payment request sent", {
       invoiceId: invoice.id,
       phone: redactPhone(buyerPhone),
       viaQr: qrSent,
+      viaPush: !paymentUrl,
     });
     return true;
   } catch (error: any) {
@@ -568,14 +574,17 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
 
     await resetSession(user.id);
 
-    // The buyer has to open the payment page before anything can settle, so
-    // they get the link before the merchant gets their summary.
-    await sendBuyerPaymentRequest(result.invoice as any, result.paymentUrl);
+    // The buyer has to act before anything can settle - open the link, or
+    // approve the prompt the push flow just landed on their handset - so
+    // they are messaged before the merchant gets their summary.
+    await sendBuyerPaymentRequest(result.invoice as any, result.paymentUrl, result.paymentNote);
 
     const summary = renderInvoiceSummary(result.invoice as any);
     const tail = result.paymentUrl
       ? MESSAGES.BUSINESS.INVOICE.ISSUED(result.paymentUrl)
-      : MESSAGES.BUSINESS.INVOICE.ISSUED_NO_URL;
+      : result.paymentNote
+        ? MESSAGES.BUSINESS.INVOICE.ISSUED_PUSH
+        : MESSAGES.BUSINESS.INVOICE.ISSUED_NO_URL;
     const body = `*Payment request issued*\n\n${summary}\n\n${tail}`;
 
     // One message, not two: the QR image carries the full body as its

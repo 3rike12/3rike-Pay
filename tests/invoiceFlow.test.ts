@@ -408,6 +408,52 @@ describe("invoice conversation", () => {
     expect(h.session.state).toBe("idle");
   });
 
+  it("tells the buyer to check their phone when the charge was pushed", async () => {
+    setSession(SESSION_STATE.INVOICE_CONFIRM, {
+      items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+      buyerPhone: "0781234567",
+    });
+    // v4 push: no link anywhere, just the prompt on the buyer's handset.
+    h.chargeInvoice.mockResolvedValue({
+      invoice: {
+        reference: "3RIKE-TEST-1",
+        amount: 3000,
+        currency: "RWF",
+        status: "pending_payment",
+        buyerPhone: "0781234567",
+        items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+        expiresAt: new Date("2026-09-30T15:00:00Z"),
+        paymentUrl: null,
+      },
+      txRef: "3RIKE-TEST-1",
+      paymentUrl: null,
+      paymentNote: "Approve this payment on your phone.",
+      chargeId: "chg_1",
+    });
+    h.renderBuyerRequestMessage.mockImplementation(
+      (_inv: any, url: string | null, note?: string | null) =>
+        `*Payment request*\n\n- 3 x batteries: RWF 3,000\n\n*Total: RWF 3,000*\n\n${
+          url ? url : `prompt: ${note}`
+        }`
+    );
+
+    const reply = await say("yes");
+
+    // Nothing to encode, so no QR goes out at all - plain text both ways.
+    expect(whatsapp.uploadMedia).not.toHaveBeenCalled();
+    expect(whatsapp.sendImageMessage).not.toHaveBeenCalled();
+    expect(h.sendTextMessage).toHaveBeenCalledWith(
+      "0781234567",
+      expect.stringContaining("Approve this payment on your phone.")
+    );
+    // The merchant hears about the prompt instead of being handed a link.
+    expect(reply).toContain("Payment request issued");
+    expect(reply).toContain("payment prompt");
+    expect(reply).not.toContain("https://");
+    expect(h.scheduleInvoiceVerification).toHaveBeenCalledWith("3RIKE-TEST-1");
+    expect(h.resetSession).toHaveBeenCalled();
+  });
+
   it("does not charge without confirmation", async () => {
     setSession(SESSION_STATE.INVOICE_CONFIRM, {
       items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],

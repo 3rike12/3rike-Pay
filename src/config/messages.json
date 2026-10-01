@@ -153,7 +153,9 @@
       "CONFIRM_HINT": "\n\nTap *Yes* to send the payment request, or *No* to stop.",
       "ISSUED": "I've sent the payment request to the customer. If they don't see it, forward them this link:\n{{url}}",
       "ISSUED_NO_URL": "The provider returned no payment link, so the customer has not been sent anything.",
+      "ISSUED_PUSH": "I've sent the payment request to the customer. Their phone is showing a payment prompt to approve - no link to forward.",
       "BUYER_REQUEST": "*Payment request*\n\n{{items}}\n*Total: {{total}}*\n\nTap the link below to approve the payment:\n{{url}}",
+      "BUYER_REQUEST_PUSH": "*Payment request*\n\n{{items}}\n*Total: {{total}}*\n\nA payment prompt has just reached your phone - open it and approve the payment to finish.{{note}}",
       "BUYER_REQUEST_NO_URL": "*Payment request*\n\n{{items}}\n*Total: {{total}}*\n\nYour payment link is not ready yet - the merchant will share it shortly.",
       "BUYER_PAID": "*Payment confirmed*\n\n{{items}}\n*Total: {{total}}*\n\nThank you. Your payment has been received.",
       "ERROR": "Could not start the payment: {{reason}}\n\nYour invoice is saved - reply *yes* to try again, or *cancel*."

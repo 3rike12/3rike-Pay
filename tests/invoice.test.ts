@@ -97,7 +97,14 @@ vi.mock("@/db/prisma", () => ({
   },
 }));
 
-import { chargeInvoice, scheduleInvoiceVerification, settleInvoicePayment, verifyInvoicePayment, renderPaidInvoiceMessage } from "@/services/invoice";
+import {
+  chargeInvoice,
+  scheduleInvoiceVerification,
+  settleInvoicePayment,
+  verifyInvoicePayment,
+  renderPaidInvoiceMessage,
+  renderBuyerRequestMessage,
+} from "@/services/invoice";
 import { flutterwave } from "@/services/flutterwave";
 import { prisma } from "@/db/prisma";
 
@@ -500,5 +507,36 @@ describe("renderPaidInvoiceMessage", () => {
     expect(message).toContain("RWF 3,000");
     expect(message).toContain("3 x batteries: RWF 3,000");
     expect(message).toContain("Buyer: 0781234567");
+  });
+});
+
+describe("renderBuyerRequestMessage", () => {
+  const invoice = {
+    items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+    amount: 3000,
+    currency: "RWF",
+  };
+
+  it("prefers the link when there is one", () => {
+    const message = renderBuyerRequestMessage(invoice, "https://pay.example/x", "Approve it");
+
+    expect(message).toContain("https://pay.example/x");
+    expect(message).not.toContain("prompt");
+  });
+
+  it("points at the handset prompt when the charge was pushed", () => {
+    const message = renderBuyerRequestMessage(invoice, null, "Approve this payment on your phone.");
+
+    expect(message).toContain("payment prompt");
+    expect(message).toContain("Approve this payment on your phone.");
+    expect(message).toContain("RWF 3,000");
+    expect(message).not.toContain("https://");
+  });
+
+  it("says the link is not ready when neither arrived", () => {
+    const message = renderBuyerRequestMessage(invoice, null, null);
+
+    expect(message).toContain("not ready");
+    expect(message).not.toContain("https://");
   });
 });

@@ -337,8 +337,11 @@ export const MESSAGES = {
       CONFIRM_HINT: messagesJson.BUSINESS.INVOICE.CONFIRM_HINT,
       ISSUED: (url: string) => render(messagesJson.BUSINESS.INVOICE.ISSUED, { url }),
       ISSUED_NO_URL: messagesJson.BUSINESS.INVOICE.ISSUED_NO_URL,
+      ISSUED_PUSH: messagesJson.BUSINESS.INVOICE.ISSUED_PUSH,
       BUYER_REQUEST: (items: string, total: string, url: string) =>
         render(messagesJson.BUSINESS.INVOICE.BUYER_REQUEST, { items, total, url }),
+      BUYER_REQUEST_PUSH: (items: string, total: string, note: string) =>
+        render(messagesJson.BUSINESS.INVOICE.BUYER_REQUEST_PUSH, { items, total, note }),
       BUYER_REQUEST_NO_URL: (items: string, total: string) =>
         render(messagesJson.BUSINESS.INVOICE.BUYER_REQUEST_NO_URL, { items, total }),
       BUYER_PAID: (items: string, total: string) =>
