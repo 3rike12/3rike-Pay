@@ -4,6 +4,7 @@ import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
 import { whatsapp } from "@/services/whatsapp";
 import { withIdempotencyKey } from "@/utils/idempotency";
+import { MESSAGES } from "@/config/constants";
 import {
   formatCurrency,
   generateTransactionReference,
@@ -17,9 +18,9 @@ const logger = createLogger("invoice");
 // ============================================
 // Invoice / payment-request service
 //
-// Roles: Merchant (has an account) + anonymous Buyer (never messaged by us).
-// The buyer authorises the debit from their own mobile-money handset; we
-// only ever talk to the merchant.
+// Roles: Merchant (has an account) + anonymous Buyer.
+// The buyer authorises the debit from their own mobile-money handset; we send
+// them the payment link to start, and a confirmation once it clears.
 //
 // Draft -> sent -> pending_payment -> paid
 //                       |-> failed
@@ -466,6 +467,32 @@ export async function settleInvoicePayment(
       });
     }
 
+    // The buyer gets their own confirmation. Best effort: WhatsApp reports
+    // undeliverable numbers by returning false rather than throwing, so the
+    // outcome is read off the return value.
+    if (invoice.buyerPhone) {
+      let sent = false;
+      try {
+        sent = await whatsapp.sendTextMessage(
+          invoice.buyerPhone,
+          renderBuyerPaidMessage(invoice)
+        );
+      } catch (error: any) {
+        logger.warn("Buyer paid notification failed", {
+          reference,
+          error: error?.message,
+        });
+      }
+      logger.info(
+        sent ? "Buyer paid notification sent" : "Buyer paid notification failed",
+        { reference, phone: redactPhone(invoice.buyerPhone) }
+      );
+    } else {
+      logger.warn("Buyer paid notification skipped: invoice has no buyer phone", {
+        reference,
+      });
+    }
+
     logger.info("Invoice settled", {
       invoiceId: invoice.id,
       reference,
@@ -543,8 +570,8 @@ export async function expireStaleInvoices(merchantId?: string) {
 }
 
 /**
- * Invoice summary shown to the MERCHANT. Never sent to a buyer - they
- * only ever see Flutterwave's own prompt.
+ * Invoice summary shown to the MERCHANT. Never sent to a buyer - they get
+ * their own copy (renderBuyerRequestMessage / renderBuyerPaidMessage).
  */
 export function renderInvoiceSummary(
   invoice: {
@@ -590,6 +617,14 @@ export function renderInvoiceSummary(
   return lines.join("\n");
 }
 
+/** "- 2 x waters: RWF 3,000" per item, joined for message bodies. */
+function invoiceItemLines(invoice: { items: unknown; currency: string }): string {
+  const items = (Array.isArray(invoice.items) ? invoice.items : []) as InvoiceItem[];
+  return items
+    .map((item) => `- ${item.qty} x ${item.name}: ${formatCurrency(item.qty * item.unitPrice, invoice.currency)}`)
+    .join("\n");
+}
+
 /**
  * Merchant-facing "you got paid" message for an invoice. Currency-aware
  * (RWF for Rwanda) and deliberately omits the internal reference - that ID
@@ -601,10 +636,7 @@ export function renderPaidInvoiceMessage(invoice: {
   currency: string;
   buyerPhone: string;
 }): string {
-  const items = (Array.isArray(invoice.items) ? invoice.items : []) as InvoiceItem[];
-  const lines = items
-    .map((item) => `- ${item.qty} x ${item.name}: ${formatCurrency(item.qty * item.unitPrice, invoice.currency)}`)
-    .join("\n");
+  const lines = invoiceItemLines(invoice);
 
   return (
     `*Payment Received*\n\n` +
@@ -613,6 +645,36 @@ export function renderPaidInvoiceMessage(invoice: {
     `Buyer: ${invoice.buyerPhone}\n\n` +
     `Your balance has been updated.`
   );
+}
+
+/**
+ * Buyer-facing "you owe / tap to pay" message. The buyer has to open the
+ * redirect URL before Flutterwave talks to their provider, so this link is
+ * the thing that actually starts the payment.
+ */
+export function renderBuyerRequestMessage(
+  invoice: { items: unknown; amount: number; currency: string },
+  paymentUrl?: string | null
+): string {
+  const items = invoiceItemLines(invoice);
+  const total = formatCurrency(invoice.amount, invoice.currency);
+  return paymentUrl
+    ? MESSAGES.BUSINESS.INVOICE.BUYER_REQUEST(items, total, paymentUrl)
+    : MESSAGES.BUSINESS.INVOICE.BUYER_REQUEST_NO_URL(items, total);
+}
+
+/**
+ * Buyer-facing confirmation sent once the invoice settles. No internal
+ * reference and no merchant balance talk - only what they paid for.
+ */
+export function renderBuyerPaidMessage(invoice: {
+  items: unknown;
+  amount: number;
+  currency: string;
+}): string {
+  const items = invoiceItemLines(invoice);
+  const total = formatCurrency(invoice.amount, invoice.currency);
+  return MESSAGES.BUSINESS.INVOICE.BUYER_PAID(items, total);
 }
 
 // --------------------------------------------

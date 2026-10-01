@@ -213,12 +213,18 @@ describe("settleInvoicePayment", () => {
     const second = await settleInvoicePayment("3RIKE-20260930-ABC123");
     expect(second.settled).toBe(false);
     expect(credit).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledTimes(1);
+    // Merchant first, then the buyer - one message each, sent exactly once.
+    expect(notify).toHaveBeenCalledTimes(2);
     expect(notify.mock.calls[0][0]).toBe("0771234567");
     expect(notify.mock.calls[0][1]).toContain("Payment Received");
     expect(notify.mock.calls[0][1]).toContain("RWF 3,000");
     // The internal reference must never reach a message.
     expect(notify.mock.calls[0][1]).not.toContain("3RIKE-20260930-ABC123");
+
+    expect(notify.mock.calls[1][0]).toBe("0781234567");
+    expect(notify.mock.calls[1][1]).toContain("Payment confirmed");
+    expect(notify.mock.calls[1][1]).toContain("RWF 3,000");
+    expect(notify.mock.calls[1][1]).not.toContain("3RIKE-20260930-ABC123");
   });
 
   it("returns settled=false for an unknown reference", async () => {
@@ -227,6 +233,16 @@ describe("settleInvoicePayment", () => {
     expect(result.settled).toBe(false);
     expect(credit).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("still settles when the invoice has no buyer phone to confirm to", async () => {
+    seedInvoice({ status: "pending_payment", buyerPhone: "" });
+
+    const result = await settleInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(result.settled).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(1); // merchant only
+    expect(notify.mock.calls[0][0]).toBe("0771234567");
   });
 });
 
@@ -240,7 +256,7 @@ describe("verifyInvoicePayment", () => {
     expect(result).toBe("settled");
     expect(invoiceRow.status).toBe("paid");
     expect(credit).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(2);
     expect((prisma.transaction.updateMany as any).mock.calls[0][0]).toEqual({
       where: { reference: "3RIKE-20260930-ABC123" },
       data: { status: "completed" },

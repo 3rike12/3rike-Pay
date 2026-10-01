@@ -18,6 +18,7 @@ import {
   expireStaleInvoices,
   listInvoices,
   listProducts,
+  renderBuyerRequestMessage,
   renderInvoiceSummary,
   scheduleInvoiceVerification,
 } from "@/services/invoice";
@@ -493,6 +494,53 @@ async function sendPaymentQr(phone: string, url: string, caption: string): Promi
 }
 
 /**
+ * Send the payment request to the BUYER. Flutterwave only returns a redirect
+ * URL - nothing reaches the buyer's handset until they open that page - so
+ * this message is what actually starts the payment.
+ *
+ * Best effort: a buyer who is not on WhatsApp must never block the merchant's
+ * invoice, so every failure is logged and swallowed.
+ */
+async function sendBuyerPaymentRequest(
+  invoice: { id?: string; buyerPhone?: string | null } | null | undefined,
+  paymentUrl: string | null | undefined
+): Promise<boolean> {
+  const buyerPhone = invoice?.buyerPhone;
+  if (!buyerPhone) {
+    logger.warn("Buyer payment request skipped: invoice has no buyer phone", {
+      invoiceId: invoice?.id,
+    });
+    return false;
+  }
+  if (!paymentUrl) {
+    logger.warn("Buyer payment request skipped: no payment link", {
+      invoiceId: invoice.id,
+      phone: redactPhone(buyerPhone),
+    });
+    return false;
+  }
+
+  const body = renderBuyerRequestMessage(invoice as any, paymentUrl);
+  try {
+    const qrSent = await sendPaymentQr(buyerPhone, paymentUrl, body);
+    if (!qrSent) await whatsapp.sendTextMessage(buyerPhone, body);
+    logger.info("Buyer payment request sent", {
+      invoiceId: invoice.id,
+      phone: redactPhone(buyerPhone),
+      viaQr: qrSent,
+    });
+    return true;
+  } catch (error: any) {
+    logger.warn("Buyer payment request failed", {
+      invoiceId: invoice.id,
+      phone: redactPhone(buyerPhone),
+      error: error?.message,
+    });
+    return false;
+  }
+}
+
+/**
  * Fire the charge for a confirmed draft. The draft invoice is created before
  * the charge (and reused on retry) so a failed charge never leaves a
  * half-built second invoice behind.
@@ -519,6 +567,10 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
     scheduleInvoiceVerification(result.txRef);
 
     await resetSession(user.id);
+
+    // The buyer has to open the payment page before anything can settle, so
+    // they get the link before the merchant gets their summary.
+    await sendBuyerPaymentRequest(result.invoice as any, result.paymentUrl);
 
     const summary = renderInvoiceSummary(result.invoice as any);
     const tail = result.paymentUrl

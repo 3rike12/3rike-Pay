@@ -27,6 +27,7 @@ const h = vi.hoisted(() => {
     createDraftInvoice: vi.fn(),
     chargeInvoice: vi.fn(),
     renderInvoiceSummary: vi.fn(),
+    renderBuyerRequestMessage: vi.fn(),
     scheduleInvoiceVerification: vi.fn(),
     expireStaleInvoices: vi.fn(),
     updateSession: vi.fn(),
@@ -77,6 +78,7 @@ vi.mock("@/services/invoice", () => ({
   createDraftInvoice: (...args: any[]) => h.createDraftInvoice(...args),
   chargeInvoice: (...args: any[]) => h.chargeInvoice(...args),
   renderInvoiceSummary: (...args: any[]) => h.renderInvoiceSummary(...args),
+  renderBuyerRequestMessage: (...args: any[]) => h.renderBuyerRequestMessage(...args),
   scheduleInvoiceVerification: (...args: any[]) => h.scheduleInvoiceVerification(...args),
   expireStaleInvoices: (...args: any[]) => h.expireStaleInvoices(...args),
 }));
@@ -135,6 +137,10 @@ beforeEach(() => {
   h.createDraftInvoice.mockResolvedValue({ id: "inv_new" });
   h.renderInvoiceSummary.mockImplementation(
     (inv: any) => `Total: RWF ${inv.amount}\nBuyer: ${inv.buyerPhone}`
+  );
+  h.renderBuyerRequestMessage.mockImplementation(
+    (_inv: any, url: string) =>
+      `*Payment request*\n\n- 3 x batteries: RWF 3,000\n\n*Total: RWF 3,000*\n\n${url}`
   );
   h.scheduleInvoiceVerification.mockImplementation(() => {});
   h.chargeInvoice.mockResolvedValue({
@@ -358,10 +364,16 @@ describe("invoice conversation", () => {
     expect(reply).toContain("https://checkout.flutterwave.com/v3/hosted/pay/abc");
     expect(h.resetSession).toHaveBeenCalled();
     expect(h.session.state).toBe("idle");
-    // One message: the QR image, carrying the full body as its caption.
+    // Two QR messages: the buyer gets the payment link first, then the
+    // merchant gets their summary carrying the same link as a caption.
     expect(h.sendTextMessage).not.toHaveBeenCalled();
-    expect(whatsapp.uploadMedia).toHaveBeenCalledTimes(1);
+    expect(whatsapp.uploadMedia).toHaveBeenCalledTimes(2);
     expect(vi.mocked(whatsapp.uploadMedia).mock.calls[0][1]).toBe("image/png");
+    expect(whatsapp.sendImageMessage).toHaveBeenCalledWith(
+      "0781234567",
+      "media-1",
+      expect.stringContaining("Payment request")
+    );
     expect(whatsapp.sendImageMessage).toHaveBeenCalledWith(
       PHONE,
       "media-1",
@@ -374,13 +386,25 @@ describe("invoice conversation", () => {
       items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
       buyerPhone: "0781234567",
     });
-    vi.mocked(whatsapp.uploadMedia).mockRejectedValueOnce(new Error("upload failed"));
+    // One rejection per QR send: buyer first, then the merchant.
+    vi.mocked(whatsapp.uploadMedia)
+      .mockRejectedValueOnce(new Error("upload failed"))
+      .mockRejectedValueOnce(new Error("upload failed"));
 
     const reply = await say("yes");
 
     expect(reply).toContain("Payment request issued");
     expect(whatsapp.sendImageMessage).not.toHaveBeenCalled();
-    expect(h.sendTextMessage).toHaveBeenCalledTimes(1);
+    // Plain text for the buyer (with the link) and for the merchant.
+    expect(h.sendTextMessage).toHaveBeenCalledTimes(2);
+    expect(h.sendTextMessage).toHaveBeenCalledWith(
+      "0781234567",
+      expect.stringContaining("https://checkout.flutterwave.com/v3/hosted/pay/abc")
+    );
+    expect(h.sendTextMessage).toHaveBeenCalledWith(
+      PHONE,
+      expect.stringContaining("Payment request issued")
+    );
     expect(h.session.state).toBe("idle");
   });
 
