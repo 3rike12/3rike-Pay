@@ -94,6 +94,10 @@ vi.mock("@/db/prisma", () => ({
       create: vi.fn(),
       updateMany: vi.fn(),
     },
+    user: {
+      findUnique: vi.fn(async () => ({ id: "platform_user_1", phone: "system:platform" })),
+      create: vi.fn(async (args: any) => ({ id: "platform_user_1", ...args.data })),
+    },
   },
 }));
 
@@ -288,27 +292,43 @@ describe("chargeInvoice", () => {
 });
 
 describe("settleInvoicePayment", () => {
-  it("flips to paid and credits the merchant exactly once", async () => {
+  it("flips to paid and splits the payment between merchant and platform exactly once", async () => {
     seedInvoice({ status: "pending_payment" });
 
     const first = await settleInvoicePayment("3RIKE-20260930-ABC123");
     expect(first.settled).toBe(true);
     expect(invoiceRow.status).toBe("paid");
     expect(invoiceRow.paidAt).toBeInstanceOf(Date);
-    expect(credit).toHaveBeenCalledTimes(1);
+    // Merchant share first (95%), then the platform fee (5%).
+    expect(credit).toHaveBeenCalledTimes(2);
     expect(credit).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "merch_1",
-        amount: 3000,
+        amount: 2850,
         currency: "RWF",
         reference: "3RIKE-20260930-ABC123",
         idempotencyKey: "fw-charge-credit:3RIKE-20260930-ABC123",
       })
     );
+    expect(credit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "platform_user_1",
+        amount: 150,
+        currency: "RWF",
+        reference: "3RIKE-20260930-ABC123",
+        idempotencyKey: "fw-fee-credit:3RIKE-20260930-ABC123",
+        metadata: expect.objectContaining({
+          type: "platform_fee",
+          split: { gross: 3000, merchantShare: 2850, platformFee: 150, type: "percentage", value: 0.95 },
+        }),
+      })
+    );
+    // The shares add back to the gross.
+    expect(2850 + 150).toBe(invoiceRow.amount);
 
     const second = await settleInvoicePayment("3RIKE-20260930-ABC123");
     expect(second.settled).toBe(false);
-    expect(credit).toHaveBeenCalledTimes(1);
+    expect(credit).toHaveBeenCalledTimes(2);
     // Merchant first, then the buyer - one message each, sent exactly once.
     expect(notify).toHaveBeenCalledTimes(2);
     expect(notify.mock.calls[0][0]).toBe("0771234567");
@@ -321,6 +341,22 @@ describe("settleInvoicePayment", () => {
     expect(notify.mock.calls[1][1]).toContain("Payment confirmed");
     expect(notify.mock.calls[1][1]).toContain("RWF 3,000");
     expect(notify.mock.calls[1][1]).not.toContain("3RIKE-20260930-ABC123");
+  });
+
+  it("records the split on the transaction row, keeping existing metadata", async () => {
+    seedInvoice({ status: "pending_payment" });
+    transactionRow = {
+      id: "tx_1",
+      reference: "3RIKE-20260930-ABC123",
+      metadata: { chargeId: "chg_9" },
+    };
+
+    await settleInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(transactionRow.metadata).toEqual({
+      chargeId: "chg_9",
+      split: { gross: 3000, merchantShare: 2850, platformFee: 150, type: "percentage", value: 0.95 },
+    });
   });
 
   it("returns settled=false for an unknown reference", async () => {
@@ -351,7 +387,7 @@ describe("verifyInvoicePayment", () => {
 
     expect(result).toBe("settled");
     expect(invoiceRow.status).toBe("paid");
-    expect(credit).toHaveBeenCalledTimes(1);
+    expect(credit).toHaveBeenCalledTimes(2); // merchant share + platform fee
     expect(notify).toHaveBeenCalledTimes(2);
     expect((prisma.transaction.updateMany as any).mock.calls[0][0]).toEqual({
       where: { reference: "3RIKE-20260930-ABC123" },

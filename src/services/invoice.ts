@@ -4,7 +4,7 @@ import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
 import { whatsapp } from "@/services/whatsapp";
 import { withIdempotencyKey } from "@/utils/idempotency";
-import { MESSAGES } from "@/config/constants";
+import { FLUTTERWAVE_SPLIT, MESSAGES } from "@/config/constants";
 import {
   formatCurrency,
   generateTransactionReference,
@@ -428,15 +428,71 @@ export async function chargeInvoice(params: {
   return { invoice: pending, txRef: reference, paymentUrl, paymentNote, chargeId };
 }
 
+// ============================================
+// Collection split
+//
+// Flutterwave collects the gross payment into the platform account - it
+// never splits on our charges (the mobile-money payload has no subaccount
+// field), so the merchant/platform split is booked in our own ledger:
+// two credits against the same reference, one per share.
+// ============================================
+
+/** Reserved user that owns the platform-fee wallet. Not a real phone. */
+const PLATFORM_PHONE = "system:platform";
+
 /**
- * Settle an invoice: flip to paid and credit the merchant's ledger wallet.
+ * Split a collected amount into the merchant share and the platform fee.
+ * The two parts always add back to the gross amount (no rounding leak).
+ */
+export function splitCollection(amount: number): {
+  merchantShare: number;
+  platformFee: number;
+} {
+  const round = (n: number) => Math.round(n * 100) / 100;
+
+  let platformFee: number;
+  if (FLUTTERWAVE_SPLIT.TYPE === "flat") {
+    // Flat: the merchant gets the configured fixed amount per collection.
+    platformFee = round(amount - Math.min(amount, Math.max(0, FLUTTERWAVE_SPLIT.VALUE)));
+  } else {
+    platformFee = round(amount * (1 - FLUTTERWAVE_SPLIT.VALUE));
+  }
+
+  platformFee = Math.min(amount, Math.max(0, platformFee));
+  return { merchantShare: round(amount - platformFee), platformFee };
+}
+
+/** Lazily create the reserved user that owns the platform-fee wallet. */
+async function ensurePlatformUserId(): Promise<string> {
+  const existing = await prisma.user.findUnique({ where: { phone: PLATFORM_PHONE } });
+  if (existing) return existing.id;
+
+  try {
+    const created = await prisma.user.create({
+      data: { phone: PLATFORM_PHONE, name: "Platform fees" },
+    });
+    return created.id;
+  } catch (error: any) {
+    if (error?.code === "P2002") {
+      // Lost a first-boot race: the winner's row is there now.
+      const winner = await prisma.user.findUnique({ where: { phone: PLATFORM_PHONE } });
+      if (winner) return winner.id;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Settle an invoice: flip to paid and credit the ledger - the merchant's
+ * share to their wallet, the platform fee to the platform-fee wallet.
  *
  * Idempotent on purpose - the Flutterwave webhook may deliver more than
  * once and the verify-poller can race with it. Safe to call from both.
  *
- * The ledger credit uses key `fw-charge-credit:{reference}` so it shares
+ * The merchant credit keeps key `fw-charge-credit:{reference}` so it shares
  * the same idempotency key as the existing webhook credit path - whichever
- * runs first credits, the other becomes a no-op.
+ * runs first credits, the other becomes a no-op. The fee leg uses its own
+ * `fw-fee-credit:{reference}` key.
  */
 export async function settleInvoicePayment(
   reference: string,
@@ -457,7 +513,7 @@ export async function settleInvoicePayment(
     }
 
     // Flip first so a crash between the two steps still converges on
-    // "paid" once retried; the credit is independently idempotent.
+    // "paid" once retried; the credits are independently idempotent.
     const updated = await prisma.invoice.update({
       where: { id: invoice.id },
       data: {
@@ -466,15 +522,61 @@ export async function settleInvoicePayment(
       },
     });
 
-    await ledger.credit({
-      userId: invoice.merchantId,
-      amount: invoice.amount,
-      currency: invoice.currency,
-      reference,
-      description: `Payment received for invoice ${reference}`,
-      metadata: { type: "invoice", invoiceId: invoice.id, ...metadata },
-      idempotencyKey: `fw-charge-credit:${reference}`,
-    });
+    const { merchantShare, platformFee } = splitCollection(invoice.amount);
+    const split = {
+      gross: invoice.amount,
+      merchantShare,
+      platformFee,
+      type: FLUTTERWAVE_SPLIT.TYPE,
+      value: FLUTTERWAVE_SPLIT.VALUE,
+    };
+
+    // ledger.credit refuses zero amounts: a 100/0 split skips the fee leg
+    // (and a hypothetical 0/100 split skips the merchant leg).
+    if (merchantShare > 0) {
+      await ledger.credit({
+        userId: invoice.merchantId,
+        amount: merchantShare,
+        currency: invoice.currency,
+        reference,
+        description: `Payment received for invoice ${reference}`,
+        metadata: { type: "invoice", invoiceId: invoice.id, split, ...metadata },
+        idempotencyKey: `fw-charge-credit:${reference}`,
+      });
+    }
+
+    if (platformFee > 0) {
+      const platformUserId = await ensurePlatformUserId();
+      await ledger.credit({
+        userId: platformUserId,
+        amount: platformFee,
+        currency: invoice.currency,
+        reference,
+        description: `Platform fee for invoice ${reference}`,
+        metadata: { type: "platform_fee", invoiceId: invoice.id, split, ...metadata },
+        idempotencyKey: `fw-fee-credit:${reference}`,
+      });
+    }
+
+    // Record the split on the transaction row so reconciliation can read it
+    // without walking the ledger. Best effort: the credits above are the
+    // source of truth and this bookkeeping write must never block a settle.
+    try {
+      const txRow = await prisma.transaction.findUnique({ where: { reference } });
+      if (txRow) {
+        await prisma.transaction.update({
+          where: { reference },
+          data: {
+            metadata: { ...((txRow.metadata as Record<string, unknown>) || {}), split },
+          },
+        });
+      }
+    } catch (error: any) {
+      logger.warn("Could not record the split on the transaction", {
+        reference,
+        error: error?.message,
+      });
+    }
 
     // Notify the merchant here rather than in each caller: settle is the
     // single winning path (webhook and verify-poller both funnel through it),
