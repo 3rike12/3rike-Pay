@@ -548,6 +548,18 @@ async function sendBuyerPaymentRequest(
 }
 
 /**
+ * Yes/Cancel buttons for anything said while the invoice sits in the
+ * confirm state - a tap retries the charge (or cancels) instead of
+ * making people type the reply.
+ */
+function sendInvoiceRetryButtons(phone: string, body: string) {
+  return whatsapp.sendButtonsMessage(phone, body, [
+    { id: "confirm_invoice", title: "Yes" },
+    { id: "cancel_invoice", title: "Cancel" },
+  ]);
+}
+
+/**
  * Fire the charge for a confirmed draft. The draft invoice is created before
  * the charge (and reused on retry) so a failed charge never leaves a
  * half-built second invoice behind.
@@ -585,8 +597,10 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
       ? MESSAGES.BUSINESS.INVOICE.ISSUED_PUSH
       : result.paymentUrl
         ? MESSAGES.BUSINESS.INVOICE.ISSUED
-        : MESSAGES.BUSINESS.INVOICE.ISSUED_NO_URL;
-    const body = `*Payment request issued*\n\n${summary}\n\n${tail}`;
+        : "";
+    const body = tail
+      ? `*Payment request issued*\n\n${summary}\n\n${tail}`
+      : `*Payment request issued*\n\n${summary}`;
 
     // The merchant gets their summary as plain text - the payment link and
     // QR belong to the buyer's message, not the merchant's.
@@ -596,8 +610,9 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
       userId: user.id,
       error: error.message,
     });
-    // Stay in the confirm state: the draft is saved, "yes" retries it.
-    return whatsapp.sendTextMessage(
+    // Stay in the confirm state: the draft is saved, the Yes button (or a
+    // typed "yes") retries it.
+    return sendInvoiceRetryButtons(
       phone,
       MESSAGES.BUSINESS.INVOICE.ERROR(humanizeChargeError(error))
     );
@@ -1344,7 +1359,7 @@ async function handleInvoiceConfirm(
     action === "confirm_invoice" || ["yes", "y", "confirm", "ok", "send", "go"].includes(choice);
 
   if (!confirmed) {
-    return whatsapp.sendTextMessage(
+    return sendInvoiceRetryButtons(
       phone,
       "Reply *yes* to send the payment request, or *cancel* to stop."
     );

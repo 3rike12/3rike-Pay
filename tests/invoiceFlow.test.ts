@@ -470,6 +470,15 @@ describe("invoice conversation", () => {
 
     expect(h.chargeInvoice).not.toHaveBeenCalled();
     expect(reply).toContain("Reply *yes*");
+    // The nudge comes with tappable Yes/Cancel, not as plain text.
+    expect(h.sendButtonsMessage).toHaveBeenCalledWith(
+      PHONE,
+      expect.stringContaining("Reply *yes* to send the payment request"),
+      [
+        { id: "confirm_invoice", title: "Yes" },
+        { id: "cancel_invoice", title: "Cancel" },
+      ]
+    );
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_CONFIRM);
   });
 
@@ -497,9 +506,48 @@ describe("invoice conversation", () => {
 
     expect(reply).toContain("Could not start the payment");
     expect(reply).toContain("provider unavailable");
+    expect(reply).toContain("Reply *yes* to send the payment request");
+    // The failure message carries the retry buttons too.
+    expect(h.sendButtonsMessage).toHaveBeenCalledWith(
+      PHONE,
+      expect.stringContaining("Could not start the payment"),
+      [
+        { id: "confirm_invoice", title: "Yes" },
+        { id: "cancel_invoice", title: "Cancel" },
+      ]
+    );
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_CONFIRM);
     // A retry must reuse the draft instead of creating a second invoice.
     expect(h.createDraftInvoice).toHaveBeenCalledTimes(1);
     expect(h.session.flowData.draftId).toBe("inv_new");
+  });
+
+  it("omits the no-link sentence when neither a link nor a prompt came back", async () => {
+    setSession(SESSION_STATE.INVOICE_CONFIRM, {
+      items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+      buyerPhone: "0781234567",
+    });
+    h.chargeInvoice.mockResolvedValue({
+      invoice: {
+        reference: "3RIKE-TEST-1",
+        amount: 3000,
+        currency: "RWF",
+        status: "pending_payment",
+        buyerPhone: "0781234567",
+        items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+        expiresAt: new Date("2026-09-30T15:00:00Z"),
+        paymentUrl: null,
+      },
+      txRef: "3RIKE-TEST-1",
+      paymentUrl: null,
+      paymentNote: null,
+      chargeId: null,
+    });
+
+    const reply = await say("yes");
+
+    expect(reply).toContain("Payment request issued");
+    expect(reply).not.toContain("has not been sent anything");
+    expect(reply).not.toContain("provider returned no payment link");
   });
 });
