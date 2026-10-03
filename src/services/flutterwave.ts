@@ -1,7 +1,7 @@
 import Flutterwave, { FlutterwaveInstance } from "flutterwave-node-v3";
 import crypto from "crypto";
 import { config } from "@/config";
-import { FLUTTERWAVE_SPLIT } from "@/config/constants";
+import { FLUTTERWAVE_SPLIT, MESSAGES } from "@/config/constants";
 import { prisma } from "@/db/prisma";
 import { toRwandaPhone } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
@@ -138,6 +138,64 @@ class FlutterwaveService {
       where: { userId },
       orderBy: { createdAt: "asc" },
     });
+  }
+
+  /**
+   * The subaccount a merchant's charges settle to - reused when one already
+   * exists, otherwise created from their saved bank details.
+   *
+   * Invoicing is gated on this: a merchant with no payout subaccount cannot
+   * be settled, so charging them would strand the money. Throws
+   * BUSINESS.INVOICE.NO_SUBACCOUNT when neither the row nor the details
+   * needed to build one are there (Flutterwave refusing the creation counts
+   * as "no subaccount" too - the real reason is logged).
+   */
+  async ensureSubaccountForMerchant(userId: string, currency = "RWF") {
+    const existing = await this.getSubaccount(userId, currency);
+    if (existing) return existing;
+
+    const merchant = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { bankAccount: true, business: true, profile: true },
+    });
+    const bank = merchant?.bankAccount;
+    const email = merchant?.business?.email || merchant?.profile?.email || "";
+
+    if (!merchant || !bank?.accountNumber || !bank.bankCode || !email) {
+      logger.warn("Merchant has no payout subaccount and not enough details to create one", {
+        userId,
+        hasAccountNumber: Boolean(bank?.accountNumber),
+        hasBankCode: Boolean(bank?.bankCode),
+        hasEmail: Boolean(email),
+      });
+      throw new Error(MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT);
+    }
+
+    logger.info("Creating payout subaccount for merchant", {
+      userId,
+      currency,
+      bankCode: bank.bankCode,
+    });
+    try {
+      return await this.createSubaccount({
+        userId,
+        currency,
+        accountBank: bank.bankCode,
+        accountNumber: bank.accountNumber,
+        businessName: merchant.business?.name || merchant.name || "Merchant",
+        businessEmail: email,
+        businessContactMobile: merchant.business?.phone || undefined,
+        country: merchant.business?.country || "RW",
+        splitType: FLUTTERWAVE_SPLIT.TYPE,
+        splitValue: FLUTTERWAVE_SPLIT.VALUE,
+      });
+    } catch (error: any) {
+      logger.error("Could not create the merchant's payout subaccount", {
+        userId,
+        error: error?.message || error,
+      });
+      throw new Error(MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT);
+    }
   }
 
   /** One business per user. Returns the existing profile or creates it. */

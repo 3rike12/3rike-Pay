@@ -150,6 +150,7 @@
       "PROMPT_PHONE": "What's the customer's Rwanda mobile number?\n\nExample: *0781234567* or *+250781234567*",
       "INVALID_PHONE": "That doesn't look like a Rwanda mobile number.\n\nUse *0781234567* or *+250781234567*.",
       "INVALID_ITEMS": "I couldn't read that as a list of items.\n\nExample:\n*3 batteries and 2 water*",
+      "NO_SUBACCOUNT": "Your payout account isn't set up yet, so I can't start an invoice.\n\nAdd your bank details (finish verification from the menu), then send the invoice again.",
       "CONFIRM_HINT": "\n\nTap *Yes* to send the payment request, or *No* to stop.",
       "ISSUED": "I've sent the payment request to the customer.",
       "ISSUED_NO_URL": "The provider returned no payment link, so the customer has not been sent anything.",

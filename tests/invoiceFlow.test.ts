@@ -33,6 +33,7 @@ const h = vi.hoisted(() => {
     updateSession: vi.fn(),
     resetSession: vi.fn(),
     getSession: vi.fn(),
+    ensureSubaccount: vi.fn(),
   };
 });
 
@@ -81,6 +82,12 @@ vi.mock("@/services/invoice", () => ({
   renderBuyerRequestMessage: (...args: any[]) => h.renderBuyerRequestMessage(...args),
   scheduleInvoiceVerification: (...args: any[]) => h.scheduleInvoiceVerification(...args),
   expireStaleInvoices: (...args: any[]) => h.expireStaleInvoices(...args),
+}));
+
+vi.mock("@/services/flutterwave", () => ({
+  flutterwave: {
+    ensureSubaccountForMerchant: (...args: any[]) => h.ensureSubaccount(...args),
+  },
 }));
 
 import { handleMessage } from "@/bot";
@@ -132,6 +139,7 @@ beforeEach(() => {
   });
 
   h.expireStaleInvoices.mockResolvedValue(0);
+  h.ensureSubaccount.mockResolvedValue({ id: "sub_1", subaccountId: "RS_TEST" });
   h.listProducts.mockResolvedValue([]);
   h.createProduct.mockImplementation(async (p: any) => ({ id: "prod_1", ...p }));
   h.createDraftInvoice.mockResolvedValue({ id: "inv_new" });
@@ -264,6 +272,40 @@ describe("invoice triggers", () => {
     await say("ok", "create_invoice");
 
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_ITEMS);
+  });
+
+  it("blocks the invoice when the merchant has no payout subaccount", async () => {
+    h.ensureSubaccount.mockRejectedValueOnce(
+      new Error(MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT)
+    );
+
+    const reply = await say("payment request for 0781234567");
+
+    expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT);
+    expect(h.session.state).toBe(SESSION_STATE.IDLE);
+    expect(h.updateSession).not.toHaveBeenCalledWith(
+      "user_1",
+      SESSION_STATE.INVOICE_ITEMS,
+      expect.anything()
+    );
+    expect(h.createDraftInvoice).not.toHaveBeenCalled();
+    expect(h.chargeInvoice).not.toHaveBeenCalled();
+  });
+
+  it("blocks the /invoice command too", async () => {
+    h.ensureSubaccount.mockRejectedValueOnce(
+      new Error(MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT)
+    );
+
+    const reply = await say("/invoice");
+
+    expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT);
+    expect(h.session.state).toBe(SESSION_STATE.IDLE);
+    expect(h.updateSession).not.toHaveBeenCalledWith(
+      "user_1",
+      SESSION_STATE.INVOICE_ITEMS,
+      expect.anything()
+    );
   });
 });
 
