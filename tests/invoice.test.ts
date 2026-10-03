@@ -103,6 +103,7 @@ vi.mock("@/db/prisma", () => ({
 
 import {
   chargeInvoice,
+  humanizeChargeError,
   scheduleInvoiceVerification,
   settleInvoicePayment,
   verifyInvoicePayment,
@@ -574,5 +575,25 @@ describe("renderBuyerRequestMessage", () => {
 
     expect(message).toContain("not ready");
     expect(message).not.toContain("https://");
+  });
+});
+
+describe("humanizeChargeError", () => {
+  it("translates the provider's channel-not-enabled message for the merchant", () => {
+    const reason = humanizeChargeError(
+      new Error("Merchant is not enabled to use this payment method.")
+    );
+
+    expect(reason).toMatch(/payment provider hasn't enabled mobile money/);
+    // The merchant is not "the merchant" Flutterwave means - never blame them.
+    expect(reason).not.toMatch(/^Merchant/);
+  });
+
+  it("passes other provider messages through untouched", () => {
+    expect(humanizeChargeError(new Error("provider unavailable"))).toBe("provider unavailable");
+  });
+
+  it("falls back to a generic reason when there is no message", () => {
+    expect(humanizeChargeError(undefined)).toBe("unknown error");
   });
 });

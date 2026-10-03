@@ -68,6 +68,8 @@ vi.mock("@/services/invoice", () => ({
   getInvoiceByReference: vi.fn(),
   settleInvoicePayment: vi.fn(),
   failInvoicePayment: vi.fn(),
+  humanizeChargeError: (error: unknown) =>
+    error instanceof Error ? error.message : String((error as any)?.message ?? error ?? ""),
 }));
 
 import webhooksRouter from "@/api/webhooks";

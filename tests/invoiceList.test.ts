@@ -77,6 +77,8 @@ vi.mock("@/services/invoice", () => ({
   createDraftInvoice: vi.fn(),
   chargeInvoice: vi.fn(),
   scheduleInvoiceVerification: vi.fn(),
+  humanizeChargeError: (error: unknown) =>
+    error instanceof Error ? error.message : String((error as any)?.message ?? error ?? ""),
 }));
 
 import { handleMessage } from "@/bot";

@@ -81,6 +81,8 @@ vi.mock("@/services/invoice", () => ({
   renderBuyerRequestMessage: (...args: any[]) => h.renderBuyerRequestMessage(...args),
   scheduleInvoiceVerification: (...args: any[]) => h.scheduleInvoiceVerification(...args),
   expireStaleInvoices: (...args: any[]) => h.expireStaleInvoices(...args),
+  humanizeChargeError: (error: unknown) =>
+    error instanceof Error ? error.message : String((error as any)?.message ?? error ?? ""),
 }));
 
 import { handleMessage } from "@/bot";

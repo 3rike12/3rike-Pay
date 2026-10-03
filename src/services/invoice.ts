@@ -297,6 +297,23 @@ export async function markPendingPayment(
 }
 
 /**
+ * Render a charge failure the way the merchant should read it.
+ *
+ * Flutterwave blames "the merchant", which on our platform is the payment
+ * account we hold - not the person holding the phone - so its raw text
+ * would send them looking for a setting they don't have. Logs keep the
+ * original message; only the merchant-facing text goes through this.
+ */
+export function humanizeChargeError(error: unknown): string {
+  const message =
+    error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
+  if (/not enabled to use this payment method/i.test(message)) {
+    return "our payment provider hasn't enabled mobile money payments for this account yet - we're on it";
+  }
+  return message || "unknown error";
+}
+
+/**
  * Charge an invoice through Flutterwave.
  *
  * Ordering matters:

@@ -16,6 +16,7 @@ import {
   createDraftInvoice,
   createProduct,
   expireStaleInvoices,
+  humanizeChargeError,
   listInvoices,
   listProducts,
   renderBuyerRequestMessage,
@@ -598,7 +599,7 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
     // Stay in the confirm state: the draft is saved, "yes" retries it.
     return whatsapp.sendTextMessage(
       phone,
-      MESSAGES.BUSINESS.INVOICE.ERROR(error.message || "unknown error")
+      MESSAGES.BUSINESS.INVOICE.ERROR(humanizeChargeError(error))
     );
   }
 }
