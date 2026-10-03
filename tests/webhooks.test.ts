@@ -57,7 +57,6 @@ vi.mock("@/services/flutterwave", () => ({
     verifyTransactionByTxRef: vi.fn(),
     chargeRwandaMobileMoney: vi.fn(),
     extractPaymentUrl: vi.fn(() => null),
-    ensureSubaccountForMerchant: vi.fn(),
   },
 }));
 

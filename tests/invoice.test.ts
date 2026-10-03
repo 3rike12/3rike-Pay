@@ -21,7 +21,6 @@ const chargeV4 = vi.fn();
 const extractV4PaymentUrl = vi.fn(() => null);
 const extractV4PaymentInstruction = vi.fn(() => null);
 const retrieveV4Charge = vi.fn(() => null);
-const ensureSubaccount = vi.fn();
 
 vi.mock("@/services/flutterwave", () => ({
   flutterwave: {
@@ -33,7 +32,6 @@ vi.mock("@/services/flutterwave", () => ({
     extractV4PaymentUrl: (...args: any[]) => extractV4PaymentUrl(...args),
     extractV4PaymentInstruction: (...args: any[]) => extractV4PaymentInstruction(...args),
     retrieveV4Charge: (...args: any[]) => retrieveV4Charge(...args),
-    ensureSubaccountForMerchant: (...args: any[]) => ensureSubaccount(...args),
   },
 }));
 
@@ -148,7 +146,6 @@ beforeEach(() => {
   extractPushUrl.mockReturnValue(null);
   extractPushNote.mockReturnValue(null);
   retrievePushCharge.mockResolvedValue(null as any);
-  ensureSubaccount.mockResolvedValue({ id: "sub_1", subaccountId: "RS_TEST" });
   seedInvoice();
 });
 
@@ -198,18 +195,6 @@ describe("chargeInvoice", () => {
       chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" })
     ).rejects.toThrow(/already paid/i);
     expect(charge).not.toHaveBeenCalled();
-  });
-
-  it("refuses to charge a merchant with no payout subaccount", async () => {
-    ensureSubaccount.mockRejectedValueOnce(new Error("payout account missing"));
-
-    await expect(
-      chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" })
-    ).rejects.toThrow(/payout account missing/i);
-
-    expect(charge).not.toHaveBeenCalled();
-    expect(transactionRow).toBeNull();
-    expect(invoiceRow.status).toBe("draft");
   });
 
   it("rejects an invoice belonging to another merchant", async () => {

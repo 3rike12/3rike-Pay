@@ -1,7 +1,6 @@
 import Flutterwave, { FlutterwaveInstance } from "flutterwave-node-v3";
 import crypto from "crypto";
 import { config } from "@/config";
-import { FLUTTERWAVE_SPLIT, MESSAGES } from "@/config/constants";
 import { prisma } from "@/db/prisma";
 import { toRwandaPhone } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
@@ -11,7 +10,7 @@ const logger = createLogger("flutterwave");
 // ============================================
 // Flutterwave Service
 // Wrapper around flutterwave-node-v3 SDK.
-// Subaccounts are the source of truth for merchant wallets.
+// Flutterwave collects; merchant balances live in the internal ledger.
 // ============================================
 
 class FlutterwaveService {
@@ -33,169 +32,6 @@ class FlutterwaveService {
       throw new Error("Flutterwave client is not configured");
     }
     return this.client;
-  }
-
-  // ------- Subaccounts -------
-
-  /**
-   * Create a Flutterwave subaccount for a merchant.
-   * The subaccount_id returned becomes the merchant's wallet reference.
-   */
-  async createSubaccount(params: {
-    userId: string;
-    currency?: string;
-    accountBank: string;
-    accountNumber: string;
-    businessName: string;
-    businessEmail: string;
-    businessContact?: string;
-    businessContactMobile?: string;
-    businessMobile?: string;
-    country?: string;
-    splitType?: "percentage" | "flat";
-    splitValue?: number;
-    meta?: Record<string, string>;
-  }) {
-    const client = this.ensureClient();
-    const currency = (params.currency || "RWF").toUpperCase();
-
-    const existing = await prisma.flutterwaveSubaccount.findUnique({
-      where: { userId_currency: { userId: params.userId, currency } },
-    });
-    if (existing) {
-      logger.info("Subaccount already exists for user + currency", {
-        userId: params.userId,
-        currency,
-        subaccountId: existing.subaccountId,
-      });
-      return existing;
-    }
-
-    const payload: any = {
-      account_bank: params.accountBank,
-      account_number: params.accountNumber,
-      business_name: params.businessName,
-      business_email: params.businessEmail,
-      business_contact: params.businessContact,
-      business_contact_mobile: params.businessContactMobile,
-      business_mobile: params.businessMobile,
-      country: params.country || "RW",
-      split_type: params.splitType || FLUTTERWAVE_SPLIT.TYPE,
-      split_value: params.splitValue ?? FLUTTERWAVE_SPLIT.VALUE,
-      meta: params.meta
-        ? Object.entries(params.meta).map(([meta_name, meta_value]) => ({
-            meta_name,
-            meta_value,
-          }))
-        : undefined,
-    };
-
-    try {
-      const response: any = await client.Subaccount.create(payload);
-      const remoteId = response?.data?.id ?? response?.id;
-      if (!remoteId) {
-        throw new Error("Flutterwave returned no subaccount id");
-      }
-
-      const saved = await prisma.flutterwaveSubaccount.create({
-        data: {
-          userId: params.userId,
-          subaccountId: String(remoteId),
-          accountBank: params.accountBank,
-          accountNumber: params.accountNumber,
-          businessName: params.businessName,
-          businessEmail: params.businessEmail,
-          currency,
-          country: params.country || "RW",
-          splitType: params.splitType || FLUTTERWAVE_SPLIT.TYPE,
-          splitValue: params.splitValue ?? FLUTTERWAVE_SPLIT.VALUE,
-        },
-      });
-      logger.info("Subaccount created and stored", {
-        userId: params.userId,
-        currency,
-        subaccountId: saved.subaccountId,
-      });
-      return saved;
-    } catch (error: any) {
-      logger.error("Failed to create Flutterwave subaccount", {
-        error: error?.message || error,
-      });
-      throw error;
-    }
-  }
-
-  /** Get a stored subaccount for a user by currency (default RWF). */
-  async getSubaccount(userId: string, currency = "RWF") {
-    return prisma.flutterwaveSubaccount.findUnique({
-      where: { userId_currency: { userId, currency: currency.toUpperCase() } },
-    });
-  }
-
-  /** All subaccounts a user owns (one per currency). */
-  async listSubaccounts(userId: string) {
-    return prisma.flutterwaveSubaccount.findMany({
-      where: { userId },
-      orderBy: { createdAt: "asc" },
-    });
-  }
-
-  /**
-   * The subaccount a merchant's charges settle to - reused when one already
-   * exists, otherwise created from their saved bank details.
-   *
-   * Invoicing is gated on this: a merchant with no payout subaccount cannot
-   * be settled, so charging them would strand the money. Throws
-   * BUSINESS.INVOICE.NO_SUBACCOUNT when neither the row nor the details
-   * needed to build one are there (Flutterwave refusing the creation counts
-   * as "no subaccount" too - the real reason is logged).
-   */
-  async ensureSubaccountForMerchant(userId: string, currency = "RWF") {
-    const existing = await this.getSubaccount(userId, currency);
-    if (existing) return existing;
-
-    const merchant = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { bankAccount: true, business: true, profile: true },
-    });
-    const bank = merchant?.bankAccount;
-    const email = merchant?.business?.email || merchant?.profile?.email || "";
-
-    if (!merchant || !bank?.accountNumber || !bank.bankCode || !email) {
-      logger.warn("Merchant has no payout subaccount and not enough details to create one", {
-        userId,
-        hasAccountNumber: Boolean(bank?.accountNumber),
-        hasBankCode: Boolean(bank?.bankCode),
-        hasEmail: Boolean(email),
-      });
-      throw new Error(MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT);
-    }
-
-    logger.info("Creating payout subaccount for merchant", {
-      userId,
-      currency,
-      bankCode: bank.bankCode,
-    });
-    try {
-      return await this.createSubaccount({
-        userId,
-        currency,
-        accountBank: bank.bankCode,
-        accountNumber: bank.accountNumber,
-        businessName: merchant.business?.name || merchant.name || "Merchant",
-        businessEmail: email,
-        businessContactMobile: merchant.business?.phone || undefined,
-        country: merchant.business?.country || "RW",
-        splitType: FLUTTERWAVE_SPLIT.TYPE,
-        splitValue: FLUTTERWAVE_SPLIT.VALUE,
-      });
-    } catch (error: any) {
-      logger.error("Could not create the merchant's payout subaccount", {
-        userId,
-        error: error?.message || error,
-      });
-      throw new Error(MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT);
-    }
   }
 
   /** One business per user. Returns the existing profile or creates it. */
@@ -226,89 +62,6 @@ class FlutterwaveService {
 
   async getBusiness(userId: string) {
     return prisma.business.findUnique({ where: { userId } });
-  }
-
-  async fetchSubaccount(id: string | number) {
-    const client = this.ensureClient();
-
-    try {
-      const response = await client.Subaccount.fetch({ id });
-      logger.info("Subaccount fetched", { id });
-      return response;
-    } catch (error: any) {
-      logger.error("Failed to fetch Flutterwave subaccount", {
-        id,
-        error: error?.message || error,
-      });
-      throw error;
-    }
-  }
-
-  async fetchSubaccounts(page = 1, limit = 50) {
-    const client = this.ensureClient();
-
-    try {
-      const response = await client.Subaccount.fetch_all({ page, limit });
-      logger.info("Subaccounts fetched", { page, limit });
-      return response;
-    } catch (error: any) {
-      logger.error("Failed to fetch Flutterwave subaccounts", {
-        error: error?.message || error,
-      });
-      throw error;
-    }
-  }
-
-  async updateSubaccount(
-    id: string | number,
-    params: Partial<{
-      accountBank: string;
-      accountNumber: string;
-      businessName: string;
-      businessEmail: string;
-      businessContact: string;
-      businessContactMobile: string;
-      businessMobile: string;
-      country: string;
-      splitType: "percentage" | "flat";
-      splitValue: string | number;
-      meta: Record<string, string>;
-    }>
-  ) {
-    const client = this.ensureClient();
-
-    const payload: any = {
-      id,
-    };
-
-    if (params.accountBank) payload.account_bank = params.accountBank;
-    if (params.accountNumber) payload.account_number = params.accountNumber;
-    if (params.businessName) payload.business_name = params.businessName;
-    if (params.businessEmail) payload.business_email = params.businessEmail;
-    if (params.businessContact) payload.business_contact = params.businessContact;
-    if (params.businessContactMobile) payload.business_contact_mobile = params.businessContactMobile;
-    if (params.businessMobile) payload.business_mobile = params.businessMobile;
-    if (params.country) payload.country = params.country;
-    if (params.splitType) payload.split_type = params.splitType;
-    if (params.splitValue !== undefined) payload.split_value = params.splitValue;
-    if (params.meta) {
-      payload.meta = Object.entries(params.meta).map(([meta_name, meta_value]) => ({
-        meta_name,
-        meta_value,
-      }));
-    }
-
-    try {
-      const response = await client.Subaccount.update(payload);
-      logger.info("Subaccount updated", { id });
-      return response;
-    } catch (error: any) {
-      logger.error("Failed to update Flutterwave subaccount", {
-        id,
-        error: error?.message || error,
-      });
-      throw error;
-    }
   }
 
   // ------- Collections (Rwanda mobile money) -------

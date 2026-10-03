@@ -334,12 +334,6 @@ export async function chargeInvoice(params: {
     throw new Error(`This invoice is ${invoice.status} and cannot be charged.`);
   }
 
-  // Payout guard: without a subaccount the money could never settle, so the
-  // charge is refused before a transaction row exists. Reuses the merchant's
-  // subaccount or builds one from their bank details; throws the
-  // merchant-facing message when neither is possible.
-  await flutterwave.ensureSubaccountForMerchant(params.merchantId, invoice.currency);
-
   const reference = invoice.reference;
 
   // 1. Transaction row, idempotent on the unique reference.

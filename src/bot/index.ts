@@ -1,6 +1,5 @@
 import { whatsapp } from "@/services/whatsapp";
 import { autoramp } from "@/services/autoramp";
-import { flutterwave } from "@/services/flutterwave";
 import {
   findOrCreateUser,
   getSession,
@@ -406,32 +405,10 @@ async function lookupProductPrice(merchantId: string, name: string): Promise<num
 }
 
 /**
- * An invoice only makes sense for a merchant Flutterwave can pay out: reuse
- * their subaccount, or build one from their saved bank details. Refuses the
- * flow - before any prompting - when neither is possible, so the merchant
- * hears it up front instead of after filling in the whole invoice.
- */
-async function ensureMerchantCanInvoice(phone: string, user: any): Promise<boolean> {
-  try {
-    await flutterwave.ensureSubaccountForMerchant(user.id);
-    return true;
-  } catch (error: any) {
-    logger.warn("Invoice blocked - merchant has no payout subaccount", {
-      userId: user.id,
-      error: error?.message || error,
-    });
-    await whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.NO_SUBACCOUNT);
-    return false;
-  }
-}
-
-/**
  * Walk a draft through the missing pieces: prices (from the catalogue, one
  * question each when unknown), then the buyer's number, then confirmation.
  */
 async function advanceInvoice(phone: string, user: any, draft: InvoiceDraft) {
-  if (!(await ensureMerchantCanInvoice(phone, user))) return;
-
   for (let i = 0; i < draft.items.length; i++) {
     if (draft.items[i].unitPrice !== null && draft.items[i].unitPrice !== undefined) continue;
 
@@ -478,8 +455,6 @@ async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft)
  * the "invoice" trigger in idle.
  */
 async function handleInvoiceCommand(phone: string, user: any, args: string) {
-  if (!(await ensureMerchantCanInvoice(phone, user))) return;
-
   await expireStaleInvoices(user.id).catch(() => {});
 
   const input = args.trim();
@@ -1013,7 +988,6 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
         buyerPhone: parsed.buyerPhone,
       });
     }
-    if (!(await ensureMerchantCanInvoice(phone, user))) return;
     await updateSession(user.id, SESSION_STATE.INVOICE_ITEMS, {});
     return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS);
   }
