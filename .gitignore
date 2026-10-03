@@ -16,3 +16,6 @@ secrets/
 *.db
 *.db-journal
 prisma/dev.db*
+
+# Prod database dumps - contain PII, never commit
+backups/
