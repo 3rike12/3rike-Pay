@@ -285,7 +285,13 @@ class FlutterwaveService {
         message,
         validation: validation || undefined,
       });
-      throw new Error(validation ? `${message} (${validation})` : message);
+      const error: any = new Error(validation ? `${message} (${validation})` : message);
+      // Callers branch on these (e.g. find-or-create on 409); the message
+      // alone cannot distinguish a conflict from any other failure.
+      error.status = response.status;
+      error.code = body?.error?.code;
+      error.errorType = body?.error?.type;
+      throw error;
     }
 
     return body as T;
@@ -308,16 +314,54 @@ class FlutterwaveService {
       if (phone) payload.phone = phone;
     }
 
-    const response = await this.v4Request("/customers", {
-      method: "POST",
-      body: payload,
-      idempotencyKey: crypto.randomUUID(),
-    });
-    const customerId = response?.data?.id;
-    if (!customerId) {
-      throw new Error("Flutterwave returned no customer id");
+    try {
+      const response = await this.v4Request("/customers", {
+        method: "POST",
+        body: payload,
+        // Deterministic per buyer: a repeat charge replays the original
+        // 201 (same id) instead of tripping the duplicate check with a
+        // fresh key, which answers 409 and aborts the push flow.
+        idempotencyKey: `customer-create:${params.email}`,
+      });
+      const customerId = response?.data?.id;
+      if (!customerId) {
+        throw new Error("Flutterwave returned no customer id");
+      }
+      return { id: customerId as string, response };
+    } catch (error: any) {
+      if (error?.status !== 409) throw error;
+      // The customer predates the deterministic key (an older build created
+      // it with a random one, or two first charges raced): look it up and
+      // reuse it rather than failing the whole charge.
+      const existingId = await this.findV4CustomerByEmail(params.email);
+      if (!existingId) throw error;
+      logger.info("Reusing customer that already exists in Flutterwave", {
+        email: params.email,
+        customerId: existingId,
+      });
+      return { id: existingId, response: null };
     }
-    return { id: customerId as string, response };
+  }
+
+  /**
+   * Find a v4 customer id by exact email. The list endpoint's `?email=`
+   * filter is ignored server-side (it returns every customer), so the rows
+   * are filtered here, walking pages until the buyer turns up.
+   */
+  private async findV4CustomerByEmail(email: string): Promise<string | null> {
+    const wanted = email.toLowerCase();
+
+    for (let page = 1; page <= 10; page++) {
+      const response = await this.v4Request(`/customers?page=${page}`);
+      const rows: any[] = Array.isArray(response?.data) ? response.data : [];
+      const hit = rows.find((row) => String(row?.email || "").toLowerCase() === wanted);
+      if (hit?.id) return String(hit.id);
+
+      const totalPages = Number(response?.meta?.page_info?.total_pages || 1);
+      if (rows.length === 0 || page >= totalPages) return null;
+    }
+
+    return null;
   }
 
   /**

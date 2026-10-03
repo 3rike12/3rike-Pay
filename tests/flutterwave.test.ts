@@ -357,6 +357,75 @@ describe("v4 push charge client", () => {
       flutterwave.createV4Customer({ email: "not-an-email" })
     ).rejects.toThrow("must be an email format");
   });
+
+  it("creates the customer under a deterministic key so a repeat buyer replays instead of conflicting", async () => {
+    fetchMock
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(json({ status: "success", data: { id: "cus_1" } }));
+
+    await flutterwave.createV4Customer({ email: "buyer-0781234567@pay.3rike.app" });
+
+    expect(fetchMock.mock.calls[1][1].headers["X-Idempotency-Key"]).toBe(
+      "customer-create:buyer-0781234567@pay.3rike.app"
+    );
+  });
+
+  it("reuses the existing customer when the create answers 409", async () => {
+    fetchMock
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(
+        json(
+          {
+            status: "failed",
+            error: { type: "RESOURCE_CONFLICT", code: "10409", message: "Customer already exists" },
+          },
+          409
+        )
+      )
+      .mockResolvedValueOnce(
+        json({
+          status: "success",
+          meta: { page_info: { total: 2, current_page: 1, total_pages: 1 } },
+          data: [
+            { id: "cus_other", email: "someone-else@pay.3rike.app" },
+            { id: "cus_found", email: "buyer-0781234567@pay.3rike.app" },
+          ],
+        })
+      );
+
+    const customer = await flutterwave.createV4Customer({
+      email: "buyer-0781234567@pay.3rike.app",
+    });
+
+    expect(customer.id).toBe("cus_found");
+    expect(fetchMock).toHaveBeenCalledTimes(3); // token, POST, list lookup
+    expect(fetchMock.mock.calls[2][0]).toContain("/customers?page=1");
+  });
+
+  it("rethrows the conflict when the existing customer cannot be found", async () => {
+    fetchMock
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(
+        json(
+          {
+            status: "failed",
+            error: { type: "RESOURCE_CONFLICT", code: "10409", message: "Customer already exists" },
+          },
+          409
+        )
+      )
+      .mockResolvedValueOnce(
+        json({
+          status: "success",
+          meta: { page_info: { total: 0, current_page: 1, total_pages: 1 } },
+          data: [],
+        })
+      );
+
+    await expect(
+      flutterwave.createV4Customer({ email: "ghost@pay.3rike.app" })
+    ).rejects.toThrow("Customer already exists");
+  });
 });
 
 describe("webhook signatures", () => {
