@@ -148,15 +148,10 @@
       "PROMPT_ITEMS": "What should the customer pay for?\n\nExample:\n*3 batteries and 2 water*\n\nInclude the customer's number if you have it:\n*3 batteries for 0781234567*",
       "PROMPT_PRICE": "How much is *{{name}}*?\n\nReply with a number, e.g. *1500*.",
       "PROMPT_PHONE": "What's the customer's Rwanda mobile number?\n\nExample: *0781234567* or *+250781234567*",
-      "INVALID_PHONE": "That doesn't look like a Rwanda mobile number.\n\nUse *0781234567* or *+250781234567*.",
       "INVALID_ITEMS": "I couldn't read that as a list of items.\n\nExample:\n*3 batteries and 2 water*",
       "CONFIRM_HINT": "\n\nTap *Yes* to send the payment request, or *No* to stop.",
-      "ISSUED": "I've sent the payment request to the customer.",
+      "ISSUED": "Share the payment link with your customer so they can approve it.",
       "ISSUED_PUSH": "I've sent the payment request to the customer. Their phone is showing a payment prompt to approve.",
-      "BUYER_REQUEST": "*Payment request*\n\n{{items}}\n*Total: {{total}}*\n\nTap the link below to approve the payment:\n{{url}}",
-      "BUYER_REQUEST_PUSH": "*Payment request*\n\n{{items}}\n*Total: {{total}}*\n\nA payment prompt has just reached your phone - open it and approve the payment to finish.{{note}}",
-      "BUYER_REQUEST_NO_URL": "*Payment request*\n\n{{items}}\n*Total: {{total}}*\n\nYour payment link is not ready yet - the merchant will share it shortly.",
-      "BUYER_PAID": "*Payment confirmed*\n\n{{items}}\n*Total: {{total}}*\n\nThank you. Your payment has been received.",
       "ERROR": "Could not start the payment: {{reason}}\n\nYour invoice is saved.\n\nReply *yes* to send the payment request, or *cancel* to stop."
     },
     "INVOICES": {

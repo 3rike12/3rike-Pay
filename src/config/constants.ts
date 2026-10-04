@@ -332,19 +332,10 @@ export const MESSAGES = {
       PROMPT_PRICE: (name: string) =>
         render(messagesJson.BUSINESS.INVOICE.PROMPT_PRICE, { name }),
       PROMPT_PHONE: messagesJson.BUSINESS.INVOICE.PROMPT_PHONE,
-      INVALID_PHONE: messagesJson.BUSINESS.INVOICE.INVALID_PHONE,
       INVALID_ITEMS: messagesJson.BUSINESS.INVOICE.INVALID_ITEMS,
       CONFIRM_HINT: messagesJson.BUSINESS.INVOICE.CONFIRM_HINT,
       ISSUED: messagesJson.BUSINESS.INVOICE.ISSUED,
       ISSUED_PUSH: messagesJson.BUSINESS.INVOICE.ISSUED_PUSH,
-      BUYER_REQUEST: (items: string, total: string, url: string) =>
-        render(messagesJson.BUSINESS.INVOICE.BUYER_REQUEST, { items, total, url }),
-      BUYER_REQUEST_PUSH: (items: string, total: string, note: string) =>
-        render(messagesJson.BUSINESS.INVOICE.BUYER_REQUEST_PUSH, { items, total, note }),
-      BUYER_REQUEST_NO_URL: (items: string, total: string) =>
-        render(messagesJson.BUSINESS.INVOICE.BUYER_REQUEST_NO_URL, { items, total }),
-      BUYER_PAID: (items: string, total: string) =>
-        render(messagesJson.BUSINESS.INVOICE.BUYER_PAID, { items, total }),
       ERROR: (reason: string) => render(messagesJson.BUSINESS.INVOICE.ERROR, { reason }),
     },
     INVOICES: messagesJson.BUSINESS.INVOICES,

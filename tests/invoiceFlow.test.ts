@@ -27,7 +27,6 @@ const h = vi.hoisted(() => {
     createDraftInvoice: vi.fn(),
     chargeInvoice: vi.fn(),
     renderInvoiceSummary: vi.fn(),
-    renderBuyerRequestMessage: vi.fn(),
     scheduleInvoiceVerification: vi.fn(),
     expireStaleInvoices: vi.fn(),
     updateSession: vi.fn(),
@@ -78,7 +77,6 @@ vi.mock("@/services/invoice", () => ({
   createDraftInvoice: (...args: any[]) => h.createDraftInvoice(...args),
   chargeInvoice: (...args: any[]) => h.chargeInvoice(...args),
   renderInvoiceSummary: (...args: any[]) => h.renderInvoiceSummary(...args),
-  renderBuyerRequestMessage: (...args: any[]) => h.renderBuyerRequestMessage(...args),
   scheduleInvoiceVerification: (...args: any[]) => h.scheduleInvoiceVerification(...args),
   expireStaleInvoices: (...args: any[]) => h.expireStaleInvoices(...args),
   humanizeChargeError: (error: unknown) =>
@@ -138,11 +136,9 @@ beforeEach(() => {
   h.createProduct.mockImplementation(async (p: any) => ({ id: "prod_1", ...p }));
   h.createDraftInvoice.mockResolvedValue({ id: "inv_new" });
   h.renderInvoiceSummary.mockImplementation(
-    (inv: any) => `Total: RWF ${inv.amount}\nBuyer: ${inv.buyerPhone}`
-  );
-  h.renderBuyerRequestMessage.mockImplementation(
-    (_inv: any, url: string) =>
-      `*Payment request*\n\n- 3 x batteries: RWF 3,000\n\n*Total: RWF 3,000*\n\n${url}`
+    (inv: any) =>
+      `Total: RWF ${inv.amount}\nBuyer: ${inv.buyerPhone}` +
+      (inv.paymentUrl ? `\nFallback link: ${inv.paymentUrl}` : "")
   );
   h.scheduleInvoiceVerification.mockImplementation(() => {});
   h.chargeInvoice.mockResolvedValue({
@@ -323,7 +319,7 @@ describe("invoice conversation", () => {
     expect(confirm).toContain("Total: RWF 1,400");
   });
 
-  it("rejects a non-Rwanda number", async () => {
+  it("re-asks for a non-Rwanda number instead of scolding", async () => {
     setSession(SESSION_STATE.INVOICE_PHONE, {
       items: [{ name: "water", qty: 1, unitPrice: 1500 }],
       buyerPhone: null,
@@ -332,7 +328,7 @@ describe("invoice conversation", () => {
     const reply = await say("054709929220");
 
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_PHONE);
-    expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.INVALID_PHONE);
+    expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.PROMPT_PHONE);
   });
 
   it("accepts a number pasted inside the whole request", async () => {
@@ -381,17 +377,15 @@ describe("invoice conversation", () => {
     expect(h.resetSession).toHaveBeenCalled();
     expect(h.session.state).toBe("idle");
 
-    // The buyer gets the payment link as a QR image...
-    expect(whatsapp.uploadMedia).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(whatsapp.uploadMedia).mock.calls[0][1]).toBe("image/png");
-    expect(whatsapp.sendImageMessage).toHaveBeenCalledTimes(1);
-    expect(whatsapp.sendImageMessage).toHaveBeenCalledWith(
+    // The buyer is never messaged - no QR upload, no image, no text.
+    expect(whatsapp.uploadMedia).not.toHaveBeenCalled();
+    expect(whatsapp.sendImageMessage).not.toHaveBeenCalled();
+    expect(h.sendTextMessage).not.toHaveBeenCalledWith(
       "0781234567",
-      "media-1",
-      expect.stringContaining("https://checkout.flutterwave.com/v3/hosted/pay/abc")
+      expect.anything()
     );
 
-    // ...the merchant gets a plain-text summary with no link and no QR.
+    // The merchant alone gets the summary, with the link to forward.
     expect(h.sendTextMessage).toHaveBeenCalledTimes(1);
     expect(h.sendTextMessage).toHaveBeenCalledWith(
       PHONE,
@@ -399,38 +393,11 @@ describe("invoice conversation", () => {
     );
     expect(h.sendTextMessage).toHaveBeenCalledWith(
       PHONE,
-      expect.not.stringContaining("https://")
+      expect.stringContaining("Fallback link")
     );
   });
 
-  it("falls back to a plain-text message when the QR cannot be sent", async () => {
-    setSession(SESSION_STATE.INVOICE_CONFIRM, {
-      items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
-      buyerPhone: "0781234567",
-    });
-    // The buyer's QR upload fails, so their message falls back to text.
-    vi.mocked(whatsapp.uploadMedia)
-      .mockRejectedValueOnce(new Error("upload failed"))
-      .mockRejectedValueOnce(new Error("upload failed"));
-
-    const reply = await say("yes");
-
-    expect(reply).toContain("Payment request issued");
-    expect(whatsapp.sendImageMessage).not.toHaveBeenCalled();
-    // Plain text for the buyer (with the link) and for the merchant.
-    expect(h.sendTextMessage).toHaveBeenCalledTimes(2);
-    expect(h.sendTextMessage).toHaveBeenCalledWith(
-      "0781234567",
-      expect.stringContaining("https://checkout.flutterwave.com/v3/hosted/pay/abc")
-    );
-    expect(h.sendTextMessage).toHaveBeenCalledWith(
-      PHONE,
-      expect.stringContaining("Payment request issued")
-    );
-    expect(h.session.state).toBe("idle");
-  });
-
-  it("tells the buyer to check their phone when the charge was pushed", async () => {
+  it("tells the merchant the prompt is on the buyer's phone when the charge was pushed", async () => {
     setSession(SESSION_STATE.INVOICE_CONFIRM, {
       items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
       buyerPhone: "0781234567",
@@ -452,21 +419,15 @@ describe("invoice conversation", () => {
       paymentNote: "Approve this payment on your phone.",
       chargeId: "chg_1",
     });
-    h.renderBuyerRequestMessage.mockImplementation(
-      (_inv: any, url: string | null, note?: string | null) =>
-        `*Payment request*\n\n- 3 x batteries: RWF 3,000\n\n*Total: RWF 3,000*\n\n${
-          url ? url : `prompt: ${note}`
-        }`
-    );
 
     const reply = await say("yes");
 
-    // Nothing to encode, so no QR goes out at all - plain text both ways.
+    // Nothing to encode, and the buyer is never messaged at all.
     expect(whatsapp.uploadMedia).not.toHaveBeenCalled();
     expect(whatsapp.sendImageMessage).not.toHaveBeenCalled();
-    expect(h.sendTextMessage).toHaveBeenCalledWith(
+    expect(h.sendTextMessage).not.toHaveBeenCalledWith(
       "0781234567",
-      expect.stringContaining("Approve this payment on your phone.")
+      expect.anything()
     );
     // The merchant hears about the prompt instead of being handed a link.
     expect(reply).toContain("Payment request issued");

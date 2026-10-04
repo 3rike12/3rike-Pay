@@ -108,7 +108,6 @@ import {
   settleInvoicePayment,
   verifyInvoicePayment,
   renderPaidInvoiceMessage,
-  renderBuyerRequestMessage,
 } from "@/services/invoice";
 import { flutterwave } from "@/services/flutterwave";
 import { prisma } from "@/db/prisma";
@@ -330,18 +329,15 @@ describe("settleInvoicePayment", () => {
     const second = await settleInvoicePayment("3RIKE-20260930-ABC123");
     expect(second.settled).toBe(false);
     expect(credit).toHaveBeenCalledTimes(2);
-    // Merchant first, then the buyer - one message each, sent exactly once.
-    expect(notify).toHaveBeenCalledTimes(2);
+    // The merchant is messaged exactly once - and only the merchant.
+    expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][0]).toBe("0771234567");
     expect(notify.mock.calls[0][1]).toContain("Payment Received");
     expect(notify.mock.calls[0][1]).toContain("RWF 3,000");
     // The internal reference must never reach a message.
     expect(notify.mock.calls[0][1]).not.toContain("3RIKE-20260930-ABC123");
-
-    expect(notify.mock.calls[1][0]).toBe("0781234567");
-    expect(notify.mock.calls[1][1]).toContain("Payment confirmed");
-    expect(notify.mock.calls[1][1]).toContain("RWF 3,000");
-    expect(notify.mock.calls[1][1]).not.toContain("3RIKE-20260930-ABC123");
+    // The buyer gets nothing from us, paid or not.
+    expect(notify).not.toHaveBeenCalledWith("0781234567", expect.anything());
   });
 
   it("records the split on the transaction row, keeping existing metadata", async () => {
@@ -368,7 +364,7 @@ describe("settleInvoicePayment", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it("still settles when the invoice has no buyer phone to confirm to", async () => {
+  it("still settles when the invoice has no buyer phone", async () => {
     seedInvoice({ status: "pending_payment", buyerPhone: "" });
 
     const result = await settleInvoicePayment("3RIKE-20260930-ABC123");
@@ -389,7 +385,7 @@ describe("verifyInvoicePayment", () => {
     expect(result).toBe("settled");
     expect(invoiceRow.status).toBe("paid");
     expect(credit).toHaveBeenCalledTimes(2); // merchant share + platform fee
-    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenCalledTimes(1); // merchant only - never the buyer
     expect((prisma.transaction.updateMany as any).mock.calls[0][0]).toEqual({
       where: { reference: "3RIKE-20260930-ABC123" },
       data: { status: "completed" },
@@ -544,37 +540,6 @@ describe("renderPaidInvoiceMessage", () => {
     expect(message).toContain("RWF 3,000");
     expect(message).toContain("3 x batteries: RWF 3,000");
     expect(message).toContain("Buyer: 0781234567");
-  });
-});
-
-describe("renderBuyerRequestMessage", () => {
-  const invoice = {
-    items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
-    amount: 3000,
-    currency: "RWF",
-  };
-
-  it("prefers the link when there is one", () => {
-    const message = renderBuyerRequestMessage(invoice, "https://pay.example/x", "Approve it");
-
-    expect(message).toContain("https://pay.example/x");
-    expect(message).not.toContain("prompt");
-  });
-
-  it("points at the handset prompt when the charge was pushed", () => {
-    const message = renderBuyerRequestMessage(invoice, null, "Approve this payment on your phone.");
-
-    expect(message).toContain("payment prompt");
-    expect(message).toContain("Approve this payment on your phone.");
-    expect(message).toContain("RWF 3,000");
-    expect(message).not.toContain("https://");
-  });
-
-  it("says the link is not ready when neither arrived", () => {
-    const message = renderBuyerRequestMessage(invoice, null, null);
-
-    expect(message).toContain("not ready");
-    expect(message).not.toContain("https://");
   });
 });
 

@@ -19,12 +19,10 @@ import {
   humanizeChargeError,
   listInvoices,
   listProducts,
-  renderBuyerRequestMessage,
   renderInvoiceSummary,
   scheduleInvoiceVerification,
 } from "@/services/invoice";
 import { createLogger } from "@/utils/logger";
-import { paymentQrPng } from "@/utils/qr";
 import { config } from "@/config";
 import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
 
@@ -474,80 +472,6 @@ async function handleInvoiceCommand(phone: string, user: any, args: string) {
 }
 
 /**
- * Send the issued-invoice message as a QR image, captioned with the same
- * body the plain-text message would carry so the merchant only ever has one
- * thing to forward. Returns false when it could not be sent, and never
- * throws - the caller falls back to plain text.
- */
-async function sendPaymentQr(phone: string, url: string, caption: string): Promise<boolean> {
-  try {
-    const png = await paymentQrPng(url);
-    const mediaId = await whatsapp.uploadMedia(png, "image/png", "payment-qr.png");
-    return await whatsapp.sendImageMessage(phone, mediaId, caption);
-  } catch (error: any) {
-    logger.error("Failed to send payment QR", {
-      phone: redactPhone(phone),
-      error: error.message,
-      stack: error.stack,
-    });
-    return false;
-  }
-}
-
-/**
- * Send the payment request to the BUYER.
- *
- * Two ways the charge reaches them: a link they open (v3, or a v4 redirect
- * charge), or - on the v4 push flow - a payment prompt Flutterwave lands on
- * their handset directly, which this message simply points at.
- *
- * Best effort: a buyer who is not on WhatsApp must never block the merchant's
- * invoice, so every failure is logged and swallowed.
- */
-async function sendBuyerPaymentRequest(
-  invoice: { id?: string; buyerPhone?: string | null } | null | undefined,
-  paymentUrl: string | null | undefined,
-  paymentNote?: string | null
-): Promise<boolean> {
-  const buyerPhone = invoice?.buyerPhone;
-  if (!buyerPhone) {
-    logger.warn("Buyer payment request skipped: invoice has no buyer phone", {
-      invoiceId: invoice?.id,
-    });
-    return false;
-  }
-  if (!paymentUrl && !paymentNote) {
-    logger.warn("Buyer payment request skipped: no payment link or prompt", {
-      invoiceId: invoice.id,
-      phone: redactPhone(buyerPhone),
-    });
-    return false;
-  }
-
-  const body = renderBuyerRequestMessage(invoice as any, paymentUrl, paymentNote);
-  try {
-    // The QR carries the link; a push has nothing to encode, so it goes
-    // out as plain text pointing at the prompt on the buyer's handset.
-    const qrSent = paymentUrl ? await sendPaymentQr(buyerPhone, paymentUrl, body) : false;
-    if (!qrSent) await whatsapp.sendTextMessage(buyerPhone, body);
-    logger.info("Buyer payment request sent", {
-      invoiceId: invoice.id,
-      phone: redactPhone(buyerPhone),
-      viaQr: qrSent,
-      viaPush: !paymentUrl,
-    });
-    return true;
-  } catch (error: any) {
-    logger.warn("Buyer payment request failed", {
-      invoiceId: invoice.id,
-      phone: redactPhone(buyerPhone),
-      error: error?.message,
-    });
-    return false;
-  }
-}
-
-/**
  * Yes/Cancel buttons for anything said while the invoice sits in the
  * confirm state - a tap retries the charge (or cancels) instead of
  * making people type the reply.
@@ -587,11 +511,6 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
 
     await resetSession(user.id);
 
-    // The buyer has to act before anything can settle - open the link, or
-    // approve the prompt the push flow just landed on their handset - so
-    // they are messaged before the merchant gets their summary.
-    await sendBuyerPaymentRequest(result.invoice as any, result.paymentUrl, result.paymentNote);
-
     const summary = renderInvoiceSummary(result.invoice as any);
     const tail = result.paymentNote
       ? MESSAGES.BUSINESS.INVOICE.ISSUED_PUSH
@@ -602,8 +521,8 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
       ? `*Payment request issued*\n\n${summary}\n\n${tail}`
       : `*Payment request issued*\n\n${summary}`;
 
-    // The merchant gets their summary as plain text - the payment link and
-    // QR belong to the buyer's message, not the merchant's.
+    // The merchant is the only one messaged: the summary carries the
+    // fallback link for them to forward to the customer.
     return whatsapp.sendTextMessage(phone, body);
   } catch (error: any) {
     logger.error("Failed to issue invoice", {
@@ -1343,7 +1262,8 @@ async function handleInvoicePhone(phone: string, user: any, flowData: FlowData, 
   const parsed = direct ? null : parseInvoiceRequest(text, false);
   const buyerPhone = direct || parsed?.buyerPhone || null;
   if (!buyerPhone) {
-    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.INVALID_PHONE);
+    // No scolding - just ask again for the number.
+    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_PHONE);
   }
   return showInvoiceConfirm(phone, user, { ...(flowData as unknown as InvoiceDraft), buyerPhone });
 }
