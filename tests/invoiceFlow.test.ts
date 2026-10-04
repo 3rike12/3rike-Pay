@@ -335,6 +335,22 @@ describe("invoice conversation", () => {
     expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.INVALID_PHONE);
   });
 
+  it("accepts a number pasted inside the whole request", async () => {
+    setSession(SESSION_STATE.INVOICE_PHONE, {
+      items: [{ name: "waters", qty: 2, unitPrice: 1500 }],
+      buyerPhone: null,
+    });
+
+    // The merchant re-sends the full command instead of only the number;
+    // the qty/price digits must not poison the phone check.
+    const reply = await say("Charge 0782348251 2 waters at 1500");
+
+    expect(h.session.state).toBe(SESSION_STATE.INVOICE_CONFIRM);
+    expect(h.session.flowData.buyerPhone).toBe("0782348251");
+    expect(reply).toContain("Total: RWF 3,000");
+    expect(reply).toContain("Buyer: 0782348251");
+  });
+
   it("rejects an empty item message", async () => {
     setSession(SESSION_STATE.INVOICE_ITEMS, {});
 

@@ -1333,7 +1333,15 @@ async function handleInvoicePrice(phone: string, user: any, flowData: FlowData, 
 }
 
 async function handleInvoicePhone(phone: string, user: any, flowData: FlowData, text: string) {
-  const buyerPhone = toRwandaPhone(text.trim());
+  // The merchant may answer with the number alone, or paste the whole
+  // request again ("Charge 0782348251 2 waters at 1500"). toRwandaPhone
+  // strips letters, so the extra digits in qty/price make it fail on the
+  // full message - fall back to the invoice parser, which pulls the buyer
+  // number out of the line. Only the number is needed here; the draft
+  // already holds the items.
+  const direct = toRwandaPhone(text.trim());
+  const parsed = direct ? null : parseInvoiceRequest(text, false);
+  const buyerPhone = direct || parsed?.buyerPhone || null;
   if (!buyerPhone) {
     return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.INVALID_PHONE);
   }
