@@ -10,7 +10,8 @@ import {
   logWebhookEvent,
   prisma,
 } from "@/services/database";
-import { generateReference, generateTransactionReference, formatAmount, extractAmount, redactSensitiveText, redactPhone, parseTransferRequest, parseProductCreateRequest, parseInvoiceRequest, stripProductIntent, toRwandaPhone, parseAmountFromText, formatCurrency } from "@/utils/helpers";
+import { generateReference, generateTransactionReference, formatAmount, formatWalletLines, extractAmount, redactSensitiveText, redactPhone, parseTransferRequest, parseProductCreateRequest, parseInvoiceRequest, stripProductIntent, toRwandaPhone, parseAmountFromText, formatCurrency } from "@/utils/helpers";
+import { ledger } from "@/services/ledger";
 import {
   chargeInvoice,
   createDraftInvoice,
@@ -975,12 +976,20 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
 
 // ============================================
 // Balance helpers
+//
+// Two distinct pots, never interchangeable:
+// - Safehaven: the user's own bank sub-account (NGN). This is what a bank
+//   transfer debits, so it is what gates a transfer.
+// - Wallet: the internal ledger (RWF and friends), where invoice
+//   settlements land as the merchant's share. Read-only, never created by
+//   a peek.
 // ============================================
 
-/** Live balance for a user's sub-account, or null when unavailable. */
-async function getUserBalance(user: any): Promise<number | null> {
+/** Live Safehaven balance for a user's sub-account, or null when unavailable. */
+async function getSafehavenBalance(user: any): Promise<number | null> {
+  if (!user.bankAccount?.autorampSubId) return null;
   try {
-    const account = await autoramp.getSubAccount(user.bankAccount?.autorampSubId || "");
+    const account = await autoramp.getSubAccount(user.bankAccount.autorampSubId);
     const balance = account?.accountBalance ?? account?.bookBalance;
     if (balance === undefined || balance === null) return null;
     return Number(balance);
@@ -989,21 +998,35 @@ async function getUserBalance(user: any): Promise<number | null> {
   }
 }
 
+/** Ledger wallet balances, one line per currency, or null when the lookup failed. */
+async function getWalletLines(userId: string): Promise<string | null> {
+  try {
+    return formatWalletLines(await ledger.listBalances(userId));
+  } catch (error: any) {
+    logger.warn("Wallet balance lookup failed", { userId, error: error?.message });
+    return null;
+  }
+}
+
 /**
- * Gate a transfer on having enough balance. Sends the explanatory message and
- * returns false when the balance is unknown or too low, so the caller can bail
- * out before touching the bank or the transaction record.
+ * Gate a transfer on having enough Safehaven balance. Sends the explanatory
+ * message and returns false when the balance is unknown or too low, so the
+ * caller can bail out before touching the bank or the transaction record.
+ *
+ * The wallet is shown alongside the bank figure but never decides the gate:
+ * it holds a different currency and transferFlow debits the bank account.
  */
 async function ensureSufficientBalance(phone: string, user: any, amount: number): Promise<boolean> {
-  const balance = await getUserBalance(user);
+  const balance = await getSafehavenBalance(user);
   if (balance === null) {
     await whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.ERROR);
     return false;
   }
   if (balance < amount) {
+    const wallet = (await getWalletLines(user.id)) ?? "Unavailable";
     await whatsapp.sendTextMessage(
       phone,
-      MESSAGES.SEND_MONEY.INSUFFICIENT_BALANCE(formatAmount(amount), formatAmount(balance))
+      MESSAGES.SEND_MONEY.INSUFFICIENT_BALANCE(formatAmount(amount), formatAmount(balance), wallet)
     );
     return false;
   }
@@ -1374,34 +1397,44 @@ async function handleNaturalTransfer(
 // ============================================
 
 async function handleCheckBalance(phone: string, user: any) {
-  // Without an account of their own there is no balance to show. Falling back
-  // to the merchant account here would leak the company's pooled balance to
-  // every user who typed "balance". Same no-account prompt as the menu gate.
-  if (!user.bankAccount?.accountNumber) {
-    return sendNoAccountPrompt(phone, user);
-  }
-
-  try {
-    const account = await autoramp.getSubAccount(user.bankAccount?.autorampSubId || "");
-    const bank = user.bankAccount?.bankName || user.bankAccount?.bankCode || account?.bankName || "Bank";
-    const accountNumber = user.bankAccount?.accountNumber || account?.accountNumber || "";
-    const balance = account?.accountBalance ?? account?.bookBalance;
-
-    if (balance === undefined || balance === null) {
-      return whatsapp.sendTextMessage(
-        phone,
-        MESSAGES.CHECK_BALANCE.NO_BALANCE(bank, accountNumber)
-      );
-    }
-
-    return whatsapp.sendTextMessage(
-      phone,
-      MESSAGES.CHECK_BALANCE.TEXT(bank, accountNumber, formatAmount(Number(balance)))
-    );
-  } catch (error: any) {
-    logger.error("Balance check failed", { phone: redactPhone(phone), error: error.message });
+  // Always show the ledger wallet: that is where an invoice settlement
+  // actually lands, and it is the merchant's own money - not the pooled
+  // company account, which getMerchantAccount() would return and which stays
+  // out of this reply. The bank block is secondary and degrades to a
+  // placeholder rather than hiding the whole message.
+  const wallet = await getWalletLines(user.id);
+  if (wallet === null) {
     return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.ERROR);
   }
+
+  if (!user.bankAccount?.accountNumber) {
+    return whatsapp.sendTextMessage(
+      phone,
+      MESSAGES.CHECK_BALANCE.TEXT(wallet, "Not linked", "Not linked", "—")
+    );
+  }
+
+  let bank = user.bankAccount?.bankName || user.bankAccount?.bankCode || "";
+  let accountNumber = user.bankAccount?.accountNumber || "";
+  let bankBalance = "Unavailable";
+
+  // Safehaven is best-effort: it must never take the wallet line down with it.
+  try {
+    const account = await autoramp.getSubAccount(user.bankAccount?.autorampSubId || "");
+    bank = bank || account?.bankName || "Bank";
+    accountNumber = accountNumber || account?.accountNumber || "";
+    const balance = account?.accountBalance ?? account?.bookBalance;
+    if (balance !== undefined && balance !== null) {
+      bankBalance = formatAmount(Number(balance));
+    }
+  } catch (error: any) {
+    logger.error("Balance check failed", { phone: redactPhone(phone), error: error.message });
+  }
+
+  return whatsapp.sendTextMessage(
+    phone,
+    MESSAGES.CHECK_BALANCE.TEXT(wallet, bank, accountNumber, bankBalance)
+  );
 }
 
 async function handleTransactions(phone: string, user: any) {

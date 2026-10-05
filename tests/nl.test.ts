@@ -4,6 +4,7 @@ import {
   isRwandaPhone,
   toWhatsAppPhone,
   formatCurrency,
+  formatWalletLines,
   parseProductCreateRequest,
   parseInvoiceRequest,
   stripProductIntent,
@@ -69,6 +70,22 @@ describe("formatCurrency", () => {
 
   it("keeps other currencies working", () => {
     expect(formatCurrency(1000, "NGN")).toBe("NGN 1,000");
+  });
+});
+
+describe("formatWalletLines", () => {
+  it("prints one line per wallet currency", () => {
+    expect(
+      formatWalletLines([
+        { currency: "NGN", balance: 0 },
+        { currency: "RWF", balance: 12000 },
+      ])
+    ).toBe("NGN 0\nRWF 12,000");
+  });
+
+  it("falls back to a zero RWF line so the reply always has the same shape", () => {
+    expect(formatWalletLines([])).toBe("RWF 0");
+    expect(formatWalletLines()).toBe("RWF 0");
   });
 });
 

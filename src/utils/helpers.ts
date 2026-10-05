@@ -38,6 +38,18 @@ export function formatCurrency(amount: number, currency = "RWF"): string {
 }
 
 /**
+ * One line per wallet currency for chat messages, e.g.
+ * `RWF 12,000` or `NGN 0`. An empty list renders a zero RWF line so a
+ * balance reply always has the same shape whether or not funds landed.
+ */
+export function formatWalletLines(
+  balances: Array<{ currency: string; balance: number }> = []
+): string {
+  const rows = balances.length > 0 ? balances : [{ currency: "RWF", balance: 0 }];
+  return rows.map((row) => formatCurrency(Number(row.balance) || 0, row.currency)).join("\n");
+}
+
+/**
  * Rwanda mobile prefixes per RURA's National Numbering Plan:
  * 072/073 (Airtel), 077 (KTRN), 078/079 (MTN). 10 digits national,
  * 12 with the 250 country code.

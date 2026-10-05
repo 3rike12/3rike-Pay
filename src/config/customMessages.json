@@ -172,11 +172,12 @@
   },
   "CHECK_BALANCE.TEXT": {
     "params": [
+      "wallet",
       "bank",
       "account",
       "balance"
     ],
-    "description": "Balance reply with bank and account."
+    "description": "Balance reply with the ledger wallet and the linked bank account."
   },
   "CHECK_BALANCE.NO_BALANCE": {
     "params": [

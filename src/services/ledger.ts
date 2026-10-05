@@ -72,6 +72,24 @@ export class LedgerService {
   }
 
   /**
+   * Every wallet this user holds, one row per currency.
+   *
+   * Read-only on purpose: a balance peek must not create a wallet row, so a
+   * user who has never been credited gets the synthetic zero line instead of
+   * a write. Callers rendering "your balance" want the whole set - a merchant
+   * collecting RWF invoices and a user holding NGN both show up here.
+   */
+  async listBalances(userId: string): Promise<Array<{ currency: string; balance: number }>> {
+    const wallets = await prisma.wallet.findMany({
+      where: { userId },
+      orderBy: { currency: "asc" },
+      select: { currency: true, balance: true },
+    });
+
+    return wallets.length > 0 ? wallets : [{ currency: "RWF", balance: 0 }];
+  }
+
+  /**
    * Credit a user's wallet.
    */
   async credit(params: {

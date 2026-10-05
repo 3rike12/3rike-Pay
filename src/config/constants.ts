@@ -267,8 +267,8 @@ export const MESSAGES = {
     INVALID_AMOUNT: (min: number | string) =>
       render(messagesJson.SEND_MONEY.INVALID_AMOUNT, { min }),
     AMOUNT_TOO_LARGE: (max: string) => render(messagesJson.SEND_MONEY.AMOUNT_TOO_LARGE, { max }),
-    INSUFFICIENT_BALANCE: (amount: string, balance: string) =>
-      render(messagesJson.SEND_MONEY.INSUFFICIENT_BALANCE, { amount, balance }),
+    INSUFFICIENT_BALANCE: (amount: string, balance: string, wallet: string) =>
+      render(messagesJson.SEND_MONEY.INSUFFICIENT_BALANCE, { amount, balance, wallet }),
     NO_BANK_MATCH: (query: string) => render(messagesJson.SEND_MONEY.NO_BANK_MATCH, { query }),
     BANK_MATCHES: (count: number) =>
       render(messagesJson.SEND_MONEY.BANK_MATCHES, {
@@ -295,8 +295,8 @@ export const MESSAGES = {
   },
 
   CHECK_BALANCE: {
-    TEXT: (bank: string, account: string, balance: string) =>
-      render(messagesJson.CHECK_BALANCE.TEXT, { bank, account, balance }),
+    TEXT: (wallet: string, bank: string, account: string, balance: string) =>
+      render(messagesJson.CHECK_BALANCE.TEXT, { wallet, bank, account, balance }),
     NO_BALANCE: (bank: string, account: string) =>
       render(messagesJson.CHECK_BALANCE.NO_BALANCE, { bank, account }),
     ERROR: messagesJson.CHECK_BALANCE.ERROR,
