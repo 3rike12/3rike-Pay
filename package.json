@@ -21,6 +21,7 @@
     "db:seed": "ts-node prisma/seed.ts",
     "db:backup": "node scripts/reset-prod-payments.js",
     "db:wipe-payments": "node scripts/reset-prod-payments.js --wipe",
+    "db:reconcile-wallets": "node scripts/reconcile-wallets.js",
     "send:revalidation": "node scripts/send-revalidation.js"
   },
   "keywords": [
