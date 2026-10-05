@@ -451,8 +451,13 @@ export async function chargeInvoice(params: {
 //
 // Flutterwave collects the gross payment into the platform account - it
 // never splits on our charges (the mobile-money payload has no subaccount
-// field), so the merchant/platform split is booked in our own ledger:
-// two credits against the same reference, one per share.
+// field), so the merchant/platform split is booked in our own ledger.
+//
+// The merchant wallet is credited the gross and then debited the platform
+// fee as a separate entry, so every fee taken off a merchant is a distinct,
+// inspectable deduction on their statement rather than a number that was
+// quietly never credited. The platform wallet is credited the same fee -
+// one debit, one credit, same reference.
 // ============================================
 
 /** Reserved user that owns the platform-fee wallet. Not a real phone. */
@@ -501,16 +506,45 @@ async function ensurePlatformUserId(): Promise<string> {
 }
 
 /**
- * Settle an invoice: flip to paid and credit the ledger - the merchant's
- * share to their wallet, the platform fee to the platform-fee wallet.
+ * The merchant's post-settlement ledger balance in the invoice currency.
+ *
+ * Read after every credit/debit leg has run, so the figure quoted to the
+ * merchant is what their ledger actually says. Falls back to a zero line in
+ * the invoice currency if the lookup fails - a missing number must never
+ * cost us the "you got paid" message.
+ */
+async function readMerchantBalance(
+  merchantId: string,
+  currency: string
+): Promise<{ currency: string; amount: number }> {
+  try {
+    const balances = await ledger.listBalances(merchantId);
+    const match = balances.find((row) => row.currency === currency);
+    return { currency, amount: Number(match?.balance ?? 0) };
+  } catch (error: any) {
+    logger.warn("Could not read the merchant balance for the paid message", {
+      merchantId,
+      currency,
+      error: error?.message,
+    });
+    return { currency, amount: 0 };
+  }
+}
+
+/**
+ * Settle an invoice: flip to paid and book it in the ledger - the gross to
+ * the merchant's wallet, the platform fee debited straight back off it as its
+ * own entry and credited to the platform-fee wallet. The merchant then hears
+ * their new balance.
  *
  * Idempotent on purpose - the Flutterwave webhook may deliver more than
  * once and the verify-poller can race with it. Safe to call from both.
  *
  * The merchant credit keeps key `fw-charge-credit:{reference}` so it shares
  * the same idempotency key as the existing webhook credit path - whichever
- * runs first credits, the other becomes a no-op. The fee leg uses its own
- * `fw-fee-credit:{reference}` key.
+ * runs first credits, the other becomes a no-op. The platform-fee legs use
+ * their own keys: `fw-fee-debit:{reference}` on the merchant wallet and
+ * `fw-fee-credit:{reference}` on the platform wallet.
  */
 export async function settleInvoicePayment(
   reference: string,
@@ -549,12 +583,19 @@ export async function settleInvoicePayment(
       value: FLUTTERWAVE_SPLIT.VALUE,
     };
 
-    // ledger.credit refuses zero amounts: a 100/0 split skips the fee leg
-    // (and a hypothetical 0/100 split skips the merchant leg).
-    if (merchantShare > 0) {
+    // The merchant is credited the gross and then debited the platform fee as
+    // its own entry, so each fee removed from a merchant lands in their ledger
+    // as a distinct deduction. Net is identical to crediting only the share;
+    // only the history differs.
+    //
+    // The credit keeps key `fw-charge-credit:{reference}` - it is shared with
+    // the generic webhook credit path, so a race cannot double-credit. The fee
+    // debit gets its own key because it is a second write against the same
+    // reference, not a retry of the credit.
+    if (invoice.amount > 0) {
       await ledger.credit({
         userId: invoice.merchantId,
-        amount: merchantShare,
+        amount: invoice.amount,
         currency: invoice.currency,
         reference,
         description: `Payment received for invoice ${reference}`,
@@ -564,6 +605,30 @@ export async function settleInvoicePayment(
     }
 
     if (platformFee > 0) {
+      // allowNegative keeps this a pure bookkeeping entry: the invoice is
+      // already flipped to paid above, so a balance race must never leave the
+      // fee unrecorded or abort the settlement. Failures are logged loudly and
+      // swallowed for the same reason the split write below is.
+      try {
+        await ledger.debit({
+          userId: invoice.merchantId,
+          amount: platformFee,
+          currency: invoice.currency,
+          reference,
+          description: `Platform fee for invoice ${reference}`,
+          metadata: { type: "platform_fee", invoiceId: invoice.id, split, ...metadata },
+          allowNegative: true,
+          idempotencyKey: `fw-fee-debit:${reference}`,
+        });
+      } catch (error: any) {
+        logger.error("Platform fee debit failed", {
+          invoiceId: invoice.id,
+          reference,
+          amount: platformFee,
+          error: error?.message,
+        });
+      }
+
       const platformUserId = await ensurePlatformUserId();
       await ledger.credit({
         userId: platformUserId,
@@ -598,12 +663,15 @@ export async function settleInvoicePayment(
 
     // Notify the merchant here rather than in each caller: settle is the
     // single winning path (webhook and verify-poller both funnel through it),
-    // so this cannot double-message.
+    // so this cannot double-message. The balance is read after every ledger
+    // leg above, so the figure in the message is the real post-settlement
+    // total rather than a pre-fee number.
     if (invoice.merchant?.phone) {
+      const newBalance = await readMerchantBalance(invoice.merchantId, invoice.currency);
       try {
         await whatsapp.sendTextMessage(
           invoice.merchant.phone,
-          renderPaidInvoiceMessage(invoice)
+          renderPaidInvoiceMessage(invoice, newBalance)
         );
         logger.info("Paid-invoice notification sent", {
           reference,
@@ -761,13 +829,19 @@ function invoiceItemLines(invoice: { items: unknown; currency: string }): string
  * Merchant-facing "you got paid" message for an invoice. Currency-aware
  * (RWF for Rwanda) and deliberately omits the internal reference - that ID
  * is trace-only and never leaves our systems.
+ *
+ * `newBalance` is the merchant's ledger wallet after this settlement, so the
+ * merchant sees the number rather than being told something changed.
  */
-export function renderPaidInvoiceMessage(invoice: {
-  items: unknown;
-  amount: number;
-  currency: string;
-  buyerPhone: string;
-}): string {
+export function renderPaidInvoiceMessage(
+  invoice: {
+    items: unknown;
+    amount: number;
+    currency: string;
+    buyerPhone: string;
+  },
+  newBalance: { currency: string; amount: number }
+): string {
   const lines = invoiceItemLines(invoice);
 
   return (
@@ -775,7 +849,7 @@ export function renderPaidInvoiceMessage(invoice: {
     (lines ? `${lines}\n\n` : "") +
     `*Total: ${formatCurrency(invoice.amount, invoice.currency)}*\n` +
     `Buyer: ${invoice.buyerPhone}\n\n` +
-    `Your balance has been updated.`
+    `*New balance: ${formatCurrency(newBalance.amount, newBalance.currency)}*`
   );
 }
 

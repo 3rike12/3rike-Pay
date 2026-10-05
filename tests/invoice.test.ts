@@ -42,9 +42,15 @@ vi.mock("@/services/whatsapp", () => ({
 }));
 
 const ledgerCredit = vi.fn();
+const ledgerDebit = vi.fn();
+const ledgerListBalances = vi.fn(async () => [{ currency: "RWF", balance: 2850 }]);
 
 vi.mock("@/services/ledger", () => ({
-  ledger: { credit: (...args: any[]) => ledgerCredit(...args) },
+  ledger: {
+    credit: (...args: any[]) => ledgerCredit(...args),
+    debit: (...args: any[]) => ledgerDebit(...args),
+    listBalances: (...args: any[]) => ledgerListBalances(...args),
+  },
 }));
 
 type Row = Record<string, any>;
@@ -117,6 +123,8 @@ const extract = vi.mocked(extractPaymentUrl as any);
 const verify = vi.mocked(verifyTransactionByTxRef as any);
 const notify = vi.mocked(sendTextMessage as any);
 const credit = vi.mocked(ledgerCredit as any);
+const debit = vi.mocked(ledgerDebit as any);
+const listBalances = vi.mocked(ledgerListBalances as any);
 const v4Enabled = vi.mocked(isV4Enabled as any);
 const chargePush = vi.mocked(chargeV4 as any);
 const extractPushUrl = vi.mocked(extractV4PaymentUrl as any);
@@ -292,24 +300,44 @@ describe("chargeInvoice", () => {
 });
 
 describe("settleInvoicePayment", () => {
-  it("flips to paid and splits the payment between merchant and platform exactly once", async () => {
+  it("flips to paid, credits the gross, then debits the platform fee as its own entry", async () => {
     seedInvoice({ status: "pending_payment" });
 
     const first = await settleInvoicePayment("3RIKE-20260930-ABC123");
     expect(first.settled).toBe(true);
     expect(invoiceRow.status).toBe("paid");
     expect(invoiceRow.paidAt).toBeInstanceOf(Date);
-    // Merchant share first (95%), then the platform fee (5%).
+
+    // The merchant wallet takes the gross, not the net.
     expect(credit).toHaveBeenCalledTimes(2);
     expect(credit).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "merch_1",
-        amount: 2850,
+        amount: 3000,
         currency: "RWF",
         reference: "3RIKE-20260930-ABC123",
         idempotencyKey: "fw-charge-credit:3RIKE-20260930-ABC123",
       })
     );
+
+    // ...and the fee comes back off it as a separate, inspectable deduction.
+    expect(debit).toHaveBeenCalledTimes(1);
+    expect(debit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "merch_1",
+        amount: 150,
+        currency: "RWF",
+        reference: "3RIKE-20260930-ABC123",
+        idempotencyKey: "fw-fee-debit:3RIKE-20260930-ABC123",
+        allowNegative: true,
+        metadata: expect.objectContaining({
+          type: "platform_fee",
+          split: { gross: 3000, merchantShare: 2850, platformFee: 150, type: "percentage", value: 0.95 },
+        }),
+      })
+    );
+
+    // ...and the platform wallet takes the same fee.
     expect(credit).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "platform_user_1",
@@ -323,21 +351,40 @@ describe("settleInvoicePayment", () => {
         }),
       })
     );
-    // The shares add back to the gross.
+
+    // Gross credited, fee debited - the merchant nets the 95% share.
+    expect(3000 - 150).toBe(2850);
     expect(2850 + 150).toBe(invoiceRow.amount);
 
     const second = await settleInvoicePayment("3RIKE-20260930-ABC123");
     expect(second.settled).toBe(false);
     expect(credit).toHaveBeenCalledTimes(2);
+    expect(debit).toHaveBeenCalledTimes(1);
     // The merchant is messaged exactly once - and only the merchant.
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][0]).toBe("0771234567");
     expect(notify.mock.calls[0][1]).toContain("Payment Received");
     expect(notify.mock.calls[0][1]).toContain("RWF 3,000");
+    // The merchant's new balance is quoted, not hand-waved.
+    expect(listBalances).toHaveBeenCalledWith("merch_1");
+    expect(notify.mock.calls[0][1]).toContain("New balance: RWF 2,850");
+    expect(notify.mock.calls[0][1]).not.toContain("Your balance has been updated");
     // The internal reference must never reach a message.
     expect(notify.mock.calls[0][1]).not.toContain("3RIKE-20260930-ABC123");
     // The buyer gets nothing from us, paid or not.
     expect(notify).not.toHaveBeenCalledWith("0781234567", expect.anything());
+  });
+
+  it("still settles and tells the merchant the balance when the fee debit fails", async () => {
+    seedInvoice({ status: "pending_payment" });
+    debit.mockRejectedValueOnce(new Error("lock timeout"));
+
+    const result = await settleInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(result.settled).toBe(true);
+    expect(invoiceRow.status).toBe("paid");
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][1]).toContain("New balance: RWF 2,850");
   });
 
   it("records the split on the transaction row, keeping existing metadata", async () => {
@@ -529,17 +576,31 @@ describe("scheduleInvoiceVerification", () => {
 });
 
 describe("renderPaidInvoiceMessage", () => {
-  it("is currency aware and omits the internal reference", () => {
-    const message = renderPaidInvoiceMessage({
-      items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
-      amount: 3000,
-      currency: "RWF",
-      buyerPhone: "0781234567",
-    });
+  it("is currency aware, omits the internal reference and quotes the new balance", () => {
+    const message = renderPaidInvoiceMessage(
+      {
+        items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+        amount: 3000,
+        currency: "RWF",
+        buyerPhone: "0781234567",
+      },
+      { currency: "RWF", amount: 2850 }
+    );
 
     expect(message).toContain("RWF 3,000");
     expect(message).toContain("3 x batteries: RWF 3,000");
     expect(message).toContain("Buyer: 0781234567");
+    expect(message).toContain("New balance: RWF 2,850");
+    expect(message).not.toContain("Your balance has been updated");
+  });
+
+  it("formats the new balance in its own currency", () => {
+    const message = renderPaidInvoiceMessage(
+      { items: [], amount: 5000, currency: "RWF", buyerPhone: "0781234567" },
+      { currency: "NGN", amount: 1200 }
+    );
+
+    expect(message).toContain("New balance: NGN 1,200");
   });
 });
 
