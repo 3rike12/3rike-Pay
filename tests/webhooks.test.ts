@@ -61,7 +61,7 @@ vi.mock("@/services/flutterwave", () => ({
 }));
 
 vi.mock("@/services/ledger", () => ({
-  ledger: { credit: vi.fn(), debit: vi.fn(), transfer: vi.fn(), getBalance: vi.fn() },
+  ledger: { credit: vi.fn(), debit: vi.fn(), transfer: vi.fn(), getBalance: vi.fn(), listBalances: vi.fn() },
 }));
 
 vi.mock("@/services/invoice", () => ({
@@ -96,6 +96,7 @@ const findEvent = vi.mocked(prisma.webhookEvent.findFirst);
 const createEvent = vi.mocked(prisma.webhookEvent.create);
 const logEvent = vi.mocked(logWebhookEvent);
 const ledgerCredit = vi.mocked(ledger.credit);
+const ledgerListBalances = vi.mocked(ledger.listBalances);
 const invoiceForRef = vi.mocked(getInvoiceByReference);
 const settleInvoice = vi.mocked(settleInvoicePayment);
 const failInvoice = vi.mocked(failInvoicePayment);
@@ -516,6 +517,7 @@ describe("Flutterwave webhook", () => {
     settleInvoice.mockResolvedValue({ settled: true } as any);
     failInvoice.mockResolvedValue(null as any);
     (ledgerCredit as any).mockResolvedValue({});
+    (ledgerListBalances as any).mockResolvedValue([{ currency: "NGN", balance: 5000 }]);
   });
 
   it("rejects a request with no signature header", async () => {
@@ -589,6 +591,12 @@ describe("Flutterwave webhook", () => {
     expect(sendText).toHaveBeenCalledWith(
       "250788000111",
       expect.stringContaining("Reference: 3RIKE-DEP-1")
+    );
+    // The merchant is told their new balance, not just that money arrived.
+    expect(ledgerListBalances).toHaveBeenCalledWith("user_1");
+    expect(sendText).toHaveBeenCalledWith(
+      "250788000111",
+      expect.stringContaining("New balance: NGN 5,000")
     );
   });
 

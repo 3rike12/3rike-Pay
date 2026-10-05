@@ -9,7 +9,7 @@ import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
 import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
-import { cleanPhone, formatAmount, redactSensitiveText } from "@/utils/helpers";
+import { cleanPhone, formatAmount, formatCurrency, redactSensitiveText } from "@/utils/helpers";
 import { failInvoicePayment, getInvoiceByReference, settleInvoicePayment } from "@/services/invoice";
 import { TEMPLATES, KYC_STATUS } from "@/config/constants";
 
@@ -491,6 +491,27 @@ async function handleBankTransfer(event: string, data: any) {
 // Flutterwave event handlers
 // ============================================
 
+/**
+ * "New balance" line for a payment-received message, read after the credit
+ * has landed so the merchant is quoted a real figure. Degrades to an
+ * unavailable note rather than dropping the payment confirmation.
+ */
+async function newBalanceLine(userId: string, currency: string): Promise<string> {
+  try {
+    const balances = await ledger.listBalances(userId);
+    const match = balances.find((row) => row.currency === currency);
+    const amount = Number(match?.balance ?? 0);
+    return `*New balance: ${formatCurrency(amount, currency)}*`;
+  } catch (error: any) {
+    logger.warn("Could not read the balance for a payment-received message", {
+      userId,
+      currency,
+      error: error?.message,
+    });
+    return `*New balance:* unavailable right now`;
+  }
+}
+
 async function handleFlutterwaveChargeCompleted(data: any) {
   // v3 calls the field tx_ref; v4 calls it reference. Both are our
   // invoice/transaction reference.
@@ -550,7 +571,7 @@ async function handleFlutterwaveChargeCompleted(data: any) {
 
       await whatsapp.sendTextMessage(
         transaction.user.phone,
-        `*Payment Received*\n\nAmount: ${formatAmount(transaction.amount)}\nReference: ${txRef}`
+        `*Payment Received*\n\nAmount: ${formatAmount(transaction.amount)}\nReference: ${txRef}\n\n${await newBalanceLine(transaction.userId, transaction.currency)}`
       );
     }
   } else {
