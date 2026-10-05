@@ -531,11 +531,164 @@ async function readMerchantBalance(
   }
 }
 
+const roundMoney = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * The merchant-borne Flutterwave fee found on a payload, flagged `exact` or
+ * not.
+ *
+ * `app_fee` is deliberately not treated as exact: it is the fee *before* VAT,
+ * so it understates what actually leaves the settlement. A RWF 3,000 charge
+ * reports `app_fee: 147` but settles `2841.97` - a real cost of 158.03.
+ * Debiting `app_fee` alone leaves the merchant credited for money Flutterwave
+ * never sent us, so `charged_amount - amount_settled` wins whenever both are
+ * present, and `app_fee` only ever answers as a last resort.
+ */
+function feeCandidateFromPayload(payload: unknown): { fee: number; exact: boolean } | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  const num = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+
+  const settled = num(p.amount_settled) ?? num(p.settled_amount);
+  const charged = num(p.charged_amount) ?? num(p.amount);
+  if (settled !== null && charged !== null && charged >= settled) {
+    return { fee: roundMoney(charged - settled), exact: true };
+  }
+
+  const totalFee = num(p.total_fee);
+  if (totalFee !== null && totalFee >= 0) return { fee: roundMoney(totalFee), exact: true };
+
+  const fee = num(p.fee);
+  if (fee !== null && fee >= 0) return { fee: roundMoney(fee), exact: true };
+
+  const appFee = num(p.app_fee);
+  if (appFee !== null && appFee >= 0) return { fee: roundMoney(appFee), exact: false };
+
+  return null;
+}
+
+/** Single-payload view of the fee: exact figure when present, else `app_fee`. */
+export function flutterwaveFeeFromPayload(payload: unknown): number | null {
+  return feeCandidateFromPayload(payload)?.fee ?? null;
+}
+
+/**
+ * Work out what Flutterwave charged on this collection so the merchant's
+ * wallet can carry the deduction as its own entry.
+ *
+ * Sources are consulted in order - whatever the caller handed us, the payload
+ * stashed on the transaction row, then the charge itself - but an *exact*
+ * figure from a later source beats an `app_fee` from an earlier one. The
+ * webhook payload only ever carries `app_fee`, so it is not allowed to answer
+ * on its own: the settle for that reference still asks Flutterwave what it
+ * actually settled.
+ *
+ * Returns null when the fee cannot be determined; the caller logs and moves
+ * on rather than failing a settlement that already flipped to paid.
+ */
+export async function resolveFlutterwaveFee(
+  reference: string,
+  metadata: Record<string, unknown> = {}
+): Promise<number | null> {
+  // Held on an object rather than two `let`s: both are assigned inside
+  // `consider`, and TypeScript narrows closure-assigned locals back to `null`
+  // at the reads below.
+  const found: {
+    exact: { fee: number; source: string } | null;
+    approximate: { fee: number; source: string } | null;
+  } = { exact: null, approximate: null };
+
+  const consider = (source: string, payload: unknown) => {
+    if (found.exact) return;
+    const candidate = feeCandidateFromPayload(payload);
+    if (!candidate) return;
+    if (candidate.exact) found.exact = { fee: candidate.fee, source };
+    else if (!found.approximate) found.approximate = { fee: candidate.fee, source };
+  };
+
+  consider("settle_metadata", metadata.flutterwave ?? metadata.flutterwaveData);
+
+  let transaction: any = null;
+  try {
+    transaction = await prisma.transaction.findUnique({ where: { reference } });
+  } catch (error: any) {
+    logger.warn("Could not read the transaction while resolving the fee", {
+      reference,
+      error: error?.message,
+    });
+  }
+  consider("transaction_metadata", transaction?.metadata?.flutterwaveData);
+
+  const chargeId =
+    typeof transaction?.metadata?.chargeId === "string"
+      ? (transaction.metadata.chargeId as string)
+      : null;
+
+  // Mirror the path `verifyInvoicePayment` uses to establish the status: when
+  // the v4 charge is the source of truth a v3 lookup would only be asking a
+  // different API about a charge it has never seen.
+  const onV4Path = Boolean(chargeId) && flutterwave.isV4Enabled();
+  // The verify-poller hands over the payload from the call it just made, so
+  // repeating that same lookup buys nothing - one round trip per settle.
+  const justVerified = metadata.source === "verify_poll" && !onV4Path;
+
+  if (!found.exact && onV4Path && chargeId) {
+    try {
+      consider("v4_charge", await flutterwave.retrieveV4Charge(chargeId));
+    } catch (error: any) {
+      logger.warn("Could not read the v4 charge while resolving the fee", {
+        reference,
+        chargeId,
+        error: error?.message,
+      });
+    }
+  } else if (!found.exact && !justVerified) {
+    try {
+      const response: any = await flutterwave.verifyTransactionByTxRef(reference);
+      consider("v3_verify", response?.data ?? response);
+    } catch (error: any) {
+      logger.warn("Could not verify the transaction while resolving the fee", {
+        reference,
+        error: error?.message,
+      });
+    }
+  }
+
+  const winner = found.exact ?? found.approximate;
+  if (!winner) {
+    logger.warn("Flutterwave fee unresolved, merchant not debited for it", {
+      reference,
+      chargeId,
+      onV4Path,
+    });
+    return null;
+  }
+
+  if (!found.exact) {
+    // Visible because this figure is known to omit VAT: the merchant will be
+    // under-debited by the tax component until a settlement figure appears.
+    logger.warn("Flutterwave fee taken from app_fee, which excludes VAT", {
+      reference,
+      fee: winner.fee,
+      source: winner.source,
+    });
+  } else {
+    logger.info("Flutterwave fee resolved", {
+      reference,
+      fee: winner.fee,
+      source: winner.source,
+    });
+  }
+  return winner.fee;
+}
+
 /**
  * Settle an invoice: flip to paid and book it in the ledger - the gross to
  * the merchant's wallet, the platform fee debited straight back off it as its
- * own entry and credited to the platform-fee wallet. The merchant then hears
- * their new balance.
+ * own entry and credited to the platform-fee wallet, and the Flutterwave
+ * charge fee (VAT included) debited straight off it too. The merchant then
+ * hears their new balance.
  *
  * Idempotent on purpose - the Flutterwave webhook may deliver more than
  * once and the verify-poller can race with it. Safe to call from both.
@@ -544,7 +697,8 @@ async function readMerchantBalance(
  * the same idempotency key as the existing webhook credit path - whichever
  * runs first credits, the other becomes a no-op. The platform-fee legs use
  * their own keys: `fw-fee-debit:{reference}` on the merchant wallet and
- * `fw-fee-credit:{reference}` on the platform wallet.
+ * `fw-fee-credit:{reference}` on the platform wallet. The Flutterwave-fee
+ * debit gets `fw-provider-fee-debit:{reference}`.
  */
 export async function settleInvoicePayment(
   reference: string,
@@ -604,6 +758,11 @@ export async function settleInvoicePayment(
       });
     }
 
+    // Only fees that actually came off the merchant are itemised below: a leg
+    // that failed to book must not be presented to them as a deduction they
+    // can see in their balance.
+    let bookedPlatformFee = 0;
+
     if (platformFee > 0) {
       // allowNegative keeps this a pure bookkeeping entry: the invoice is
       // already flipped to paid above, so a balance race must never leave the
@@ -620,6 +779,7 @@ export async function settleInvoicePayment(
           allowNegative: true,
           idempotencyKey: `fw-fee-debit:${reference}`,
         });
+        bookedPlatformFee = platformFee;
       } catch (error: any) {
         logger.error("Platform fee debit failed", {
           invoiceId: invoice.id,
@@ -639,6 +799,49 @@ export async function settleInvoicePayment(
         metadata: { type: "platform_fee", invoiceId: invoice.id, split, ...metadata },
         idempotencyKey: `fw-fee-credit:${reference}`,
       });
+    }
+
+    // What Flutterwave keeps for itself is the merchant's cost of being paid,
+    // so it comes off their wallet as its own entry as well. Without this the
+    // merchant is credited the full gross while only `amount_settled` ever
+    // reaches us - the ledger then claims more cash than exists. Booked
+    // best-effort for the same reason as the platform-fee debit above: a
+    // missing fee figure must never abort a settlement already flipped paid.
+    //
+    // Hoisted so the merchant's message can itemise it next to the platform
+    // fee; null means "could not be determined" or "did not book", either of
+    // which prints no line rather than a guessed number.
+    let bookedFlutterwaveFee: number | null = null;
+    if (invoice.amount > 0) {
+      const flutterwaveFee = await resolveFlutterwaveFee(reference, metadata);
+      if (flutterwaveFee !== null && flutterwaveFee > 0) {
+        try {
+          await ledger.debit({
+            userId: invoice.merchantId,
+            amount: flutterwaveFee,
+            currency: invoice.currency,
+            reference,
+            description: `Flutterwave fee for invoice ${reference}`,
+            metadata: {
+              type: "flutterwave_fee",
+              invoiceId: invoice.id,
+              split,
+              fee: flutterwaveFee,
+              ...metadata,
+            },
+            allowNegative: true,
+            idempotencyKey: `fw-provider-fee-debit:${reference}`,
+          });
+          bookedFlutterwaveFee = flutterwaveFee;
+        } catch (error: any) {
+          logger.error("Flutterwave fee debit failed", {
+            invoiceId: invoice.id,
+            reference,
+            amount: flutterwaveFee,
+            error: error?.message,
+          });
+        }
+      }
     }
 
     // Record the split on the transaction row so reconciliation can read it
@@ -665,13 +868,17 @@ export async function settleInvoicePayment(
     // single winning path (webhook and verify-poller both funnel through it),
     // so this cannot double-message. The balance is read after every ledger
     // leg above, so the figure in the message is the real post-settlement
-    // total rather than a pre-fee number.
+    // total rather than a pre-fee number, and the two fees are passed through
+    // so the merchant can see what produced it.
     if (invoice.merchant?.phone) {
       const newBalance = await readMerchantBalance(invoice.merchantId, invoice.currency);
       try {
         await whatsapp.sendTextMessage(
           invoice.merchant.phone,
-          renderPaidInvoiceMessage(invoice, newBalance)
+          renderPaidInvoiceMessage(invoice, newBalance, {
+            platform: bookedPlatformFee,
+            flutterwave: bookedFlutterwaveFee,
+          })
         );
         logger.info("Paid-invoice notification sent", {
           reference,
@@ -832,6 +1039,12 @@ function invoiceItemLines(invoice: { items: unknown; currency: string }): string
  *
  * `newBalance` is the merchant's ledger wallet after this settlement, so the
  * merchant sees the number rather than being told something changed.
+ *
+ * `fees` itemises what was taken off them to produce that balance - the
+ * platform's cut and Flutterwave's charge fee as separate lines, because a
+ * single "fees" total hides which of the two moved. A fee that is zero, null
+ * or simply not known drops its line rather than printing `RWF 0`; if nothing
+ * is left the whole block disappears.
  */
 export function renderPaidInvoiceMessage(
   invoice: {
@@ -840,15 +1053,29 @@ export function renderPaidInvoiceMessage(
     currency: string;
     buyerPhone: string;
   },
-  newBalance: { currency: string; amount: number }
+  newBalance: { currency: string; amount: number },
+  fees: { platform?: number | null; flutterwave?: number | null } = {}
 ): string {
   const lines = invoiceItemLines(invoice);
+
+  const feeLines = [
+    { label: "Platform fee", value: fees.platform },
+    { label: "Flutterwave fee", value: fees.flutterwave },
+  ]
+    .filter((row): row is { label: string; value: number } => {
+      const value = row.value;
+      return typeof value === "number" && Number.isFinite(value) && value > 0;
+    })
+    .map((row) => `- ${row.label}: ${formatCurrency(row.value, invoice.currency)}`);
+
+  const feeBlock = feeLines.length > 0 ? `*Fees*\n${feeLines.join("\n")}\n\n` : "";
 
   return (
     `*Payment Received*\n\n` +
     (lines ? `${lines}\n\n` : "") +
     `*Total: ${formatCurrency(invoice.amount, invoice.currency)}*\n` +
     `Buyer: ${invoice.buyerPhone}\n\n` +
+    feeBlock +
     `*New balance: ${formatCurrency(newBalance.amount, newBalance.currency)}*`
   );
 }
@@ -892,6 +1119,10 @@ export async function verifyInvoicePayment(
         : null;
 
     let status: string | null = null;
+    // Whatever answered the status question also carries the fee figures, so
+    // hand it straight to settle instead of making fee resolution ask the
+    // same API a second time.
+    let verifiedPayload: unknown = null;
 
     if (chargeId && flutterwave.isV4Enabled()) {
       const charge: any = await flutterwave.retrieveV4Charge(chargeId);
@@ -900,6 +1131,7 @@ export async function verifyInvoicePayment(
         return "pending";
       }
       status = String(charge.status || "").toLowerCase().trim();
+      verifiedPayload = charge;
     } else {
       const response: any = await flutterwave.verifyTransactionByTxRef(reference);
       // Top-level `status: "error"` means Flutterwave has no transaction at all
@@ -919,11 +1151,15 @@ export async function verifyInvoicePayment(
       status = String(response?.data?.status || response?.status || "")
         .toLowerCase()
         .trim();
+      verifiedPayload = response?.data ?? response;
     }
 
     // v3 says "successful", v4 says "succeeded".
     if (status === "successful" || status === "succeeded") {
-      await settleInvoicePayment(reference, { source: "verify_poll" });
+      await settleInvoicePayment(reference, {
+        source: "verify_poll",
+        flutterwave: verifiedPayload,
+      });
       await prisma.transaction.updateMany({
         where: { reference },
         data: { status: "completed" },

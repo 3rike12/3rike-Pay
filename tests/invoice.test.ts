@@ -385,6 +385,9 @@ describe("settleInvoicePayment", () => {
     expect(invoiceRow.status).toBe("paid");
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][1]).toContain("New balance: RWF 2,850");
+    // Nothing came off them, so nothing is claimed as a deduction.
+    expect(notify.mock.calls[0][1]).not.toContain("*Fees*");
+    expect(notify.mock.calls[0][1]).not.toContain("- Platform fee");
   });
 
   it("records the split on the transaction row, keeping existing metadata", async () => {
@@ -420,6 +423,128 @@ describe("settleInvoicePayment", () => {
     expect(notify).toHaveBeenCalledTimes(1); // merchant only
     expect(notify.mock.calls[0][0]).toBe("0771234567");
   });
+
+  it("debits the Flutterwave charge fee alongside the platform fee, VAT included", async () => {
+    seedInvoice({ status: "pending_payment" });
+
+    await settleInvoicePayment("3RIKE-20260930-ABC123", {
+      flutterwave: { amount: 3000, charged_amount: 3000, amount_settled: 2841.97, app_fee: 147 },
+    });
+
+    // 3000 - 2841.97, not the 147 app_fee that excludes VAT.
+    expect(debit).toHaveBeenCalledTimes(2);
+    expect(debit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "merch_1",
+        amount: 158.03,
+        currency: "RWF",
+        reference: "3RIKE-20260930-ABC123",
+        idempotencyKey: "fw-provider-fee-debit:3RIKE-20260930-ABC123",
+        allowNegative: true,
+        metadata: expect.objectContaining({ type: "flutterwave_fee", fee: 158.03 }),
+      })
+    );
+    expect(debit).not.toHaveBeenCalledWith(expect.objectContaining({ amount: 147 }));
+    // An exact figure is in hand, so nothing else is worth asking Flutterwave.
+    expect(verify).not.toHaveBeenCalled();
+    // The merchant is debited both fees, so their balance reflects real cash.
+    expect(invoiceRow.status).toBe("paid");
+  });
+
+  it("itemises both fees in the message that tells the merchant they got paid", async () => {
+    seedInvoice({ status: "pending_payment" });
+
+    await settleInvoicePayment("3RIKE-20260930-ABC123", {
+      flutterwave: { amount: 3000, amount_settled: 2841.97 },
+    });
+
+    const message = notify.mock.calls[0][1] as string;
+    expect(message).toContain("*Fees*");
+    expect(message).toContain("- Platform fee: RWF 150");
+    expect(message).toContain("- Flutterwave fee: RWF 158");
+    // The balance follows the breakdown, not the other way round.
+    expect(message.indexOf("*Fees*")).toBeLessThan(message.indexOf("*New balance"));
+  });
+
+  it("omits the Flutterwave line when its fee could not be determined", async () => {
+    seedInvoice({ status: "pending_payment" });
+    // The lookup answers, but carries no fee figures at all.
+    verify.mockResolvedValue({ data: { status: "successful" } });
+
+    await settleInvoicePayment("3RIKE-20260930-ABC123");
+
+    const message = notify.mock.calls[0][1] as string;
+    expect(message).toContain("- Platform fee: RWF 150");
+    // Guessing a number would be worse than showing none.
+    expect(message).not.toContain("Flutterwave fee");
+  });
+
+  it("asks Flutterwave for the settlement figure when the webhook only carries app_fee", async () => {
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({
+      data: { status: "successful", amount: 3000, charged_amount: 3000, amount_settled: 2841.97 },
+    });
+
+    await settleInvoicePayment("3RIKE-20260930-ABC123", {
+      flutterwave: { amount: 3000, charged_amount: 3000, app_fee: 147 },
+    });
+
+    // app_fee alone would under-debit the merchant by the VAT component.
+    expect(verify).toHaveBeenCalledWith("3RIKE-20260930-ABC123");
+    expect(debit).toHaveBeenCalledWith(expect.objectContaining({ amount: 158.03 }));
+  });
+
+  it("falls back to app_fee when Flutterwave never reports a settlement figure", async () => {
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({ data: { status: "successful", amount: 3000, app_fee: 147 } });
+
+    const result = await settleInvoicePayment("3RIKE-20260930-ABC123", {
+      flutterwave: { amount: 3000, app_fee: 147 },
+    });
+
+    expect(result.settled).toBe(true);
+    expect(debit).toHaveBeenCalledWith(expect.objectContaining({ amount: 147 }));
+  });
+
+  it("does not re-ask Flutterwave when the verify poller already supplied the payload", async () => {
+    seedInvoice({ status: "pending_payment" });
+
+    await settleInvoicePayment("3RIKE-20260930-ABC123", {
+      source: "verify_poll",
+      flutterwave: { status: "successful" },
+    });
+
+    // The poller just made that exact call - asking again buys nothing.
+    expect(verify).not.toHaveBeenCalled();
+    // No usable figure, so only the platform fee is booked.
+    expect(debit).toHaveBeenCalledTimes(1);
+    expect(invoiceRow.status).toBe("paid");
+  });
+
+  it("books no Flutterwave fee when there is nothing to deduct", async () => {
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({ data: { status: "successful", amount: 3000, amount_settled: 3000 } });
+
+    await settleInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(debit).toHaveBeenCalledTimes(1); // the platform fee, and nothing else
+  });
+
+  it("still settles when the Flutterwave fee debit fails", async () => {
+    seedInvoice({ status: "pending_payment" });
+    debit
+      .mockRejectedValueOnce(new Error("lock timeout"))
+      .mockRejectedValueOnce(new Error("lock timeout"));
+
+    const result = await settleInvoicePayment("3RIKE-20260930-ABC123", {
+      flutterwave: { amount: 3000, amount_settled: 2841.97 },
+    });
+
+    expect(result.settled).toBe(true);
+    expect(invoiceRow.status).toBe("paid");
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][1]).toContain("New balance");
+  });
 });
 
 describe("verifyInvoicePayment", () => {
@@ -437,6 +562,25 @@ describe("verifyInvoicePayment", () => {
       where: { reference: "3RIKE-20260930-ABC123" },
       data: { status: "completed" },
     });
+  });
+
+  it("settles with the payload it just fetched, so the fee needs no second lookup", async () => {
+    seedInvoice({ status: "pending_payment" });
+    verify.mockResolvedValue({
+      data: { status: "successful", amount: 3000, charged_amount: 3000, amount_settled: 2841.97 },
+    });
+
+    const result = await verifyInvoicePayment("3RIKE-20260930-ABC123");
+
+    expect(result).toBe("settled");
+    // One call established the status, and the same payload priced the fee.
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(debit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 158.03,
+        metadata: expect.objectContaining({ type: "flutterwave_fee" }),
+      })
+    );
   });
 
   it("leaves the invoice pending while Flutterwave still says pending", async () => {
@@ -601,6 +745,47 @@ describe("renderPaidInvoiceMessage", () => {
     );
 
     expect(message).toContain("New balance: NGN 1,200");
+  });
+
+  it("itemises each fee on its own line, in the invoice currency", () => {
+    const message = renderPaidInvoiceMessage(
+      { items: [], amount: 3000, currency: "RWF", buyerPhone: "0781234567" },
+      { currency: "RWF", amount: 2692 },
+      { platform: 150, flutterwave: 158.03 }
+    );
+
+    expect(message).toContain("*Fees*");
+    expect(message).toContain("- Platform fee: RWF 150");
+    expect(message).toContain("- Flutterwave fee: RWF 158");
+    // The breakdown sits between the total and the balance it produced.
+    expect(message.indexOf("*Fees*")).toBeGreaterThan(message.indexOf("*Total"));
+    expect(message.indexOf("*Fees*")).toBeLessThan(message.indexOf("*New balance"));
+    // A single lump sum would hide which of the two moved.
+    expect(message).not.toMatch(/- Fees:/);
+  });
+
+  it("drops a zero or unknown fee line instead of printing RWF 0", () => {
+    const message = renderPaidInvoiceMessage(
+      { items: [], amount: 3000, currency: "RWF", buyerPhone: "0781234567" },
+      { currency: "RWF", amount: 2850 },
+      { platform: 150, flutterwave: null }
+    );
+
+    expect(message).toContain("- Platform fee: RWF 150");
+    expect(message).not.toContain("Flutterwave fee");
+    expect(message).not.toContain("RWF 0");
+  });
+
+  it("omits the fees block entirely when there is nothing to charge", () => {
+    const message = renderPaidInvoiceMessage(
+      { items: [], amount: 3000, currency: "RWF", buyerPhone: "0781234567" },
+      { currency: "RWF", amount: 3000 },
+      { platform: 0, flutterwave: 0 }
+    );
+
+    expect(message).not.toContain("*Fees*");
+    expect(message).toContain("*Total: RWF 3,000*");
+    expect(message).toContain("*New balance: RWF 3,000*");
   });
 });
 
