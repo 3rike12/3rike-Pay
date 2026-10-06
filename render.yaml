@@ -2,7 +2,7 @@ services:
   - type: web
     name: threerike-pay
     runtime: node
-    buildCommand: npm ci && npx prisma generate && npm run build
+    buildCommand: npm ci && npx prisma generate && npm run build:all
     startCommand: npm start
     envVars:
       - key: NODE_ENV

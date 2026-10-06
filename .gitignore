@@ -19,3 +19,5 @@ prisma/dev.db*
 
 # Prod database dumps - contain PII, never commit
 backups/
+
+/docs

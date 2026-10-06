@@ -1,0 +1,235 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Tokens — lifted from 3rike.xyz's compiled stylesheet so the
+   two sites stay exactly on brand with each other.
+   ============================================================ */
+@theme {
+  --color-ink: #0a0a0a;
+  --color-ink-900: #171717;
+  --color-ink-800: #242424;
+  --color-paper: #ffffff;
+  --color-mist: #f3f5f9;
+
+  --color-green: #00c259;
+  --color-green-600: #00a049;
+  --color-green-700: #1b8036;
+  --color-green-900: #0d542b;
+  --color-green-50: #e6f6e9;
+
+  --color-lime: #e2f490;
+  --color-lime-100: #f3ffbc;
+  --color-lime-600: #829e04;
+  --color-lime-700: #6a8103;
+
+  /* grey-400 is the chat-timestamp grey from the brand sheet. It only clears
+     4.5:1 against the dark bands, so light backgrounds use grey-500. */
+  --color-grey-400: #909090;
+  --color-grey-500: #6b6b6b;
+  --color-grey-300: #c4c4c4;
+  --color-hairline: #e7e9ee;
+  --color-hairline-dark: #2a2a2a;
+
+  --font-display: "Hepta Slab", ui-serif, Georgia, serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* Chat bubbles use the platform's own UI face on purpose: inside the
+     phone frame it should read as real WhatsApp, not as our design. */
+  --font-chat: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius: 0.625rem;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: auto; /* Lenis drives this */
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: var(--color-lime);
+    color: var(--color-green-900);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.04;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-green);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+
+  /* Dark bands get a light-on-dark focus ring that can actually be seen. */
+  .on-dark :focus-visible {
+    outline-color: var(--color-lime);
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* ============================================================
+   Bubble geometry — the page's structural device.
+   Which corner is squared says who is speaking: incoming
+   bubbles are what 3rike Pay says, outgoing are what you say.
+   Nothing on this site carries a uniform radius.
+   ============================================================ */
+@utility bubble-in {
+  border-radius: 18px 18px 18px 4px;
+}
+
+@utility bubble-out {
+  border-radius: 18px 18px 4px 18px;
+}
+
+@utility bubble-in-lg {
+  border-radius: 28px 28px 28px 6px;
+}
+
+@utility bubble-out-lg {
+  border-radius: 28px 28px 6px 28px;
+}
+
+/* ============================================================
+   Type scale
+   ============================================================ */
+@utility display-xl {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2.6rem, 6.1vw, 4.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.034em;
+}
+
+@utility display-lg {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2.15rem, 5vw, 3.6rem);
+  line-height: 1.02;
+  letter-spacing: -0.028em;
+}
+
+@utility display-md {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+/* A chat timestamp. Used wherever this site needs small meta —
+   it replaces the tracked-out label that would otherwise go there. */
+@utility stamp {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--color-grey-500);
+  font-variant-numeric: tabular-nums;
+}
+
+@utility lede {
+  font-size: clamp(1.0625rem, 1.5vw, 1.25rem);
+  line-height: 1.55;
+  max-width: 34ch;
+}
+
+/* ============================================================
+   Layout
+   ============================================================ */
+@utility shell {
+  width: 100%;
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .shell {
+    padding-inline: 2rem;
+  }
+}
+
+/* ============================================================
+   Motion
+   ============================================================ */
+@keyframes bubble-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dot-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@keyframes marquee-slide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@utility animate-bubble-pop {
+  animation: bubble-pop 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@utility animate-marquee {
+  animation: marquee-slide 42s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

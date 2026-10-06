@@ -5,7 +5,10 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/index.ts",
+    "dev:web": "npm --prefix web run dev",
     "build": "tsc && tsc-alias",
+    "build:web": "npm --prefix web ci && npm --prefix web run build",
+    "build:all": "npm run build && npm run build:web",
     "start": "node dist/index.js",
     "lint": "eslint src/ --ext .ts",
     "typecheck": "tsc --noEmit",
