@@ -1,267 +1,231 @@
 /**
- * Site copy. Every product claim here is backed by code in this repo —
- * see docs/superpowers/specs/2026-10-06-marketing-site-design.md.
+ * Page content.
  *
- * Airtime and data are deliberately absent. messages.json still says
- * "coming soon" for them, so they are not advertised as working.
+ * Every factual claim here is traceable to the backend. `source` fields are
+ * kept as maintenance provenance — if the code moves, the copy is wrong — and
+ * are not rendered.
  */
 
-/* ------------------------------------------------------------------
-   Banks — the real BANKS.FALLBACK list from src/config/messages.json,
-   tidied for display only. Nothing added.
-   ------------------------------------------------------------------ */
+/* --- Banks. From messages.json BANKS.FALLBACK, display-tidied. The live list
+       comes from AutoRamp (~360 NIP institutions); these are the names people
+       recognise. ---------------------------------------------------------- */
 export const BANKS = [
-  "Access Bank",
-  "GTBank",
-  "Zenith Bank",
-  "First Bank",
-  "UBA",
-  "Opay",
-  "Kuda",
-  "Moniepoint",
-  "PalmPay",
-  "Fidelity Bank",
-  "Ecobank",
-  "Sterling Bank",
-  "Union Bank",
-  "Wema Bank",
-  "Stanbic IBTC",
-  "Polaris Bank",
-  "Providus Bank",
-  "Keystone Bank",
-  "Heritage Bank",
-  "Unity Bank",
-  "Safe Haven MFB",
-  "Diamond Bank",
+  "GTBank", "Access Bank", "Zenith Bank", "First Bank", "UBA", "Opay",
+  "PalmPay", "Kuda", "Moniepoint", "Fidelity Bank", "Union Bank", "Sterling Bank",
+  "Wema Bank", "Ecobank", "Stanbic IBTC", "Polaris Bank", "Providus Bank",
+  "Keystone Bank", "Heritage Bank", "Unity Bank", "Safe Haven MFB", "Diamond Bank",
 ] as const;
 
-/* ------------------------------------------------------------------
-   How it works — a real four-step sequence, so the steps are ordered.
-   The timestamps carry the order rather than 01/02/03 markers.
-   ------------------------------------------------------------------ */
-export const STEPS = [
+/* --- The three beats of a transfer. Each shows real message text. -------- */
+export const BEATS = [
   {
-    at: "09:12",
-    from: "user" as const,
-    title: "Say hi",
-    body: "Message 3rike Pay on WhatsApp. No download, no sign-up form, no app store.",
+    label: "Talk",
+    title: "Say it how you'd say it",
+    body: "No amount field, no bank dropdown. One sentence is the whole form.",
+    lines: [
+      { from: "bot" as const, text: "What would you like to do?", at: "9:40" },
+      { from: "user" as const, text: "Send 5k to 1234567890 GTBank", at: "9:41" },
+    ],
   },
   {
-    at: "09:13",
-    from: "bot" as const,
-    title: "Verify once",
-    body: "Enter your NIN or BVN inside an encrypted WhatsApp form, then the code sent to the phone registered to that ID.",
+    label: "Confirm",
+    title: "See the name before you send",
+    body: "3rike Pay resolves the account and shows you who you're about to pay.",
+    lines: [
+      {
+        from: "bot" as const,
+        text: "Confirm transfer:\n\nAmount: *₦5,000.00*\nRecipient: *ADAEZE OKONKWO*\nBank: GTBank",
+        at: "9:41",
+        buttons: ["Yes, send it", "No, cancel"],
+      },
+    ],
   },
   {
-    at: "09:14",
-    from: "bot" as const,
-    title: "Set your PIN",
-    body: "Four digits that authorise every transfer. It is hashed before it is stored, so nobody can read it back — not even us.",
-  },
-  {
-    at: "09:14",
-    from: "bot" as const,
-    title: "Get your account number",
-    body: "Your own Nigerian account number arrives in the chat. Fund it from any bank and start sending.",
-  },
-] as const;
-
-/* ------------------------------------------------------------------
-   Features. Sizes are deliberately uneven — this is a bento, not a
-   row of identical cards.
-   ------------------------------------------------------------------ */
-export type Feature = {
-  title: string;
-  body: string;
-  span: "wide" | "tall" | "normal";
-  tone: "paper" | "tint" | "lime" | "ink";
-};
-
-export const FEATURES: Feature[] = [
-  {
-    title: "Type it the way you'd say it",
-    body: "“send 5k to 1234567890 gtbank” is a complete instruction. 3rike Pay reads the amount, the account and the bank out of one line — no menus, no forms, no fields.",
-    span: "wide",
-    tone: "lime",
-  },
-  {
-    title: "See the name before the money moves",
-    body: "Every transfer runs a name enquiry first and shows you who actually owns that account. You confirm a person, not a number.",
-    span: "normal",
-    tone: "paper",
-  },
-  {
-    title: "Your own account number",
-    body: "Issued the moment you verify. Fund it from any Nigerian bank, and it is yours to receive into.",
-    span: "normal",
-    tone: "paper",
-  },
-  {
-    title: "Balance and history in the thread",
-    body: "Ask for your balance and it is a reply, not a login. Your recent transactions sit in the same conversation as everything else.",
-    span: "normal",
-    tone: "tint",
-  },
-  {
-    title: "Nothing to install, nothing to lose",
-    body: "It is WhatsApp. It works on the phone you already have, on the data you already pay for, in the app you already keep open.",
-    span: "wide",
-    tone: "ink",
+    label: "Done",
+    title: "A receipt, not a spinner",
+    body: "The money moves on the NIP rails and the reference lands in the thread.",
+    lines: [
+      {
+        from: "bot" as const,
+        text: "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!",
+        at: "9:42",
+      },
+      {
+        from: "bot" as const,
+        text: "",
+        at: "9:42",
+        receipt: {
+          label: "Transfer complete",
+          tone: "success" as const,
+          rows: [
+            ["Amount", "₦5,000.00"],
+            ["Reference", "TRF-8C41E2"],
+          ] as [string, string][],
+        },
+      },
+    ],
   },
 ];
 
-/* ------------------------------------------------------------------
-   Security — each line maps to real code.
-   ------------------------------------------------------------------ */
+/* --- Capabilities. The tab list that drives the live thread. ------------- */
+export const CAPABILITIES = [
+  {
+    id: "send",
+    label: "Send money",
+    headline: "To any bank, by name or by number.",
+    body: "Type the amount, the account and the bank in one line. Every institution on the NIP network is reachable — banks, microfinance banks and wallets like Opay, PalmPay and Moniepoint.",
+    source: "src/bot/index.ts searchBanks()",
+  },
+  {
+    id: "balance",
+    label: "Check balance",
+    headline: "One word, both balances.",
+    body: "Your 3rike wallet and the bank account issued to you when you verified, returned together. No dashboard to open.",
+    source: "src/config/messages.json CHECK_BALANCE",
+  },
+  {
+    id: "account",
+    label: "Get an account",
+    headline: "A real account number, in two minutes.",
+    body: "Verify with your NIN or BVN inside an encrypted WhatsApp Flow and a Nigerian bank account is issued to you in the thread.",
+    source: "src/config/messages.json KYC_PROMPT, FALLBACK.ACCOUNT_CREATED",
+  },
+  {
+    id: "invoice",
+    label: "Invoice a customer",
+    headline: "Bill someone without leaving the chat.",
+    body: "List what they're buying, send the request, and the money settles into your wallet with the fees itemised.",
+    source: "src/services/invoice.ts",
+  },
+] as const;
+
+/* --- Security. Every line verified against the file named. --------------- */
 export const SECURITY = [
   {
+    title: "Identity is verified before money moves",
+    body: "Every account starts with an 11-digit NIN or BVN check and a one-time code sent to the phone number registered against that ID.",
+    detail: "NIN / BVN + OTP",
+    source: "src/config/messages.json KYC_CHOOSE_ID, KYC_OTP",
+  },
+  {
+    title: "Your ID never travels in a chat message",
+    body: "Verification happens inside an encrypted WhatsApp Flow — a sealed form, not a message in the thread anyone could scroll back to.",
+    detail: "WhatsApp Flow",
+    source: "src/config/messages.json KYC_PROMPT.FLOW_BUTTON",
+  },
+  {
     title: "Your PIN is hashed, never stored",
-    body: "The four digits you set are put through bcrypt before they touch the database. There is no copy of your PIN anywhere, so there is nothing to read back.",
+    body: "PINs are hashed with bcrypt before they touch the database. Nobody at 3rike can read yours back — not support, not an engineer.",
+    detail: "bcrypt · cost 10",
     source: "src/utils/pin.ts",
   },
   {
-    title: "Identity forms are end-to-end encrypted",
-    body: "Your NIN or BVN is typed into a WhatsApp Flow, encrypted on your handset and decrypted only by our server. It never travels as a chat message.",
-    source: "src/utils/flowCrypto.ts",
-  },
-  {
-    title: "Verified against the ID's own phone number",
-    body: "After your NIN or BVN we send a code to the number registered to that ID. Someone with your details but not your line cannot finish the step.",
-    source: "src/api/flow.ts",
-  },
-  {
-    title: "PIN attempts are rate limited",
-    body: "Repeated wrong PINs are throttled and then locked out for a window, so a stolen phone cannot be brute-forced through the keypad.",
+    title: "Attempts are rate limited",
+    body: "PIN entry and every sensitive endpoint sit behind per-device limits, so a stolen phone number cannot be brute-forced.",
+    detail: "60 attempts / 15 min",
     source: "src/api/middleware/rateLimit.ts",
   },
 ] as const;
 
-/* ------------------------------------------------------------------
-   Business.
-   ------------------------------------------------------------------ */
-export const BUSINESS_FEATURES = [
-  {
-    title: "Bill in one message",
-    body: "“invoice 3 batteries and 2 water” becomes an itemised invoice with a total. Reply yes and it goes out.",
-  },
-  {
-    title: "The prompt lands on their phone",
-    body: "Your customer gets a payment prompt to approve on their handset. If their bank cannot take a push, 3rike Pay falls back to a link you can forward.",
-  },
-  {
-    title: "Keep a catalogue",
-    body: "Save what you sell with its price once. After that you bill by name and the amounts fill themselves in.",
-  },
-  {
-    title: "Invoices expire on their own",
-    body: "An unpaid request closes after thirty minutes, so your list stays honest and nobody pays against a stale price.",
-  },
-  {
-    title: "Settlement you can read",
-    body: "When money lands you get the amount, who paid, the platform fee and the processor's charge as separate lines, then your new wallet balance.",
-  },
-  {
-    title: "No terminal, no store page",
-    body: "No POS to rent, no checkout to build, no app for your customer to install. The shop is the conversation.",
-  },
-] as const;
-
-/* ------------------------------------------------------------------
-   FAQ
-   ------------------------------------------------------------------ */
+/* --- FAQ. ---------------------------------------------------------------- */
 export const FAQS = [
   {
-    q: "What is 3rike Pay?",
-    a: "A way to move money from inside WhatsApp. You message it like you would message a person — “send 5k to 1234567890 gtbank” — and it sends to any Nigerian bank account. There is no separate app.",
-  },
-  {
     q: "Do I need to download anything?",
-    a: "No. If you have WhatsApp you already have everything. 3rike Pay is a contact you message, so it works on the phone and the data plan you already have.",
+    a: "No. 3rike Pay runs entirely inside WhatsApp. If you have WhatsApp, you already have everything you need.",
   },
   {
-    q: "How do I start?",
-    a: "Say hi. 3rike Pay will ask you to verify your identity with your NIN or BVN inside an encrypted WhatsApp form, then to set a four-digit PIN. It takes under two minutes, and your own account number arrives at the end of it.",
+    q: "How do I get an account?",
+    a: "Message the number and verify your identity with your NIN or BVN. It takes under two minutes, and a Nigerian bank account number is issued to you in the chat.",
   },
   {
     q: "Which banks can I send to?",
-    a: "Any Nigerian bank account, including the ones people actually use day to day — Opay, Kuda, Moniepoint, PalmPay — alongside GTBank, Access, Zenith, First Bank, UBA and the rest.",
+    a: "Every institution on the NIP network — the commercial banks, the microfinance banks, and wallets like Opay, PalmPay, Kuda and Moniepoint. Short names work: type gtb, zenith or opay.",
   },
   {
-    q: "What stops someone sending money from my phone?",
-    a: "Your PIN. Every transfer needs it, it is entered in an encrypted form rather than the chat, and it is hashed before storage so there is no readable copy of it. Wrong attempts are rate limited and then locked out.",
-  },
-  {
-    q: "What if I send to the wrong account?",
-    a: "3rike Pay looks the account up before anything moves and shows you the real name on it. You confirm that name, so a wrong digit shows up as a stranger's name instead of a lost transfer.",
-  },
-  {
-    q: "Can I use it for my business?",
-    a: "Yes. You can keep a product catalogue, raise an itemised invoice in one message, and have the payment prompt pushed straight to your customer's phone. When it settles you see the fees and your new balance.",
+    q: "How much can I send?",
+    a: "Between ₦100 and ₦1,000,000 per transfer.",
   },
   {
     q: "Can I buy airtime and data?",
-    a: "Not yet. That integration is still being finished, so for now 3rike Pay does transfers, balances, invoices and your account number. We will say so in the chat the day it goes live.",
+    a: "Not yet. The integration is being finished — right now 3rike Pay handles transfers, balances, accounts and invoices.",
+  },
+  {
+    q: "What happens if I lose my phone?",
+    a: "Nothing moves without your PIN, and your PIN is hashed so it cannot be read out of our database. Contact support and we will lock the account.",
+  },
+  {
+    q: "What does it cost?",
+    a: "Transfers carry the standard processing charge from our payment partner. On business invoices, 3rike keeps a 5% platform fee, itemised on every receipt alongside the processor's charge so you always see the full breakdown.",
+  },
+  {
+    q: "Is my money held by 3rike?",
+    a: "Funds sit in an account issued through our licensed payment partner, and your wallet balance is reconciled against real settlement — not an internal number we maintain by hand.",
   },
 ] as const;
 
-/* ------------------------------------------------------------------
-   Testimonials.
-   ------------------------------------------------------------------ */
-export const TESTIMONIALS = [
+/* --- Business page. ------------------------------------------------------ */
+export const BUSINESS_STEPS = [
   {
-    name: "Chidinma A.",
-    handle: "Lagos",
-    quote:
-      "I sent money while standing in a queue. No app loading, no OTP email, no logging in. I just typed it.",
+    label: "Catalogue",
+    title: "Add what you sell, once",
+    body: "Your products live in the chat. Add an item and it is there the next time you bill someone.",
   },
   {
-    name: "Tunde O.",
-    handle: "Ibadan",
-    quote:
-      "The part that got me is it showed me the account name before it sent. I had typed one digit wrong.",
+    label: "Invoice",
+    title: "List the order in plain text",
+    body: "Type the items and quantities. 3rike Pay prices them, totals them and gives the invoice a 30-minute expiry.",
   },
   {
-    name: "Blessing E.",
-    handle: "Port Harcourt",
-    quote:
-      "I run a provisions shop. I bill customers from the same chat I use to talk to them, and I can see what came in.",
+    label: "Request",
+    title: "The customer gets a prompt",
+    body: "They approve the payment on their own phone. No account number to copy, no screenshot to send you.",
   },
   {
-    name: "Ifeanyi N.",
-    handle: "Enugu",
-    quote:
-      "My phone is full. Deleting a banking app and still being able to send money is the whole reason I use this.",
-  },
-  {
-    name: "Aisha M.",
-    handle: "Abuja",
-    quote: "“transfer 4k to my sister's opay” and it was done before I put the phone down.",
+    label: "Settle",
+    title: "Money lands, fees itemised",
+    body: "The platform fee and the processor's charge are shown separately, with your new balance, on every paid invoice.",
   },
 ] as const;
 
 export const BUSINESS_FAQS = [
   {
-    q: "How do I raise an invoice?",
-    a: "Type what the customer is paying for — “invoice 3 batteries and 2 water”. 3rike Pay itemises it, totals it, and shows you the summary. Reply yes and the request goes out.",
+    q: "What does 3rike take?",
+    a: "A 5% platform fee on collected invoices. It is listed on the receipt next to the payment processor's charge, so you can see exactly what reached you.",
   },
   {
-    q: "How does my customer pay?",
-    a: "A payment prompt appears on their phone for them to approve. If their provider can't take a push, 3rike Pay gives you a payment link instead, which you forward to them in the chat.",
+    q: "How long is an invoice valid?",
+    a: "30 minutes. After that it expires and you issue a new one — which keeps stale payment links from floating around.",
   },
   {
-    q: "Does my customer need 3rike Pay?",
-    a: "No. They don't need an account, an app, or anything installed. They only need to approve the prompt or open the link you send.",
+    q: "Do my customers need 3rike Pay?",
+    a: "No. They receive a payment prompt and approve it on their own phone.",
   },
   {
-    q: "Can I save the things I sell?",
-    a: "Yes. Add a product once with its price and it stays in your catalogue, so after that you bill by name and the amounts fill themselves in.",
+    q: "Where does the money go?",
+    a: "Into your 3rike wallet, reconciled against real settlement from our payment partner rather than an internally maintained figure.",
   },
   {
-    q: "What happens if nobody pays?",
-    a: "An unpaid request expires after thirty minutes and closes itself. Your invoice list stays accurate, and nobody pays against a price you've since changed.",
+    q: "Can I see past invoices?",
+    a: "Yes — ask for your invoices in the chat and the recent ones come back with their status.",
+  },
+] as const;
+
+/* --- Testimonials. PLACEHOLDER: replace with real, attributable quotes
+       before launch. ------------------------------------------------------ */
+export const TESTIMONIALS = [
+  {
+    quote: "I stopped opening my bank app. I just type what I want to send and it's gone.",
+    name: "Tunde A.",
+    role: "Lagos",
   },
   {
-    q: "What do you charge?",
-    a: "A percentage of each collection, taken at settlement. You see it as its own line alongside the processor's charge, with your new balance underneath, so nothing is bundled out of sight.",
+    quote: "My customers pay before they leave the shop now. No more 'I'll send it later'.",
+    name: "Blessing O.",
+    role: "Runs a food business, Ibadan",
+  },
+  {
+    quote: "The part that got me is seeing the account name before I send. That alone.",
+    name: "Chidi N.",
+    role: "Abuja",
   },
 ] as const;

@@ -3,24 +3,32 @@ import { Link, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { WHATSAPP_URL } from "@/lib/site";
+import { WhatsAppGlyph } from "@/components/primitives/Button";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 import { Wordmark } from "./Wordmark";
+import { HERO_TREATMENT } from "@/lib/heroTreatment";
 
-type NavLink = { label: string; href: string; route?: boolean };
-
-const HOME_LINKS: NavLink[] = [
+const HOME_LINKS = [
   { label: "How it works", href: "/#how" },
-  { label: "Features", href: "/#features" },
-  { label: "Security", href: "/#security" },
+  { label: "What you can do", href: "/#features" },
+  { label: "Safety", href: "/#security" },
   { label: "Questions", href: "/#faq" },
 ];
 
-const BUSINESS_LINKS: NavLink[] = [
-  { label: "Invoices", href: "/business#invoices" },
+const BUSINESS_LINKS = [
+  { label: "Getting paid", href: "/business#flow" },
   { label: "Fees", href: "/business#fees" },
   { label: "Questions", href: "/business#faq" },
 ];
 
+/**
+ * A floating capsule rather than a full-width bar.
+ *
+ * It starts out as a bare row sitting over the hero and, once the page has
+ * moved, condenses into a glass pill that never touches the page edges. The
+ * change is a width and a background, not a reflow — nothing inside it moves,
+ * which is what keeps the transition from reading as a jolt.
+ */
 export function Nav() {
   const { pathname } = useLocation();
   const [scrolled, setScrolled] = useState(false);
@@ -28,16 +36,22 @@ export function Nav() {
   const reduced = useReducedMotion();
 
   const onBusiness = pathname.startsWith("/business");
-  const sectionLinks = onBusiness ? BUSINESS_LINKS : HOME_LINKS;
+  // Over the home hero's photograph there is no light ground to float on, so
+  // the capsule is solid from the first frame rather than fading in on scroll.
+  const overPhoto = !onBusiness && HERO_TREATMENT === "photo";
+  const solid = scrolled || open || overPhoto;
+  const links = onBusiness ? BUSINESS_LINKS : HOME_LINKS;
+  const other = onBusiness
+    ? { label: "Personal", to: "/" }
+    : { label: "For business", to: "/business" };
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 12);
+    const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Close the mobile sheet on navigation, and lock the page behind it.
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
@@ -47,58 +61,45 @@ export function Nav() {
   }, [open]);
 
   return (
-    <header
-      className={cn(
-        "fixed inset-x-0 top-0 z-50 transition-all duration-300",
-        scrolled || open
-          ? "border-b border-hairline bg-paper/85 backdrop-blur-xl"
-          : "border-b border-transparent"
-      )}
-    >
-      <nav className="shell flex h-[4.25rem] items-center justify-between gap-6">
+    <header className="pointer-events-none fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4">
+      <div
+        className={cn(
+          "pointer-events-auto mx-auto flex items-center justify-between gap-6 rounded-full transition-all duration-500 ease-brand",
+          "px-4 sm:px-5",
+          solid
+            ? "h-[3.5rem] max-w-[62rem] border border-rule bg-paper/80 shadow-float backdrop-blur-xl"
+            : "h-[3.75rem] max-w-[78rem] border border-transparent bg-transparent"
+        )}
+      >
         <Wordmark />
 
-        <div className="hidden items-center gap-1 lg:flex">
-          {/* Audience switch first — it changes which section links follow. */}
-          <Link
-            to="/"
-            className={cn(
-              "rounded-full px-3.5 py-2 text-[0.875rem] font-medium transition-colors",
-              !onBusiness ? "bg-green-50 text-green-900" : "text-ink/60 hover:text-ink"
-            )}
-          >
-            Personal
-          </Link>
-          <Link
-            to="/business"
-            className={cn(
-              "rounded-full px-3.5 py-2 text-[0.875rem] font-medium transition-colors",
-              onBusiness ? "bg-green-50 text-green-900" : "text-ink/60 hover:text-ink"
-            )}
-          >
-            Business
-          </Link>
-
-          <span className="mx-2 h-5 w-px bg-hairline" />
-
-          {sectionLinks.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="rounded-full px-3 py-2 text-[0.875rem] font-medium text-ink/60 transition-colors hover:text-ink"
-            >
-              {link.label}
-            </a>
+        <ul className="hidden items-center gap-1 lg:flex">
+          {links.map((link) => (
+            <li key={link.href}>
+              <a
+                href={link.href}
+                className="rounded-full px-3.5 py-2 text-[0.875rem] font-medium text-ink-700 transition-colors duration-200 hover:bg-ink/[0.055] hover:text-ink"
+              >
+                {link.label}
+              </a>
+            </li>
           ))}
-        </div>
+        </ul>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            to={other.to}
+            className="hidden rounded-full px-3 py-2 text-[0.875rem] font-medium text-ink-700 transition-colors duration-200 hover:bg-ink/[0.055] hover:text-ink md:block"
+          >
+            {other.label}
+          </Link>
+
           <a
             href={WHATSAPP_URL}
-            target="_blank"
             rel="noreferrer"
-            className="bubble-out hidden bg-green px-5 py-2.5 text-[0.875rem] font-semibold text-ink transition-colors hover:bg-lime sm:inline-flex"
+            className="hidden items-center gap-2 rounded-full bg-green px-4 py-2.5 text-[0.875rem] font-semibold text-ink shadow-[0_6px_16px_-8px_rgba(1,194,89,0.8)] transition-all duration-300 ease-brand hover:bg-green-hover active:scale-[0.98] sm:inline-flex"
           >
+            <WhatsAppGlyph className="size-4" />
             Chat on WhatsApp
           </a>
 
@@ -107,43 +108,69 @@ export function Nav() {
             aria-label={open ? "Close menu" : "Open menu"}
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
-            className="grid size-10 place-items-center rounded-full border border-hairline lg:hidden"
+            className={cn(
+              "grid size-10 cursor-pointer place-items-center rounded-full border transition-colors duration-200 lg:hidden",
+              open ? "border-ink/25 bg-ink/[0.06]" : "border-rule bg-paper/70"
+            )}
           >
-            <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              {open ? <path d="M5 5l10 10M15 5L5 15" /> : <path d="M3 6h14M3 12h14" />}
+            <svg
+              viewBox="0 0 20 20"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              {open ? <path d="M5 5l10 10M15 5L5 15" /> : <path d="M3 6.5h14M3 13.5h14" />}
             </svg>
           </button>
         </div>
-      </nav>
+      </div>
 
+      {/* The sheet. A card under the pill rather than a full-bleed drawer, so
+          the floating geometry holds all the way down. */}
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={reduced ? false : { height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={reduced ? undefined : { height: 0, opacity: 0 }}
-            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden border-t border-hairline bg-paper lg:hidden"
+            initial={reduced ? false : { opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={reduced ? undefined : { opacity: 0, y: -10, scale: 0.98 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="pointer-events-auto mx-auto mt-2 max-w-[62rem] origin-top overflow-hidden rounded-[1.75rem] border border-rule bg-paper/95 shadow-float backdrop-blur-xl lg:hidden"
           >
-            <div className="shell flex flex-col gap-1 py-5">
-              <Link to="/" className="py-2.5 font-display text-[1.375rem] font-bold">
-                Personal
+            <div className="flex flex-col p-5">
+              <ul className="flex flex-col">
+                {links.map((link, index) => (
+                  <li key={link.href}>
+                    <a
+                      href={link.href}
+                      className="flex items-center justify-between gap-4 rounded-2xl px-3 py-3 font-display text-[1.25rem] font-bold tracking-[-0.02em] transition-colors hover:bg-ink/[0.045]"
+                    >
+                      {link.label}
+                      <span className="tnum text-[0.75rem] font-sans font-medium text-ink-700">
+                        0{index + 1}
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+
+              <span className="my-3 h-px bg-rule" />
+
+              <Link
+                to={other.to}
+                className="rounded-2xl px-3 py-2.5 text-[0.9375rem] font-medium text-ink-700 transition-colors hover:bg-ink/[0.045]"
+              >
+                {other.label}
               </Link>
-              <Link to="/business" className="py-2.5 font-display text-[1.375rem] font-bold">
-                Business
-              </Link>
-              <span className="my-2 h-px bg-hairline" />
-              {sectionLinks.map((link) => (
-                <a key={link.href} href={link.href} className="py-2 text-ink/65">
-                  {link.label}
-                </a>
-              ))}
+
               <a
                 href={WHATSAPP_URL}
-                target="_blank"
                 rel="noreferrer"
-                className="bubble-out mt-4 bg-green px-5 py-3.5 text-center text-[0.9375rem] font-semibold text-ink"
+                className="mt-4 flex items-center justify-center gap-2.5 rounded-full bg-green px-5 py-3.5 text-[0.9375rem] font-semibold text-ink"
               >
+                <WhatsAppGlyph />
                 Chat on WhatsApp
               </a>
             </div>

@@ -1,60 +1,84 @@
-import { Heading, Section } from "@/components/primitives/Section";
-import { Reveal } from "@/components/primitives/Reveal";
+import { motion } from "motion/react";
+import { Band, Eyebrow } from "@/components/primitives/Band";
 import { cn } from "@/lib/cn";
+import { useReducedMotion } from "@/lib/useReducedMotion";
 import { TESTIMONIALS } from "@/data/content";
 
-/** Initials in a chat bubble, the same mark language as the logo. */
-function Avatar({ name, index }: { name: string; index: number }) {
-  const initials = name
+/**
+ * Three remarks, staggered.
+ *
+ * Still not a row of testimonial cards with five stars and a stock portrait:
+ * the quote carries the weight, set in the display face at reading size, and
+ * the attribution is a line of text under a rule. What is new is that each
+ * one now sits on its own ground with the opening quote mark drawn large
+ * behind it — enough structure to look deliberate, not enough to look like a
+ * component someone installed.
+ */
+const OFFSETS = ["lg:mt-0", "lg:mt-14", "lg:mt-7"];
+
+function initials(name: string) {
+  return name
     .split(" ")
     .map((part) => part[0])
     .join("")
-    .slice(0, 2);
-
-  // Alternating fills keep the column from reading as one flat block.
-  const fills = ["bg-green text-ink", "bg-lime text-green-900", "bg-ink text-paper"];
-
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "bubble-in grid size-9 shrink-0 place-items-center font-display text-[0.8125rem] font-bold",
-        fills[index % fills.length]
-      )}
-    >
-      {initials}
-    </span>
-  );
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 export function Testimonials() {
-  return (
-    <Section tone="mist">
-      <Heading
-        title="People stopped opening their banking app."
-        body="The same thing comes up every time: it is one less thing to install, and one less password to remember."
-      />
+  const reduced = useReducedMotion();
 
-      {/* A masonry column flow — the quotes are different lengths and the
-          layout lets them be, rather than padding them into equal boxes. */}
-      <div className="mt-14 gap-4 md:columns-2 lg:columns-3 [&>*]:mb-4">
+  return (
+    <Band tone="paper">
+      <div className="max-w-[40rem]">
+        <Eyebrow>From the thread</Eyebrow>
+        <h2 className="display-section mt-5 max-w-[16ch] font-display text-balance">
+          People stopped opening the <span className="accent">app</span>.
+        </h2>
+      </div>
+
+      <ul className="mt-12 grid gap-6 md:mt-16 md:grid-cols-3 md:gap-6">
         {TESTIMONIALS.map((item, index) => (
-          <Reveal key={item.name} delay={(index % 3) * 0.06}>
-            <figure className="bubble-in-lg break-inside-avoid border border-hairline bg-paper p-6">
-              <blockquote className="text-[0.9375rem] leading-relaxed text-ink/80">
+          <motion.li
+            key={item.name}
+            className={cn("group", OFFSETS[index])}
+            initial={reduced ? undefined : { opacity: 0, y: 22 }}
+            whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-12% 0px" }}
+            transition={{ duration: 0.6, delay: index * 0.1, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <figure className="lift relative flex h-full flex-col overflow-hidden rounded-[1.5rem] border border-rule bg-paper-pure p-7 shadow-soft group-hover:border-green/35 group-hover:shadow-float md:p-8">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -right-2 -top-6 select-none font-display text-[7rem] font-extrabold leading-none text-green/10 transition-colors duration-500 group-hover:text-green/20"
+              >
+                &rdquo;
+              </span>
+
+              <blockquote className="relative flex-1 font-display text-[1.1875rem] font-medium leading-[1.5] tracking-[-0.015em] text-ink md:text-[1.3125rem]">
                 {item.quote}
               </blockquote>
-              <figcaption className="mt-5 flex items-center gap-3">
-                <Avatar name={item.name} index={index} />
-                <span className="leading-tight">
-                  <span className="block text-[0.875rem] font-semibold">{item.name}</span>
-                  <span className="stamp">{item.handle}</span>
+
+              <figcaption className="mt-7 flex items-center gap-3 border-t border-rule pt-5">
+                <span
+                  aria-hidden
+                  className="grid size-10 shrink-0 place-items-center rounded-full bg-mint font-display text-[0.8125rem] font-bold text-green-deep"
+                >
+                  {initials(item.name)}
+                </span>
+                <span className="min-w-0 leading-tight">
+                  <span className="block truncate text-[0.9375rem] font-semibold text-ink">
+                    {item.name}
+                  </span>
+                  <span className="block truncate text-[0.8125rem] text-ink-700">
+                    {item.role}
+                  </span>
                 </span>
               </figcaption>
             </figure>
-          </Reveal>
+          </motion.li>
         ))}
-      </div>
-    </Section>
+      </ul>
+    </Band>
   );
 }

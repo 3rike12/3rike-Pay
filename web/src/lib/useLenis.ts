@@ -6,7 +6,13 @@ import { useReducedMotion } from "./useReducedMotion";
 /**
  * Smooth scroll for the whole document, plus in-page anchor handling.
  *
- * Skipped entirely under prefers-reduced-motion — hijacking the scroll is
+ * Tuned long and soft rather than snappy: the wheel is damped slightly below
+ * 1:1 so a flick glides instead of jumping, and the easing is a single
+ * exponential ease-out so motion decays rather than stopping. Touch is left
+ * alone — native momentum on a phone is better than anything we would
+ * reimplement, and fighting it is what makes a site feel broken on mobile.
+ *
+ * Skipped entirely under prefers-reduced-motion: hijacking the scroll is
  * exactly what that setting is asking us not to do.
  */
 export function useLenis(): void {
@@ -17,10 +23,12 @@ export function useLenis(): void {
     if (reduced) return;
 
     const lenis = new Lenis({
-      duration: 1.05,
-      easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      duration: 1.35,
+      easing: (t: number) => 1 - Math.pow(1 - t, 3.2),
       smoothWheel: true,
-      touchMultiplier: 1.6,
+      wheelMultiplier: 0.92,
+      syncTouch: false,
+      touchMultiplier: 1.5,
     });
 
     let frame = 0;
@@ -31,6 +39,9 @@ export function useLenis(): void {
     frame = requestAnimationFrame(raf);
 
     const onAnchorClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey) {
+        return;
+      }
       const anchor = (event.target as HTMLElement | null)?.closest(
         'a[href^="#"]'
       ) as HTMLAnchorElement | null;
@@ -40,7 +51,7 @@ export function useLenis(): void {
       const target = document.getElementById(id);
       if (!target) return;
       event.preventDefault();
-      lenis.scrollTo(target, { offset: -84 });
+      lenis.scrollTo(target, { offset: -96, duration: 1.1 });
     };
 
     document.addEventListener("click", onAnchorClick);
