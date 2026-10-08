@@ -212,25 +212,39 @@ async function saveProduct(phone: string, user: any, name: string, price: number
   }
 }
 
+/** Bullet list of a saved profile - the same shape the save confirmation uses. */
+function businessDetails(business: {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  registrationNumber?: string | null;
+}) {
+  return [
+    `• *${business.name}*`,
+    ...(business.phone ? [`• ${business.phone}`] : []),
+    ...(business.email ? [`• ${business.email}`] : []),
+    ...(business.registrationNumber ? [`• RDB: ${business.registrationNumber}`] : []),
+  ].join("\n");
+}
+
 /**
- * /product [name] [price] - also the entry point for the main-menu
- * "Add Product" row and the "product" trigger in idle.
+ * Send the business-profile Flow invite with `body` as the copy. The Flow
+ * only works once its id is configured in src/config/flows.json - without
+ * one Meta rejects the request, so tell the merchant instead of sending a
+ * broken button. Returns false when the form did not open, so callers know
+ * setup never started.
  */
-/**
- * Opens the business-profile Flow. The Flow only works once its id is
- * configured in src/config/flows.json — without one Meta rejects the request,
- * so tell the merchant instead of sending a broken button.
- */
-async function handleBusinessCommand(phone: string, user: any) {
+async function openBusinessSetup(phone: string, user: any, body: string): Promise<boolean> {
   const flowId = FLOWS.BUSINESS;
   if (!flowId) {
     logger.warn("Business Flow id not configured", { phone: redactPhone(phone) });
-    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PROFILE.NOT_AVAILABLE);
+    await whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PROFILE.NOT_AVAILABLE);
+    return false;
   }
 
   const sent = await whatsapp.sendFlowMessage(
     phone,
-    MESSAGES.BUSINESS.PROFILE.OPEN,
+    body,
     flowId,
     MESSAGES.BUSINESS.PROFILE.CTA,
     user.id,
@@ -238,10 +252,36 @@ async function handleBusinessCommand(phone: string, user: any) {
   );
 
   if (!sent) {
-    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PROFILE.FAILED);
+    await whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.PROFILE.FAILED);
+    return false;
   }
+  return true;
 }
 
+/**
+ * /business and the main-menu "Business Profile" row. A merchant who already
+ * saved a profile is shown that profile (with a button to change it);
+ * anyone who has not set up yet is walked into the form.
+ */
+async function handleBusinessCommand(phone: string, user: any) {
+  if (user.business) {
+    return whatsapp.sendButtonsMessage(
+      phone,
+      MESSAGES.BUSINESS.PROFILE.VIEW(businessDetails(user.business)),
+      [
+        { id: "business_update", title: MESSAGES.BUSINESS.PROFILE.UPDATE },
+        { id: "btn_menu", title: "Main Menu" },
+      ]
+    );
+  }
+
+  return openBusinessSetup(phone, user, MESSAGES.BUSINESS.PROFILE.OPEN);
+}
+
+/**
+ * /product [name] [price] - also the entry point for the main-menu
+ * "Add Product" row and the "product" trigger in idle.
+ */
 async function handleProductCommand(phone: string, user: any, args: string) {
   const input = args.trim();
 
@@ -877,6 +917,9 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
   if (action === "business_profile") {
     return handleBusinessCommand(phone, user);
+  }
+  if (action === "business_update") {
+    return openBusinessSetup(phone, user, MESSAGES.BUSINESS.PROFILE.OPEN);
   }
 
   if (action === SESSION_STATE.SEND_MONEY) {

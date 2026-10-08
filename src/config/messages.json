@@ -167,6 +167,8 @@
     "PROFILE": {
       "OPEN": "Let's set up your business profile — the details that identify your shop on payment requests.",
       "CTA": "Set Up",
+      "UPDATE": "Update",
+      "VIEW": "*Your Business Profile*\n\n{{details}}\n\nTap *Update* to change these details.",
       "NOT_AVAILABLE": "Business setup isn't open yet. We'll message you as soon as it is.",
       "FAILED": "I couldn't open the business form. Please try again in a moment.",
       "SAVED": "Your business profile is saved.\n\n{{details}}\n\nType /invoice to request payment."

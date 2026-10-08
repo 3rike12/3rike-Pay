@@ -342,6 +342,8 @@ export const MESSAGES = {
     PROFILE: {
       OPEN: messagesJson.BUSINESS.PROFILE.OPEN,
       CTA: messagesJson.BUSINESS.PROFILE.CTA,
+      UPDATE: messagesJson.BUSINESS.PROFILE.UPDATE,
+      VIEW: (details: string) => render(messagesJson.BUSINESS.PROFILE.VIEW, { details }),
       NOT_AVAILABLE: messagesJson.BUSINESS.PROFILE.NOT_AVAILABLE,
       FAILED: messagesJson.BUSINESS.PROFILE.FAILED,
       SAVED: (details: string) => render(messagesJson.BUSINESS.PROFILE.SAVED, { details }),

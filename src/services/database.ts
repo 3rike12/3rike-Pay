@@ -13,21 +13,22 @@ export { getSession, updateSession, resetSession } from "@/services/sessionStore
 // ------- User helpers -------
 
 export async function findOrCreateUser(phone: string, name?: string) {
+  const include = { bankAccount: true, business: true } as const;
   let user = await prisma.user.findUnique({
     where: { phone },
-    include: { bankAccount: true },
+    include,
   });
   if (!user) {
     user = await prisma.user.create({
       data: { phone, name: name || null },
-      include: { bankAccount: true },
+      include,
     });
     logger.info("New user created", { phone: redactPhone(phone), userId: user.id });
   } else if (name && user.name !== name) {
     user = await prisma.user.update({
       where: { id: user.id },
       data: { name },
-      include: { bankAccount: true },
+      include,
     });
   }
   return user;
