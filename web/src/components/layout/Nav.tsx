@@ -6,7 +6,6 @@ import { WHATSAPP_URL } from "@/lib/site";
 import { WhatsAppGlyph } from "@/components/primitives/Button";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 import { Wordmark } from "./Wordmark";
-import { HERO_TREATMENT } from "@/lib/heroTreatment";
 
 const HOME_LINKS = [
   { label: "How it works", href: "/#how" },
@@ -22,12 +21,16 @@ const BUSINESS_LINKS = [
 ];
 
 /**
- * A floating capsule rather than a full-width bar.
+ * Full-width at rest, a floating capsule once you move.
  *
- * It starts out as a bare row sitting over the hero and, once the page has
- * moved, condenses into a glass pill that never touches the page edges. The
- * change is a width and a background, not a reflow — nothing inside it moves,
- * which is what keeps the transition from reading as a jolt.
+ * At the top it is a bare row spanning the content measure, aligned with the
+ * hero beneath it. Scroll and it draws in — narrower, shorter, and backed by
+ * glass. Only a width, a height and a background animate; nothing inside
+ * reflows, which is what keeps the change from reading as a jolt.
+ *
+ * Over the home hero the ground is a photograph, so while the bar is still
+ * transparent its type reverses to paper and goes back to ink as the capsule
+ * closes under it.
  */
 export function Nav() {
   const { pathname } = useLocation();
@@ -36,10 +39,10 @@ export function Nav() {
   const reduced = useReducedMotion();
 
   const onBusiness = pathname.startsWith("/business");
-  // Over the home hero's photograph there is no light ground to float on, so
-  // the capsule is solid from the first frame rather than fading in on scroll.
-  const overPhoto = !onBusiness && HERO_TREATMENT === "photo";
-  const solid = scrolled || open || overPhoto;
+  const solid = scrolled || open;
+  // The only page whose first screen is dark. Everywhere else the bare bar
+  // sits on paper and the type stays as it is.
+  const onDark = !solid && pathname === "/";
   const links = onBusiness ? BUSINESS_LINKS : HOME_LINKS;
   const other = onBusiness
     ? { label: "Personal", to: "/" }
@@ -64,21 +67,25 @@ export function Nav() {
     <header className="pointer-events-none fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4">
       <div
         className={cn(
-          "pointer-events-auto mx-auto flex items-center justify-between gap-6 rounded-full transition-all duration-500 ease-brand",
-          "px-4 sm:px-5",
+          "pointer-events-auto mx-auto flex items-center justify-between gap-6 rounded-full px-4 transition-all duration-[600ms] ease-brand sm:px-5",
           solid
             ? "h-[3.5rem] max-w-[62rem] border border-rule bg-paper/80 shadow-float backdrop-blur-xl"
-            : "h-[3.75rem] max-w-[78rem] border border-transparent bg-transparent"
+            : "h-[4.25rem] max-w-[78rem] border border-transparent bg-transparent"
         )}
       >
-        <Wordmark />
+        <Wordmark tone={onDark ? "dark" : "light"} />
 
         <ul className="hidden items-center gap-1 lg:flex">
           {links.map((link) => (
             <li key={link.href}>
               <a
                 href={link.href}
-                className="rounded-full px-3.5 py-2 text-[0.875rem] font-medium text-ink-700 transition-colors duration-200 hover:bg-ink/[0.055] hover:text-ink"
+                className={cn(
+                  "rounded-full px-3.5 py-2 text-[0.875rem] font-medium transition-colors duration-200",
+                  onDark
+                    ? "text-paper hover:bg-paper/15"
+                    : "text-ink-700 hover:bg-ink/[0.055] hover:text-ink"
+                )}
               >
                 {link.label}
               </a>
@@ -89,7 +96,12 @@ export function Nav() {
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
             to={other.to}
-            className="hidden rounded-full px-3 py-2 text-[0.875rem] font-medium text-ink-700 transition-colors duration-200 hover:bg-ink/[0.055] hover:text-ink md:block"
+            className={cn(
+              "hidden rounded-full px-3 py-2 text-[0.875rem] font-medium transition-colors duration-200 md:block",
+              onDark
+                ? "text-paper hover:bg-paper/15"
+                : "text-ink-700 hover:bg-ink/[0.055] hover:text-ink"
+            )}
           >
             {other.label}
           </Link>
@@ -110,7 +122,9 @@ export function Nav() {
             onClick={() => setOpen((value) => !value)}
             className={cn(
               "grid size-10 cursor-pointer place-items-center rounded-full border transition-colors duration-200 lg:hidden",
-              open ? "border-ink/25 bg-ink/[0.06]" : "border-rule bg-paper/70"
+              open && "border-ink/25 bg-ink/[0.06]",
+              !open && onDark && "border-paper/30 bg-paper/10 text-paper",
+              !open && !onDark && "border-rule bg-paper/70"
             )}
           >
             <svg
@@ -145,6 +159,9 @@ export function Nav() {
                   <li key={link.href}>
                     <a
                       href={link.href}
+                      // A fragment click leaves the pathname alone, so the
+                      // effect that closes this on navigation never fires.
+                      onClick={() => setOpen(false)}
                       className="flex items-center justify-between gap-4 rounded-2xl px-3 py-3 font-display text-[1.25rem] font-bold tracking-[-0.02em] transition-colors hover:bg-ink/[0.045]"
                     >
                       {link.label}

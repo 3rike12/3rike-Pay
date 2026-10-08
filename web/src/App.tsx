@@ -22,7 +22,7 @@ export default function App() {
 
       <Nav />
 
-      <main id="main">
+      <main id="main" className="scroll-mt-24">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/business" element={<Business />} />

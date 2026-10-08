@@ -16,13 +16,16 @@ export const BANKS = [
   "Keystone Bank", "Heritage Bank", "Unity Bank", "Safe Haven MFB", "Diamond Bank",
 ] as const;
 
-/* --- The three beats of a transfer. Each shows real message text. -------- */
+/* --- The three beats of a transfer. Each shows real message text, and each
+       `note` is the one-line claim the panel beside it is evidence for. ---- */
 export const BEATS = [
   {
     label: "Talk",
     title: "Say it how you'd say it",
     body: "No amount field, no bank dropdown. One sentence is the whole form.",
+    note: "One line, any Nigerian bank",
     lines: [
+      { from: "user" as const, text: "Hi", at: "9:40" },
       { from: "bot" as const, text: "What would you like to do?", at: "9:40" },
       { from: "user" as const, text: "Send 5k to 1234567890 GTBank", at: "9:41" },
     ],
@@ -31,6 +34,7 @@ export const BEATS = [
     label: "Confirm",
     title: "See the name before you send",
     body: "3rike Pay resolves the account and shows you who you're about to pay.",
+    note: "Nothing moves until you tap",
     lines: [
       {
         from: "bot" as const,
@@ -44,6 +48,7 @@ export const BEATS = [
     label: "Done",
     title: "A receipt, not a spinner",
     body: "The money moves on the NIP rails and the reference lands in the thread.",
+    note: "Every transfer gets a reference",
     lines: [
       {
         from: "bot" as const,

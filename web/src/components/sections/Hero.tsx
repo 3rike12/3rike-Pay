@@ -7,8 +7,7 @@ import { heroScript, sendScript } from "@/data/chats";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 import { WHATSAPP_URL } from "@/lib/site";
-import { HERO_PHOTO, HERO_TREATMENT } from "@/lib/heroTreatment";
-import { cn } from "@/lib/cn";
+import { HERO_PHOTO } from "@/lib/heroTreatment";
 
 /**
  * The hero.
@@ -17,9 +16,10 @@ import { cn } from "@/lib/cn";
  * the real thing — a transfer from first message to receipt, rendered live at
  * a size where every figure is legible, not a screenshot and not footage.
  *
- * Two treatments are built; see lib/heroTreatment. On "photo" the picture
- * leads and the type reverses to paper; on "veil" the page stays light and the
- * picture sits behind a whitish scrim.
+ * The picture leads and the type reverses to paper over it. Two scrims carry
+ * that: a vertical one that lands on paper at the bottom edge, and a pool
+ * under the type column — darkening the whole frame enough to hold the lede
+ * flattened the photograph, so the weight goes only where the words are.
  *
  * The stage arrives tilted away from the reader and straightens as it settles.
  * That is the one piece of theatre on the page, and it is paid for: a flat
@@ -43,7 +43,6 @@ const BEATS = {
 };
 
 export function Hero() {
-  const photo = HERO_TREATMENT === "photo";
   const reduced = useReducedMotion();
   // Only the tall layout has room for all five beats. Below it the "initiated"
   // message — real, but redundant beside the receipt — pushes the opening
@@ -73,7 +72,7 @@ export function Hero() {
   return (
     <section className="relative isolate overflow-hidden bg-paper pb-16 pt-28 sm:pt-32 md:pb-20 lg:pt-36">
       {/* Ground. The photograph, then whatever it takes to make type legible
-          on top of it. Both scrims land on paper at the bottom edge so the
+          on top of it. The scrim lands on paper at the bottom edge so the
           stage and the band below inherit a clean hand-over. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <img
@@ -89,20 +88,10 @@ export function Hero() {
           decoding="async"
           className="absolute inset-0 size-full object-cover object-[50%_32%]"
         />
-        {photo ? (
-          <>
-            <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(6,15,10,0.58)_0%,rgba(6,15,10,0.46)_44%,rgba(6,15,10,0.62)_76%,var(--color-paper)_100%)]" />
-            {/* A pool under the type column only. Darkening the whole frame to
-                carry the lede would flatten the photograph; this keeps the
-                edges open and puts the weight where the words are. */}
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_68%_56%_at_50%_38%,rgba(6,15,10,0.68),transparent_80%)]" />
-          </>
-        ) : (
-          <>
-            <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(245,245,240,0.62)_0%,rgba(245,245,240,0.70)_42%,rgba(245,245,240,0.92)_74%,var(--color-paper)_97%)]" />
-            <div className="absolute left-1/2 top-[-28rem] size-[64rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(1,194,89,0.2),transparent_60%)]" />
-          </>
-        )}
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(6,15,10,0.58)_0%,rgba(6,15,10,0.46)_44%,rgba(6,15,10,0.62)_76%,var(--color-paper)_100%)]" />
+        {/* The pool. Measured, not eyeballed: without it the lede sits at
+            2.58:1 on the brightest part of the photograph. */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_68%_56%_at_50%_38%,rgba(6,15,10,0.68),transparent_80%)]" />
       </div>
 
       <div className="shell relative">
@@ -110,12 +99,7 @@ export function Hero() {
         <div className="mx-auto max-w-[52rem] text-center">
           <motion.p {...rise(BEATS.eyebrow)} className="flex justify-center">
             <span
-              className={cn(
-                "inline-flex items-center gap-2.5 rounded-full border py-1.5 pl-2.5 pr-4 text-[0.8125rem] font-medium backdrop-blur-sm",
-                photo
-                  ? "border-paper/30 bg-paper/15 text-paper"
-                  : "border-green/25 bg-paper-pure/70 text-green-deep"
-              )}
+              className="inline-flex items-center gap-2.5 rounded-full border border-paper/30 bg-paper/15 py-1.5 pl-2.5 pr-4 text-[0.8125rem] font-medium text-paper backdrop-blur-sm"
             >
               <span className="relative grid size-5 place-items-center">
                 <span
@@ -131,24 +115,16 @@ export function Hero() {
 
           <motion.h1
             {...rise(BEATS.headline)}
-            className={cn(
-              "display-hero mx-auto mt-7 max-w-[11ch] font-display text-balance sm:max-w-[19ch]",
-              photo && "text-paper [text-shadow:0_2px_24px_rgba(6,15,10,0.35)]"
-            )}
+            className="display-hero mx-auto mt-7 max-w-[11ch] font-display text-balance text-paper [text-shadow:0_2px_24px_rgba(6,15,10,0.35)] sm:max-w-[19ch]"
           >
             Your bank{" "}
-            <span className={cn("whitespace-nowrap", photo ? "text-lime" : "accent")}>
-              lives in
-            </span>{" "}
+            <span className="whitespace-nowrap text-lime">lives in</span>{" "}
             your chats.
           </motion.h1>
 
           <motion.p
             {...rise(BEATS.lede)}
-            className={cn(
-              "mx-auto mt-6 max-w-[46ch] text-[1.0625rem] leading-relaxed sm:text-[1.1875rem]",
-              photo ? "text-paper" : "text-ink-700"
-            )}
+            className="mx-auto mt-6 max-w-[46ch] text-[1.0625rem] leading-relaxed text-paper sm:text-[1.1875rem]"
           >
             Send money to any Nigerian bank by typing it the way you&rsquo;d say it.
             No app to download, no forms, no new password to forget.
@@ -169,12 +145,7 @@ export function Hero() {
 
             <a
               href="#how"
-              className={cn(
-                "group inline-flex w-full items-center justify-center gap-2 rounded-full border px-7 py-4 text-[1rem] font-medium backdrop-blur-sm transition-all duration-300 ease-brand sm:w-auto",
-                photo
-                  ? "border-paper/35 bg-paper/12 text-paper hover:border-paper/60 hover:bg-paper/20"
-                  : "border-ink/12 bg-paper-pure/60 text-ink hover:border-ink/30 hover:bg-paper-pure"
-              )}
+              className="group inline-flex w-full items-center justify-center gap-2 rounded-full border border-paper/35 bg-paper/12 px-7 py-4 text-[1rem] font-medium text-paper backdrop-blur-sm transition-all duration-300 ease-brand hover:border-paper/60 hover:bg-paper/20 sm:w-auto"
             >
               See how it works
               <ArrowGlyph className="size-3.5 transition-transform duration-300 group-hover:translate-y-0.5" />
@@ -183,10 +154,7 @@ export function Hero() {
 
           <motion.p
             {...rise(BEATS.meta)}
-            className={cn(
-              "tnum mt-7 text-[0.8125rem]",
-              photo ? "text-paper/70" : "text-ink-700/75"
-            )}
+            className="tnum mt-7 text-[0.8125rem] text-paper/70"
           >
             Transfers from ₦100 to ₦1,000,000 · Every bank on the NIP network
           </motion.p>

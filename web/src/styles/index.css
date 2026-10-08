@@ -58,6 +58,7 @@
   --color-wa-link: #53bdeb;
   --color-wa-tick: #53bdeb;
   --color-wa-lite-bg: #efe7de;
+  --color-wa-lite-head: #f0f2f5;
   --color-wa-lite-in: #ffffff;
   --color-wa-lite-out: #d9fdd3;
   --color-wa-lite-text: #111b21;
@@ -181,6 +182,16 @@
     transparent 0
   );
   background-size: 26px 26px;
+}
+
+/* The wallpaper behind a light-theme thread. Our own doodles, not
+   WhatsApp's artwork — a flat beige panel reads as an empty box, and the
+   texture is what makes it read as a phone screen instead. Kept faint
+   enough that it never competes with the bubbles sitting on it. */
+@utility wa-paper {
+  background-color: var(--color-wa-lite-bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Cg fill='none' stroke='%23111b21' stroke-opacity='.034' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 14h30v20H30l-6 6v-6h-10z'/%3E %3Ccircle cx='74' cy='26' r='10'/%3E%3Cpath d='M74 19v14M70 23h8M70 29h8'/%3E %3Ccircle cx='124' cy='25' r='11'/%3E%3Cpath d='M119 25l4 4 7-8'/%3E %3Cpath d='M164 16l14 10-14 10'/%3E %3Cpath d='M12 72c6-9 13 9 19 0s13 9 19 0'/%3E %3Crect x='72' y='60' width='36' height='22' rx='3'/%3E%3Ccircle cx='90' cy='71' r='5'/%3E %3Cpath d='M122 76l24-10-9 24-4-9z'/%3E %3Crect x='166' y='56' width='20' height='30' rx='4'/%3E%3Cpath d='M172 80h8'/%3E %3Cpath d='M12 112l5 5 9-11M22 112l5 5 9-11'/%3E %3Cpath d='M56 100h34v22H74l-6 6v-6H56z'/%3E %3Cpath d='M126 102l3.6 7.3 8 1.2-5.8 5.6 1.4 8-7.2-3.8-7.2 3.8 1.4-8-5.8-5.6 8-1.2z'/%3E %3Crect x='162' y='110' width='20' height='15' rx='2.5'/%3E%3Cpath d='M166 110v-4a6 6 0 0112 0v4'/%3E %3Cpath d='M12 160c6 9 13-9 19 0s13-9 19 0'/%3E %3Ccircle cx='74' cy='162' r='11'/%3E %3Cpath d='M112 150v22M126 150v22M106 157h26M106 165h26M110 150l20 22'/%3E %3Ccircle cx='170' cy='162' r='12'/%3E%3Cpath d='M170 155v8l5 3'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 148px 148px;
 }
 
 /* ------------------------------------------------------------------ *
