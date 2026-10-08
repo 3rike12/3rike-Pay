@@ -169,6 +169,7 @@
       "CTA": "Set Up",
       "UPDATE": "Update",
       "VIEW": "*Your Business Profile*\n\n{{details}}\n\nTap *Update* to change these details.",
+      "REQUIRED": "Before we raise an invoice, let's set up your business profile — these are the details your customer sees on the payment request.",
       "NOT_AVAILABLE": "Business setup isn't open yet. We'll message you as soon as it is.",
       "FAILED": "I couldn't open the business form. Please try again in a moment.",
       "SAVED": "Your business profile is saved.\n\n{{details}}\n\nType /invoice to request payment."

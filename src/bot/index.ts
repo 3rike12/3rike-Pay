@@ -497,6 +497,12 @@ async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft)
 async function handleInvoiceCommand(phone: string, user: any, args: string) {
   await expireStaleInvoices(user.id).catch(() => {});
 
+  // An invoice carries the shop's details, so a merchant with no profile is
+  // walked into setup first instead of being asked what to charge for.
+  if (!user.business) {
+    return openBusinessSetup(phone, user, MESSAGES.BUSINESS.PROFILE.REQUIRED);
+  }
+
   const input = args.trim();
   if (input) {
     const parsed = parseInvoiceRequest(input, false);
@@ -960,6 +966,10 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   // Invoice / product come before SEND_MONEY: "payment request" contains
   // "pay", which SEND_MONEY matches on.
   if (TRIGGERS.INVOICE.some((kw) => t.includes(kw))) {
+    // Same gate as /invoice: no profile yet means setup first.
+    if (!user.business) {
+      return openBusinessSetup(phone, user, MESSAGES.BUSINESS.PROFILE.REQUIRED);
+    }
     const parsed = parseInvoiceRequest(text || "");
     if (parsed) {
       return advanceInvoice(phone, user, {
