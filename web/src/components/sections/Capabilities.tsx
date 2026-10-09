@@ -8,7 +8,6 @@ import { useReducedMotion } from "@/lib/useReducedMotion";
 import { CAPABILITIES } from "@/data/content";
 import {
   balanceScript,
-  invoiceScript,
   onboardingScript,
   sendScript,
   type ChatScript,
@@ -18,7 +17,6 @@ const SCRIPTS: Record<string, ChatScript> = {
   send: sendScript,
   balance: balanceScript,
   account: onboardingScript,
-  invoice: invoiceScript,
 };
 
 /** What you would actually type to start each one. */
@@ -26,7 +24,6 @@ const TRIGGERS: Record<string, string> = {
   send: "Send 5k to 1234567890 GTBank",
   balance: "balance",
   account: "Hi",
-  invoice: "New invoice",
 };
 
 const ICONS: Record<string, ReactNode> = {
@@ -36,9 +33,6 @@ const ICONS: Record<string, ReactNode> = {
   ),
   account: (
     <path d="M12 2.5a4.25 4.25 0 110 8.5 4.25 4.25 0 010-8.5zM12 13c4.2 0 7.6 2.35 7.6 5.25V21H4.4v-2.75C4.4 15.35 7.8 13 12 13z" />
-  ),
-  invoice: (
-    <path d="M6 2h12a1 1 0 011 1v18.1a.5.5 0 01-.76.43L16 20.2l-2.24 1.35a.5.5 0 01-.52 0L11 20.2l-2.24 1.35a.5.5 0 01-.52 0L6 20.2l-2.24 1.33A.5.5 0 013 21.1V3a1 1 0 011-1h2zm1.5 5a1 1 0 000 2h9a1 1 0 100-2h-9zm0 4a1 1 0 000 2h9a1 1 0 100-2h-9zm0 4a1 1 0 000 2h5a1 1 0 100-2h-5z" />
   ),
 };
 
@@ -97,7 +91,7 @@ export function Capabilities() {
           role="tablist"
           aria-label="What 3rike Pay can do"
           onKeyDown={move}
-          className="-mx-5 mt-10 flex snap-x gap-2.5 overflow-x-auto px-5 pb-3 md:-mx-8 md:px-8 lg:mx-0 lg:mt-12 lg:grid lg:grid-cols-4 lg:overflow-visible lg:px-0 lg:pb-0"
+          className="-mx-5 mt-10 flex snap-x gap-2.5 overflow-x-auto px-5 pb-3 md:-mx-8 md:px-8 lg:mx-0 lg:mt-12 lg:grid lg:grid-cols-3 lg:overflow-visible lg:px-0 lg:pb-0"
         >
           {CAPABILITIES.map((capability, index) => {
             const selected = index === active;

@@ -6,6 +6,7 @@ import Home from "@/pages/Home";
 import Business from "@/pages/Business";
 import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
+import Doc from "@/pages/Doc";
 import NotFound from "@/pages/NotFound";
 
 export default function App() {
@@ -26,6 +27,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/business" element={<Business />} />
+          <Route path="/doc" element={<Doc />} />
+          <Route path="/doc/:slug" element={<Doc />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="*" element={<NotFound />} />

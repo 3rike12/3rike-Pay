@@ -22,6 +22,15 @@ const COLUMNS = [
     ],
   },
   {
+    heading: "Documentation",
+    links: [
+      { label: "Setting up", href: "/doc/setup", route: true },
+      { label: "Sending money", href: "/doc/send", route: true },
+      { label: "Requesting payment", href: "/doc/invoice", route: true },
+      { label: "All 18 sections", href: "/doc", route: true },
+    ],
+  },
+  {
     heading: "Company",
     links: [
       { label: "Terms of use", href: "/terms", route: true },
@@ -50,7 +59,7 @@ export function Footer() {
             <Wordmark tone="dark" />
             <p className="mt-4 text-[1rem] leading-relaxed text-paper/60">
               Money that moves from inside the conversation you were already
-              having. Built for Nigeria, on WhatsApp.
+              having. Built for Nigeria and Rwanda, on WhatsApp.
             </p>
           </div>
 
@@ -73,7 +82,7 @@ export function Footer() {
         </div>
 
         {/* ---- Navigation ---- */}
-        <div className="grid gap-10 py-12 sm:grid-cols-3 md:py-14">
+        <div className="grid gap-10 py-12 sm:grid-cols-2 md:py-14 lg:grid-cols-4">
           {COLUMNS.map((column) => (
             <nav key={column.heading} aria-label={column.heading}>
               <h2 className="eyebrow text-paper/60">{column.heading}</h2>

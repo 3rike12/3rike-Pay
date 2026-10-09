@@ -7,6 +7,11 @@ import { SUPPORT_EMAIL } from "@/lib/site";
  * the product actually does, so the site can go in front of Meta and payment
  * partners. Have a Nigerian lawyer review it before launch, and fill in the
  * registered company name and address where marked.
+ *
+ * INCOMPLETE: this draft covers Nigeria only — eligibility, the closing clause
+ * and the governing law all assume a Nigerian user. Invoicing is live for
+ * merchants in Rwanda, who are not covered by anything below. Rwandan counsel
+ * needs to say whether that is a second set of terms or added clauses here.
  */
 export default function Terms() {
   useDocumentMeta({

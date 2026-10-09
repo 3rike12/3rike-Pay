@@ -12,12 +12,14 @@ const HOME_LINKS = [
   { label: "What you can do", href: "/#features" },
   { label: "Safety", href: "/#security" },
   { label: "Questions", href: "/#faq" },
+  { label: "Docs", href: "/doc" },
 ];
 
 const BUSINESS_LINKS = [
   { label: "Getting paid", href: "/business#flow" },
   { label: "Fees", href: "/business#fees" },
   { label: "Questions", href: "/business#faq" },
+  { label: "Docs", href: "/doc" },
 ];
 
 /**
@@ -31,22 +33,34 @@ const BUSINESS_LINKS = [
  * Over the home hero the ground is a photograph, so while the bar is still
  * transparent its type reverses to paper and goes back to ink as the capsule
  * closes under it.
+ *
+ * The bar also says which half of the product you are in, because the two
+ * halves are genuinely different services — naira transfers on one side,
+ * franc collections on the other — and a reader who cannot tell them apart
+ * reads the wrong fees. Personal and business are a real switch rather than
+ * a "go here instead" link, business carries the logo's olive and lime
+ * against personal's green, and the docs carry neither.
  */
+
+type Mode = "personal" | "business" | "docs";
+
 export function Nav() {
   const { pathname } = useLocation();
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const reduced = useReducedMotion();
 
-  const onBusiness = pathname.startsWith("/business");
+  const mode: Mode = pathname.startsWith("/business")
+    ? "business"
+    : pathname.startsWith("/doc")
+      ? "docs"
+      : "personal";
+
   const solid = scrolled || open;
   // The only page whose first screen is dark. Everywhere else the bare bar
   // sits on paper and the type stays as it is.
   const onDark = !solid && pathname === "/";
-  const links = onBusiness ? BUSINESS_LINKS : HOME_LINKS;
-  const other = onBusiness
-    ? { label: "Personal", to: "/" }
-    : { label: "For business", to: "/business" };
+  const links = mode === "business" ? BUSINESS_LINKS : HOME_LINKS;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -63,48 +77,93 @@ export function Nav() {
     };
   }, [open]);
 
+  /** A plain path routes; a fragment stays an anchor so Lenis can take it. */
+  const linkClass = cn(
+    "whitespace-nowrap rounded-full px-2.5 py-2 text-[0.875rem] font-medium transition-colors duration-200",
+    onDark ? "text-paper hover:bg-paper/15" : "text-ink-700 hover:bg-ink/[0.055] hover:text-ink"
+  );
+
+  const toggle = (
+    <div
+      className={cn(
+        "hidden shrink-0 items-center gap-0.5 rounded-full border p-[0.1875rem] transition-colors duration-[600ms] ease-brand md:inline-flex",
+        onDark ? "border-paper/25 bg-paper/10" : "border-rule bg-ink/[0.045]"
+      )}
+    >
+      {([
+        { label: "Personal", to: "/", key: "personal" },
+        { label: "Business", to: "/business", key: "business" },
+      ] as const).map((item) => {
+        const active = mode === item.key;
+        return (
+          <Link
+            key={item.key}
+            to={item.to}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "whitespace-nowrap rounded-full px-3 py-[0.4375rem] text-[0.8125rem] transition-colors duration-200",
+              active && item.key === "personal" && "bg-ink font-semibold text-paper",
+              // The logo's own lime. Dark type on a pale fill, so the business
+              // side reads as a different place without a second brand colour
+              // competing with the green call to action beside it.
+              active && item.key === "business" &&
+                "bg-lime font-semibold text-green-ink ring-1 ring-olive/30",
+              !active && (onDark
+                ? "font-medium text-paper hover:bg-paper/15"
+                : "font-medium text-ink-700 hover:bg-ink/[0.06] hover:text-ink")
+            )}
+          >
+            {item.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+
   return (
     <header className="pointer-events-none fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4">
       <div
         className={cn(
-          "pointer-events-auto mx-auto flex items-center justify-between gap-6 rounded-full px-4 transition-all duration-[600ms] ease-brand sm:px-5",
+          "pointer-events-auto mx-auto flex items-center justify-between gap-5 rounded-full px-4 transition-all duration-[600ms] ease-brand sm:px-5",
           solid
-            ? "h-[3.5rem] max-w-[62rem] border border-rule bg-paper/80 shadow-float backdrop-blur-xl"
-            : "h-[4.25rem] max-w-[78rem] border border-transparent bg-transparent"
+            ? "h-[3.5rem] max-w-[68rem] shadow-float backdrop-blur-xl"
+            : "h-[4.25rem] max-w-[78rem] border border-transparent bg-transparent",
+          // Business glass is tinted. It is the one change you cannot miss on
+          // a page you landed on from a search.
+          // /85, not /70: measured against the dark band this bar crosses,
+          // where a thinner tint puts the links at 3.69:1.
+          solid && mode === "business" && "border border-olive/25 bg-lime-pale/85",
+          solid && mode !== "business" && "border border-rule bg-paper/80"
         )}
       >
         <Wordmark tone={onDark ? "dark" : "light"} />
 
-        <ul className="hidden items-center gap-1 lg:flex">
-          {links.map((link) => (
-            <li key={link.href}>
-              <a
-                href={link.href}
-                className={cn(
-                  "rounded-full px-3.5 py-2 text-[0.875rem] font-medium transition-colors duration-200",
-                  onDark
-                    ? "text-paper hover:bg-paper/15"
-                    : "text-ink-700 hover:bg-ink/[0.055] hover:text-ink"
+        <ul className="hidden shrink-0 items-center gap-0.5 lg:flex">
+          {links.map((link) => {
+            const routed = !link.href.includes("#");
+            const current = routed && pathname.startsWith(link.href);
+            return (
+              <li key={link.href}>
+                {routed ? (
+                  <Link
+                    to={link.href}
+                    aria-current={current ? "page" : undefined}
+                    className={cn(linkClass, current && "bg-ink font-semibold text-paper")}
+                  >
+                    {link.label}
+                  </Link>
+                ) : (
+                  <a href={link.href} className={linkClass}>
+                    {link.label}
+                  </a>
                 )}
-              >
-                {link.label}
-              </a>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            to={other.to}
-            className={cn(
-              "hidden rounded-full px-3 py-2 text-[0.875rem] font-medium transition-colors duration-200 md:block",
-              onDark
-                ? "text-paper hover:bg-paper/15"
-                : "text-ink-700 hover:bg-ink/[0.055] hover:text-ink"
-            )}
-          >
-            {other.label}
-          </Link>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          {toggle}
 
           <a
             href={WHATSAPP_URL}
@@ -112,7 +171,8 @@ export function Nav() {
             className="hidden items-center gap-2 rounded-full bg-green px-4 py-2.5 text-[0.875rem] font-semibold text-ink shadow-[0_6px_16px_-8px_rgba(1,194,89,0.8)] transition-all duration-300 ease-brand hover:bg-green-hover active:scale-[0.98] sm:inline-flex"
           >
             <WhatsAppGlyph className="size-4" />
-            Chat on WhatsApp
+            <span className="hidden whitespace-nowrap xl:inline">Chat on WhatsApp</span>
+            <span className="xl:hidden">Chat</span>
           </a>
 
           <button
@@ -151,36 +211,75 @@ export function Nav() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduced ? undefined : { opacity: 0, y: -10, scale: 0.98 }}
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            className="pointer-events-auto mx-auto mt-2 max-w-[62rem] origin-top overflow-hidden rounded-[1.75rem] border border-rule bg-paper/95 shadow-float backdrop-blur-xl lg:hidden"
+            className={cn(
+              "pointer-events-auto mx-auto mt-2 max-w-[68rem] origin-top overflow-hidden rounded-[1.75rem] border shadow-float backdrop-blur-xl lg:hidden",
+              mode === "business" ? "border-olive/25 bg-lime-pale/95" : "border-rule bg-paper/95"
+            )}
           >
             <div className="flex flex-col p-5">
               <ul className="flex flex-col">
-                {links.map((link, index) => (
-                  <li key={link.href}>
-                    <a
-                      href={link.href}
-                      // A fragment click leaves the pathname alone, so the
-                      // effect that closes this on navigation never fires.
-                      onClick={() => setOpen(false)}
-                      className="flex items-center justify-between gap-4 rounded-2xl px-3 py-3 font-display text-[1.25rem] font-bold tracking-[-0.02em] transition-colors hover:bg-ink/[0.045]"
-                    >
-                      {link.label}
-                      <span className="tnum text-[0.75rem] font-sans font-medium text-ink-700">
-                        0{index + 1}
-                      </span>
-                    </a>
-                  </li>
-                ))}
+                {links.map((link, index) => {
+                  const routed = !link.href.includes("#");
+                  const rowClass =
+                    "flex items-center justify-between gap-4 rounded-2xl px-3 py-3 font-display text-[1.25rem] font-bold tracking-[-0.02em] transition-colors hover:bg-ink/[0.045]";
+                  const number = (
+                    <span className="tnum font-sans text-[0.75rem] font-medium text-ink-700">
+                      0{index + 1}
+                    </span>
+                  );
+                  return (
+                    <li key={link.href}>
+                      {routed ? (
+                        <Link to={link.href} className={rowClass}>
+                          {link.label}
+                          {number}
+                        </Link>
+                      ) : (
+                        <a
+                          href={link.href}
+                          // A fragment click leaves the pathname alone, so the
+                          // effect that closes this on navigation never fires.
+                          onClick={() => setOpen(false)}
+                          className={rowClass}
+                        >
+                          {link.label}
+                          {number}
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
 
               <span className="my-3 h-px bg-rule" />
 
-              <Link
-                to={other.to}
-                className="rounded-2xl px-3 py-2.5 text-[0.9375rem] font-medium text-ink-700 transition-colors hover:bg-ink/[0.045]"
-              >
-                {other.label}
-              </Link>
+              {/* The same switch, laid out as two halves of a row — a sheet
+                  has the width for both labels to sit side by side. */}
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { label: "Personal", to: "/", key: "personal" },
+                  { label: "Business", to: "/business", key: "business" },
+                ] as const).map((item) => {
+                  const active = mode === item.key;
+                  return (
+                    <Link
+                      key={item.key}
+                      to={item.to}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "rounded-2xl border px-3 py-2.5 text-center text-[0.9375rem] transition-colors",
+                        active && item.key === "personal" &&
+                          "border-ink bg-ink font-semibold text-paper",
+                        active && item.key === "business" &&
+                          "border-olive/40 bg-lime font-semibold text-green-ink",
+                        !active && "border-rule font-medium text-ink-700 hover:bg-ink/[0.045]"
+                      )}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
 
               <a
                 href={WHATSAPP_URL}

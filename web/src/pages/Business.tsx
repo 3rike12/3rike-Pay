@@ -10,7 +10,7 @@ export default function Business() {
   useDocumentMeta({
     title: "3rike Pay for business — bill a customer in one message",
     description:
-      "Raise an itemised invoice from the chat you already use. The payment prompt lands on your customer's phone and the money lands in your wallet, with every fee shown.",
+      "For Rwandan businesses. Raise an itemised invoice from the chat you already use. The payment prompt opens on your customer's mobile money and the money lands in your wallet in RWF, with every fee shown.",
   });
 
   return (

@@ -72,7 +72,10 @@ export const BEATS = [
   },
 ];
 
-/* --- Capabilities. The tab list that drives the live thread. ------------- */
+/* --- Capabilities. The tab list that drives the live thread.
+       Personal, and therefore Nigeria: sending runs on NIP and the account
+       issued at KYC is a Nigerian one. Invoicing lives on the business page
+       because it is the Rwanda product — see BUSINESS_STEPS below. -------- */
 export const CAPABILITIES = [
   {
     id: "send",
@@ -94,13 +97,6 @@ export const CAPABILITIES = [
     headline: "A real account number, in two minutes.",
     body: "Verify with your NIN or BVN inside an encrypted WhatsApp Flow and a Nigerian bank account is issued to you in the thread.",
     source: "src/config/messages.json KYC_PROMPT, FALLBACK.ACCOUNT_CREATED",
-  },
-  {
-    id: "invoice",
-    label: "Invoice a customer",
-    headline: "Bill someone without leaving the chat.",
-    body: "List what they're buying, send the request, and the money settles into your wallet with the fees itemised.",
-    source: "src/services/invoice.ts",
   },
 ] as const;
 
@@ -152,7 +148,7 @@ export const FAQS = [
   },
   {
     q: "Can I buy airtime and data?",
-    a: "Not yet. The integration is being finished — right now 3rike Pay handles transfers, balances, accounts and invoices.",
+    a: "Not yet. The integration is being finished — right now 3rike Pay handles transfers, balances and accounts.",
   },
   {
     q: "What happens if I lose my phone?",
@@ -160,11 +156,15 @@ export const FAQS = [
   },
   {
     q: "What does it cost?",
-    a: "Transfers carry the standard processing charge from our payment partner. On business invoices, 3rike keeps a 5% platform fee, itemised on every receipt alongside the processor's charge so you always see the full breakdown.",
+    a: "Transfers carry the standard processing charge from our payment partner, shown on the receipt. There is no 3rike fee on a personal transfer.",
   },
   {
     q: "Is my money held by 3rike?",
     a: "Funds sit in an account issued through our licensed payment partner, and your wallet balance is reconciled against real settlement — not an internal number we maintain by hand.",
+  },
+  {
+    q: "Can I bill my customers with this?",
+    a: "Invoicing is live for merchants in Rwanda, who collect over mobile money in RWF. It is on the business page. Sending money, on this page, runs on Nigeria's NIP network.",
   },
 ] as const;
 
@@ -194,6 +194,10 @@ export const BUSINESS_STEPS = [
 
 export const BUSINESS_FAQS = [
   {
+    q: "Where does this work?",
+    a: "Rwanda. Invoices are raised and collected in RWF over mobile money, and your customer's network — MTN, Airtel or KTRN — is read from their number. Sending money to a bank account is a separate, Nigerian feature on the personal page.",
+  },
+  {
     q: "What does 3rike take?",
     a: "A 5% platform fee on collected invoices. It is listed on the receipt next to the payment processor's charge, so you can see exactly what reached you.",
   },
@@ -203,7 +207,7 @@ export const BUSINESS_FAQS = [
   },
   {
     q: "Do my customers need 3rike Pay?",
-    a: "No. They receive a payment prompt and approve it on their own phone.",
+    a: "No, and they do not need WhatsApp either. The prompt arrives on their mobile money and they approve it on their own phone.",
   },
   {
     q: "Where does the money go?",

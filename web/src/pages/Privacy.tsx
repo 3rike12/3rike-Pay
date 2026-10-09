@@ -7,6 +7,11 @@ import { SUPPORT_EMAIL } from "@/lib/site";
  * codebase actually handles. Have a Nigerian lawyer review it against the NDPA
  * 2023 before launch, and add the registered entity details and your DPO
  * contact where marked.
+ *
+ * INCOMPLETE: written against the NDPA alone. Rwandan merchants' data is
+ * processed too — phone numbers, invoices, settlement records — and Rwanda's
+ * Law No. 058/2021 on personal data protection is not addressed anywhere
+ * below. That gap needs Rwandan counsel before launch, not after.
  */
 export default function Privacy() {
   useDocumentMeta({

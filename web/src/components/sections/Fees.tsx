@@ -10,22 +10,28 @@ import { useReducedMotion } from "@/lib/useReducedMotion";
  * merchant actually wants to know is what reaches them on a real invoice, so
  * that is what the section shows, line by line, in the order the ledger books
  * it: gross credited, platform fee debited, processor charge debited.
+ *
+ * The figures are a transaction we have actually settled, not a model. See the
+ * note in src/services/invoice.ts: a RWF 3,000 charge reports `app_fee: 147`
+ * but settles 2,841.97, so the real processor cost was 158.03 — the VAT the
+ * reported fee leaves out is exactly the kind of thing a rounded marketing
+ * number would hide.
  */
 const ROWS = [
   {
     label: "Invoice total",
     note: "What the customer approved on their phone",
-    value: "₦8,500.00",
+    value: "RWF 3,000",
   },
   {
     label: "Platform fee",
     note: "3rike keeps 5% of collected invoices",
-    value: "−₦425.00",
+    value: "−RWF 150",
   },
   {
     label: "Processor charge",
     note: "Booked as its own line, never folded into our fee",
-    value: "−₦119.00",
+    value: "−RWF 158.03",
   },
 ] as const;
 
@@ -42,7 +48,7 @@ export function Fees() {
         <div className="lg:sticky lg:top-28 lg:self-start">
           <Eyebrow>Fees</Eyebrow>
           <h2 className="display-section mt-5 max-w-[13ch] font-display text-balance">
-            You see every naira that{" "}
+            You see every franc that{" "}
             <span className="accent">moved</span>.
           </h2>
           <p className="mt-5 max-w-[34ch] text-[1.0625rem] leading-relaxed text-ink-700">
@@ -94,14 +100,16 @@ export function Fees() {
                 Credited to your wallet
               </dt>
               <dd className="tnum font-display text-[2rem] font-extrabold tracking-[-0.03em] md:text-[2.75rem]">
-                ₦7,956.00
+                RWF 2,691.97
               </dd>
             </motion.div>
           </dl>
 
           <p className="mt-6 text-[0.8125rem] leading-relaxed text-ink-700">
-            A worked example on an ₦8,500 invoice. The processor&rsquo;s charge varies
-            with the payment method; the platform rate is fixed and set per deployment.
+            A real RWF 3,000 invoice collected over mobile money, not a model. The
+            processor&rsquo;s charge varies with the payment method and the figure it
+            reports excludes VAT, so what you see here is what actually settled; the
+            platform rate is fixed and set per deployment.
           </p>
         </div>
       </div>

@@ -49,7 +49,7 @@ export function BusinessHero() {
                   />
                   <span aria-hidden className="size-2 rounded-full bg-green" />
                 </span>
-                For businesses
+                For businesses in Rwanda
               </span>
             </motion.p>
 
@@ -66,8 +66,10 @@ export function BusinessHero() {
               {...rise(0.42)}
               className="mt-6 max-w-[38ch] text-[1.0625rem] leading-relaxed text-ink-700 sm:text-[1.125rem]"
             >
-              Type the order, send the request, watch it settle. No POS terminal, no
-              account number to dictate, no screenshot to chase.
+              Type the order and send the request. The prompt opens on your
+              customer&rsquo;s own mobile money — MTN, Airtel or KTRN — and the money
+              settles into your wallet. No POS terminal, no account number to
+              dictate, no screenshot to chase.
             </motion.p>
 
             <motion.div {...rise(0.56)} className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-4">
@@ -84,7 +86,7 @@ export function BusinessHero() {
             </motion.div>
 
             <motion.p {...rise(0.68)} className="tnum mt-8 text-[0.8125rem] text-ink-700/80">
-              5% platform fee on collected invoices · Itemised on every receipt
+              Collected in RWF over mobile money · 5% platform fee, itemised on every receipt
             </motion.p>
           </div>
 
