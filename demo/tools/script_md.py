@@ -28,7 +28,7 @@ SOURCE = {
  "l13": "messages.json BUSINESS.INVOICE.ISSUED_PUSH; docs §10 — the customer approves a mobile-money prompt and never messages the bot.",
     "l14": "docs §10 — the customer approves a mobile-money prompt on their own phone; the bot never messages them and they never hold an account here.",
     "l15": "docs §12 ledger: RWF 100 − 5.00 platform − 5.92 processor = 89.08, itemised on every settled payment.",
- "l16": "Nigeria: transfers. Rwanda: invoicing. Both live.",
+ "l16": "Rwanda: invoicing. Nigeria: transfers. Both live.",
 }
 SCENE_TITLE = {"s1_cold": "The problem", "s2_title": "The name",
                "s3_person": "Part one — sending money (Nigeria)",
@@ -110,13 +110,13 @@ w(f"{L['l04'][0]:.2f}s; then a light kalimba groove in D at 96 BPM — plucked t
 w("soft shaker on the offbeats and a short bass note on the downbeat — which")
 w("stops dead for the sign-off.\n")
 w("The groove is written to be heard between the lines and barely at all beneath")
-w("one. `tools/mix.py` holds it at 0.55 of the voice and ducks it a further 18 dB")
+w("one. `tools/mix.py` holds it at 0.72 of the voice and ducks it a further 20 dB")
 w("whenever a word is being spoken, with 150 ms of look-ahead so it is already out")
-w("of the way before a line starts: in the delivered master it sits about 13 dB")
-w("under the narration in the gaps and about 28 dB under it during a line.\n")
+w("of the way before a line starts: in the delivered master it sits about 12 dB")
+w("under the narration in the gaps and about 32 dB under it during a line.\n")
 w("`tools/loudness.sh` then compresses, applies a flat measured gain and")
 w("brickwalls the transients. Two-pass loudnorm is the usual recipe and is wrong")
 w("here: the mix has a ~20 dB crest factor, so the gain needed to reach -14 LUFS")
 w("always pushes the true peak past the ceiling and loudnorm silently abandons")
-w("linear mode. The delivered master measures **-14.5 LUFS, -1.5 dBTP**.")
+w("linear mode. The delivered master measures **-14.6 LUFS, -1.6 dBTP**.")
 (ROOT / "script.md").write_text("\n".join(out) + "\n")

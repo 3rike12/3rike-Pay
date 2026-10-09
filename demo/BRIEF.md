@@ -88,10 +88,10 @@ struck on the spoken word "3rike" at 18.00s, then a light kalimba groove in D at
 96 BPM through both halves, stopping dead for the sign-off.
 
 It is mixed to be heard *between* lines and barely at all beneath one: held at
-0.55 of the voice and ducked a further 18 dB whenever a word is being spoken,
-with 150 ms of look-ahead. In the master it sits about 13 dB under the narration
-in the gaps and about 28 dB under it during a line. Measured **-14.5 LUFS,
--1.5 dBTP**.
+0.72 of the voice and ducked a further 20 dB whenever a word is being spoken,
+with 150 ms of look-ahead. In the master it sits about 12 dB under the narration
+in the gaps and about 32 dB under it during a line. Measured **-14.6 LUFS,
+-1.6 dBTP**.
 
 ## Known inconsistency, flagged not hidden
 The Fees page on the site shows RWF 3,000 -> -150 -> -158.03 -> **2,691.97**

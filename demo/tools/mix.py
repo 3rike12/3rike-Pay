@@ -16,13 +16,15 @@ for i in range(n):
     x = rect[i]
     acc += (atk if x > acc else rel) * (x - acc)
     envp[i] = acc
-# 18 dB of duck at full voice, reached early (the threshold is low), and a
+# 20 dB of duck at full voice, reached early (the threshold is low), and a
 # 150ms look-ahead so the bed is already out of the way before a line starts.
 # The groove is meant to be heard in the gaps between lines and almost not at
 # all underneath one.
-duck = 1.0 - 0.88 * np.clip(envp / 0.16, 0, 1)
+duck = 1.0 - 0.905 * np.clip(envp / 0.16, 0, 1)
 duck = np.concatenate([duck[int(0.15 * SR):], np.full(int(0.15 * SR), duck[-1])])
-mix = v * 1.0 + m * duck * 0.55
+mix = v * 1.0 + m * duck * 0.72   # the duck depth tracks this gain, so raising
+                                 # the bed in the gaps leaves it where it was
+                                 # underneath a line
 pk = float(np.max(np.abs(mix)))
 print(f"pre-norm peak {pk:.3f}  duck range {duck.min():.2f}..{duck.max():.2f}")
 if pk > 0.99: mix = mix / pk * 0.99
