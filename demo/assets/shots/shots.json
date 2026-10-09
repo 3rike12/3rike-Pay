@@ -1,0 +1,518 @@
+{
+  "home-hero": {
+    "file": "assets/shots/home-hero.png",
+    "url": "/",
+    "box": null,
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "home-how": {
+    "file": "assets/shots/home-how.png",
+    "url": "/",
+    "box": null,
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "home-feat": {
+    "file": "assets/shots/home-feat.png",
+    "url": "/",
+    "box": null,
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "biz-hero": {
+    "file": "assets/shots/biz-hero.png",
+    "url": "/business",
+    "box": null,
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "biz-fees": {
+    "file": "assets/shots/biz-fees.png",
+    "url": "/business",
+    "box": null,
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "doc-index": {
+    "file": "assets/shots/doc-index.png",
+    "url": "/doc",
+    "box": null,
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "ledger": {
+    "file": "assets/shots/ledger.png",
+    "url": "/doc/paid",
+    "dpr": 3,
+    "w": 736,
+    "h": 221.5,
+    "bubbles": [
+      {
+        "y": 1,
+        "h": 51.5,
+        "side": "bot",
+        "text": "Customer paysRWF 100.00"
+      },
+      {
+        "y": 52.5,
+        "h": 51.5,
+        "side": "bot",
+        "text": "less platform feeRWF 5.00"
+      },
+      {
+        "y": 104,
+        "h": 51.5,
+        "side": "bot",
+        "text": "less Flutterwave feeRWF 5.92"
+      },
+      {
+        "y": 155.5,
+        "h": 65,
+        "side": "bot",
+        "text": "You keepRWF 89.08"
+      }
+    ]
+  },
+  "chat-invoice": {
+    "file": "assets/shots/chat-invoice.png",
+    "url": "/doc/invoice",
+    "box": {
+      "x": 505,
+      "y": 344.265625,
+      "width": 336.15625,
+      "height": 210.5
+    },
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "chat-send": {
+    "file": "assets/shots/chat-send.png",
+    "url": "/doc/send",
+    "box": {
+      "x": 488,
+      "y": 78.265625,
+      "width": 736,
+      "height": 822.5
+    },
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "chat-setup": {
+    "file": "assets/shots/chat-setup.png",
+    "url": "/doc/setup",
+    "box": {
+      "x": 0,
+      "y": 0,
+      "width": 1600,
+      "height": 1938.078125
+    },
+    "viewport": [
+      1600,
+      900
+    ],
+    "dpr": 2,
+    "errors": []
+  },
+  "wa-setup": {
+    "file": "assets/shots/wa-setup.png",
+    "url": "/doc/setup",
+    "dpr": 3,
+    "w": 736,
+    "h": 166.5,
+    "bubbles": [
+      {
+        "y": 17,
+        "h": 132.5,
+        "side": "bot",
+        "text": "3rike PayYour 3rike Pay account is ready Account Name: Chibu"
+      }
+    ]
+  },
+  "wa-send": {
+    "file": "assets/shots/wa-send.png",
+    "url": "/doc/send",
+    "dpr": 3,
+    "w": 736,
+    "h": 822.5,
+    "bubbles": [
+      {
+        "y": 17,
+        "h": 54.5,
+        "side": "bot",
+        "text": "3rike PayEnter the amount to send (e.g. 5000):"
+      },
+      {
+        "y": 79.5,
+        "h": 54.5,
+        "side": "you",
+        "text": "You5000"
+      },
+      {
+        "y": 142,
+        "h": 93.5,
+        "side": "bot",
+        "text": "3rike PayType the recipient's bank name. Examples: GTBank, O"
+      },
+      {
+        "y": 243.5,
+        "h": 54.5,
+        "side": "you",
+        "text": "Yougtbank"
+      },
+      {
+        "y": 306,
+        "h": 54.5,
+        "side": "bot",
+        "text": "3rike PayEnter the recipient's account number (10 digits):"
+      },
+      {
+        "y": 368.5,
+        "h": 54.5,
+        "side": "you",
+        "text": "You0123456789"
+      },
+      {
+        "y": 431,
+        "h": 191,
+        "side": "bot",
+        "text": "3rike PayConfirm transfer: Amount: ₦5,000 Recipient: Ada Obi"
+      },
+      {
+        "y": 630,
+        "h": 54.5,
+        "side": "you",
+        "text": "YouYes → (PIN form opens)"
+      },
+      {
+        "y": 692.5,
+        "h": 113,
+        "side": "bot",
+        "text": "3rike PayTransfer of ₦5,000 to Ada Obi initiated! Reference:"
+      }
+    ]
+  },
+  "wa-catalogue": {
+    "file": "assets/shots/wa-catalogue.png",
+    "url": "/doc/catalogue",
+    "dpr": 3,
+    "w": 736,
+    "h": 393,
+    "bubbles": [
+      {
+        "y": 17,
+        "h": 54.5,
+        "side": "you",
+        "text": "You/product Batteries 1000"
+      },
+      {
+        "y": 79.5,
+        "h": 113,
+        "side": "bot",
+        "text": "3rike PayAdded Batteries - RWF 1,000 to your catalogue. • /p"
+      },
+      {
+        "y": 200.5,
+        "h": 54.5,
+        "side": "you",
+        "text": "You/products"
+      },
+      {
+        "y": 263,
+        "h": 113,
+        "side": "bot",
+        "text": "3rike PayYour Catalogue 1. Batteries - RWF 1,000 Type /invoi"
+      }
+    ]
+  },
+  "wa-invoice": {
+    "file": "assets/shots/wa-invoice.png",
+    "url": "/doc/invoice",
+    "dpr": 3,
+    "w": 736,
+    "h": 1361,
+    "bubbles": [
+      {
+        "y": 17,
+        "h": 54.5,
+        "side": "you",
+        "text": "You/invoice"
+      },
+      {
+        "y": 79.5,
+        "h": 171.5,
+        "side": "bot",
+        "text": "3rike PayWhat should the customer pay for? Example: 3 batter"
+      },
+      {
+        "y": 259,
+        "h": 54.5,
+        "side": "you",
+        "text": "You3 batteries and 2 water"
+      },
+      {
+        "y": 321.5,
+        "h": 93.5,
+        "side": "bot",
+        "text": "3rike PayHow much is batteries? Reply with a number, e.g. 15"
+      },
+      {
+        "y": 423,
+        "h": 54.5,
+        "side": "you",
+        "text": "You1500"
+      },
+      {
+        "y": 485.5,
+        "h": 54.5,
+        "side": "bot",
+        "text": "3rike PayHow much is water?"
+      },
+      {
+        "y": 548,
+        "h": 54.5,
+        "side": "you",
+        "text": "You300"
+      },
+      {
+        "y": 610.5,
+        "h": 93.5,
+        "side": "bot",
+        "text": "3rike PayWhat's the customer's Rwanda mobile number? Example"
+      },
+      {
+        "y": 712,
+        "h": 54.5,
+        "side": "you",
+        "text": "You0781234567"
+      },
+      {
+        "y": 774.5,
+        "h": 210.5,
+        "side": "bot",
+        "text": "3rike PayConfirm invoice - 3 x batteries: RWF 4,500 - 2 x wa"
+      },
+      {
+        "y": 993,
+        "h": 54.5,
+        "side": "you",
+        "text": "YouYes"
+      },
+      {
+        "y": 1055.5,
+        "h": 288.5,
+        "side": "bot",
+        "text": "3rike PayPayment request issued Invoice summary - 3 x batter"
+      }
+    ]
+  },
+  "wa-paid": {
+    "file": "assets/shots/wa-paid.png",
+    "url": "/doc/paid",
+    "dpr": 3,
+    "w": 736,
+    "h": 303,
+    "bubbles": [
+      {
+        "y": 17,
+        "h": 269,
+        "side": "bot",
+        "text": "3rike PayPayment Received - 1 x water: RWF 100 Total: RWF 10"
+      }
+    ]
+  },
+  "wa-balance": {
+    "file": "assets/shots/wa-balance.png",
+    "url": "/doc/balance",
+    "dpr": 3,
+    "w": 736,
+    "h": 307,
+    "bubbles": [
+      {
+        "x": 17,
+        "y": 17,
+        "w": 702,
+        "h": 54.5,
+        "side": "you",
+        "text": "You/balance"
+      },
+      {
+        "x": 17,
+        "y": 79.5,
+        "w": 702,
+        "h": 210.5,
+        "side": "bot",
+        "text": "3rike PayYour Balance Wallet RWF 89 Bank Account Bank: Safehaven Micro"
+      }
+    ],
+    "errors": []
+  },
+  "phone-hero": {
+    "file": "assets/shots/phone-hero.png",
+    "url": "/",
+    "dpr": 3,
+    "w": 832,
+    "h": 496,
+    "bubbles": [
+      {
+        "x": 550.5,
+        "y": -250,
+        "w": 245.5,
+        "h": 24,
+        "side": "bot",
+        "text": "Send 5k to 1234567890 GTBank"
+      },
+      {
+        "x": 36,
+        "y": -181.5,
+        "w": 235.1,
+        "h": 120,
+        "side": "bot",
+        "text": "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 123"
+      },
+      {
+        "x": 704.9,
+        "y": 74,
+        "w": 91.1,
+        "h": 24,
+        "side": "bot",
+        "text": "Yes, send it"
+      },
+      {
+        "x": 36,
+        "y": 142.5,
+        "w": 401.6,
+        "h": 24,
+        "side": "bot",
+        "text": "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+      }
+    ]
+  },
+  "phone-seq": {
+    "w": 832,
+    "h": 496,
+    "dpr": 3,
+    "frames": [
+      {
+        "id": "phone-0",
+        "file": "assets/shots/phone-0.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890"
+        ]
+      },
+      {
+        "id": "phone-1",
+        "file": "assets/shots/phone-1.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890",
+          "Yes, send it",
+          "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+        ]
+      },
+      {
+        "id": "phone-2",
+        "file": "assets/shots/phone-2.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890",
+          "Yes, send it",
+          "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+        ]
+      },
+      {
+        "id": "phone-3",
+        "file": "assets/shots/phone-3.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890",
+          "Yes, send it",
+          "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+        ]
+      },
+      {
+        "id": "phone-4",
+        "file": "assets/shots/phone-4.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890",
+          "Yes, send it",
+          "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+        ]
+      },
+      {
+        "id": "phone-5",
+        "file": "assets/shots/phone-5.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890",
+          "Yes, send it",
+          "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+        ]
+      },
+      {
+        "id": "phone-6",
+        "file": "assets/shots/phone-6.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890",
+          "Yes, send it",
+          "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+        ]
+      },
+      {
+        "id": "phone-7",
+        "file": "assets/shots/phone-7.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890",
+          "Yes, send it",
+          "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+        ]
+      },
+      {
+        "id": "phone-8",
+        "file": "assets/shots/phone-8.png",
+        "bubbles": [
+          "Send 5k to 1234567890 GTBank",
+          "Confirm transfer: Amount: ₦5,000.00 Recipient: ADAEZE OKONKWO Bank: GTBank · 1234567890",
+          "Yes, send it",
+          "Transfer of ₦5,000.00 to ADAEZE OKONKWO initiated!"
+        ]
+      }
+    ]
+  }
+}

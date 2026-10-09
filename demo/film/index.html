@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>3rike Pay — demo film</title>
+    <link rel="stylesheet" href="fonts.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        /* Palette. --olive is dark enough to carry text on paper; the bright
+           --lime is only ever a fill behind --ink. */
+        --paper: #f5f5f0;
+        --ink: #17191c;
+        --ink-700: #53575c;
+        --line: rgba(23, 25, 28, 0.12);
+        --green: #01c259;
+        --deep: #046c38;
+        --lime: #e2f490;
+        --olive: #5a6e03;
+
+        /* One radius and one elevation scale, used everywhere. */
+        --r-lg: 26px; --r-md: 18px;
+        --e1: 0 2px 6px -2px rgba(23,25,28,.07), 0 12px 26px -16px rgba(23,25,28,.20);
+        --e2: 0 4px 10px -3px rgba(23,25,28,.09), 0 28px 56px -28px rgba(23,25,28,.32);
+        --e3: 0 8px 18px -6px rgba(23,25,28,.11), 0 44px 84px -38px rgba(23,25,28,.44);
+      }
+      body { margin: 0; background: var(--paper); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden;
+              background: var(--paper); color: var(--ink);
+              font-family: "Poppins", system-ui, sans-serif; }
+      #bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      .clip { position: absolute; inset: 0; }
+
+      /* Every positioned piece is a sized block, because transformed inline
+         boxes measure differently between preview and render. */
+      .abs { position: absolute; display: block; }
+
+      /* ---- Type ------------------------------------------------------ */
+      .display { font-family: "Hepta Slab", Georgia, serif; font-weight: 800;
+                 letter-spacing: -0.03em; line-height: 0.94; color: var(--ink); }
+      .lead { font-size: 32px; font-weight: 500; color: var(--ink-700); }
+
+      /* A label with a short rule in front of it, so every scene opens the
+         same way and the eye knows where the page starts. */
+      .kicker { display: flex !important; align-items: center; gap: 18px;
+                font-size: 22px; font-weight: 600; letter-spacing: 0.2em;
+                text-transform: uppercase; color: var(--ink-700); }
+      .kicker::before { content: ""; display: block; flex: 0 0 auto;
+                        width: 48px; height: 3px; border-radius: 2px;
+                        background: var(--green); }
+      .kicker.mid { justify-content: center; }
+      .kicker.two::before { background: var(--olive); }
+
+      /* ---- Surfaces --------------------------------------------------- */
+      /* A real capture, revealed rather than redrawn: the box grows and the
+         screenshot inside it never moves. */
+      .shot { position: absolute; display: block; overflow: hidden;
+              border-radius: var(--r-lg); }
+      .shot img { display: block; width: 100%; height: auto; }
+      .framed { box-shadow: var(--e3); border: 1px solid var(--line); }
+
+      /* Chat bubbles in the opening. Hairline and shadow, not a drawn border —
+         the heavy outline was the single coarsest thing on screen. */
+      .th { display: flex !important; align-items: center; box-sizing: border-box;
+            padding: 0 36px; background: #fff; border: 1px solid var(--line);
+            box-shadow: var(--e1); font-size: 40px; font-weight: 500;
+            color: var(--ink); }
+
+      /* The friction: everything you leave the chat for. */
+      .slab { position: absolute; display: flex !important; align-items: center;
+              box-sizing: border-box; padding: 0 44px; border-radius: var(--r-md);
+              background: var(--ink); color: #fff; font-size: 36px; font-weight: 600;
+              letter-spacing: 0.01em; box-shadow: var(--e2); }
+
+      /* An invented, deliberately generic receipt — the screenshot people send
+         as proof. Grey, so it is never mistaken for this product. */
+      .ghost { display: flex !important; flex-direction: column; align-items: center;
+               justify-content: center; gap: 16px; box-sizing: border-box;
+               border-radius: var(--r-lg); background: #fff;
+               border: 1px solid var(--line); box-shadow: var(--e3); }
+      .gh-ok { display: grid; place-items: center; width: 76px; height: 76px;
+               border-radius: 50%; background: #eceef1; }
+      .gh-ok::after { content: ""; display: block; width: 26px; height: 13px;
+                      border-left: 5px solid #868d95; border-bottom: 5px solid #868d95;
+                      transform: rotate(-45deg); margin: -5px 0 0 2px; }
+      .gh-h { font-size: 26px; font-weight: 600; color: var(--ink-700); }
+      .gh-amt { font-family: "Hepta Slab", Georgia, serif; font-size: 60px;
+                font-weight: 800; color: var(--ink); }
+      .gh-sub { font-size: 23px; font-weight: 500; color: var(--ink-700); }
+
+      /* A numbered setup row. */
+      .step { position: absolute; display: flex !important; align-items: center;
+              gap: 26px; box-sizing: border-box; padding: 0 36px 0 24px;
+              border-radius: var(--r-md); background: #fff;
+              border: 1px solid var(--line); box-shadow: var(--e1);
+              font-size: 33px; font-weight: 500; color: var(--ink); }
+      .step b { display: grid; place-items: center; flex: 0 0 auto;
+                width: 52px; height: 52px; border-radius: 50%;
+                background: var(--deep); color: #fff; font-size: 25px; font-weight: 700; }
+
+      /* A fact the narration has no time to say. */
+      .spec { position: absolute; display: flex !important; align-items: center;
+              justify-content: center; gap: 16px; box-sizing: border-box;
+              padding: 0 30px; height: 72px; border-radius: 999px; background: #fff;
+              border: 1px solid var(--line); box-shadow: var(--e1);
+              font-size: 25px; font-weight: 500; color: var(--ink); }
+      .spec::before { content: ""; display: block; flex: 0 0 auto;
+                      width: 11px; height: 11px; border-radius: 50%;
+                      background: var(--green); }
+
+      .chip { position: absolute; display: grid; place-items: center;
+              box-sizing: border-box; border-radius: 999px; background: #fff;
+              color: var(--ink); border: 1px solid var(--line); box-shadow: var(--e2);
+              font-family: "Hepta Slab", Georgia, serif; font-weight: 800; }
+
+      .tag { position: absolute; display: grid; place-items: center;
+             box-sizing: border-box; border-radius: 999px; font-size: 21px;
+             font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; }
+
+      .card { position: absolute; display: block; box-sizing: border-box;
+              border-radius: var(--r-lg); background: #fff;
+              border: 1px solid var(--line); box-shadow: var(--e2); }
+
+      .pin { display: block; width: 84px; height: 84px; border-radius: 50%;
+             border: 3px solid var(--ink); box-sizing: border-box; }
+
+      .ring { position: absolute; display: block; border: 3px solid var(--green);
+              border-radius: 18px; box-sizing: border-box; }
+
+      /* Subtitles. One line at a time, a dark pill on paper or on a capture,
+         so the floor never depends on what is behind it. */
+      #subs { position: absolute; left: 0; right: 0; bottom: 58px; height: 88px;
+              display: grid; place-items: center; }
+      .sub { position: absolute; display: block; padding: 14px 32px 16px;
+             border-radius: 16px; background: rgba(16, 16, 15, 0.9);
+             color: #ffffff; font-size: 32px; font-weight: 500;
+             letter-spacing: -0.005em; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+         data-width="1920" data-height="1080" data-duration="89.5">
+
+      <canvas id="bg" width="1920" height="1080"></canvas>
+
+      <!-- ============ 1. The problem ============ -->
+      <section class="clip" id="s1" data-start="0" data-duration="16.9" data-track-index="1">
+        <span class="abs kicker" id="s1k" style="left:128px; top:120px;">A deal, in a chat</span>
+
+        <!-- A deal being struck, as it actually looks: two people, one thread.
+             Nothing here is a product claim — it is the conversation the
+             product later moves into. -->
+        <span class="abs th" id="th0" data-layout-allow-overflow style="left:128px; top:300px; width:660px; height:116px; border-radius:26px 26px 26px 8px;">How much for the two?</span>
+        <span class="abs th" id="th1" data-layout-allow-overflow style="left:470px; top:444px; width:420px; height:116px; border-radius:26px 26px 8px 26px; background:var(--lime); border-color:rgba(90,110,3,0.35);">5k. Send am.</span>
+        <span class="abs th" id="th2" data-layout-allow-overflow style="left:128px; top:588px; width:700px; height:116px; border-radius:26px 26px 26px 8px;">Okay — sending now.</span>
+
+        <!-- Everything that makes you leave it. A cascade, because the point
+             is that they stack up. -->
+        <span class="slab" id="d0" data-layout-allow-overflow style="left:420px; top:296px; width:700px; height:122px;">Open the banking app</span>
+        <span class="slab" id="d1" data-layout-allow-overflow style="left:560px; top:446px; width:700px; height:122px;">Type the password</span>
+        <span class="slab" id="d2" data-layout-allow-overflow style="left:700px; top:596px; width:700px; height:122px;">Wait for the code</span>
+
+        <span class="abs ghost" id="shotcard" data-layout-allow-overflow style="left:700px; top:270px; width:520px; height:380px;">
+          <span class="gh-ok"></span>
+          <span class="gh-h">Transfer successful</span>
+          <span class="gh-amt">₦5,000.00</span>
+          <span class="gh-sub">to ADA OBI · 09:41</span>
+        </span>
+        <span class="abs" id="shotlbl" style="left:700px; top:676px; width:520px; text-align:center; font-size:22px; font-weight:600; letter-spacing:0.2em; color:var(--ink-700);">SENT BACK AS PROOF</span>
+
+        <!-- The thesis of the whole scene: two halves, held apart. -->
+        <span class="abs display" id="w1" style="left:128px; top:540px; width:720px; font-size:112px;">The deal<br />is here.</span>
+        <span class="abs display" id="w2" style="left:932px; top:540px; width:860px; font-size:112px; text-align:right; color:var(--deep);">The money<br />is elsewhere.</span>
+      </section>
+
+      <!-- ============ 2. The name ============ -->
+      <section class="clip" id="s2" data-start="16.4" data-duration="11.2" data-track-index="2">
+        <!-- The two halves meet, and what they make is the ripple the
+             name arrives inside. This is the beat the music riser plays
+             under; without it the frame would be empty for a second. -->
+        <span class="abs" id="seedDot" style="left:940px; top:520px; width:40px; height:40px; border-radius:50%; background:var(--green);"></span>
+        <span class="abs" id="seedRing" style="left:510px; top:90px; width:900px; height:900px; border-radius:50%; border:3px solid var(--green);"></span>
+        <span class="abs" id="seedRing2" style="left:510px; top:90px; width:900px; height:900px; border-radius:50%; border:3px solid var(--deep);"></span>
+
+        <span class="abs display" id="mark" style="left:0; right:0; top:372px; text-align:center; font-size:214px; letter-spacing:-0.045em;">3rike Pay</span>
+        <span class="abs" id="markrule" style="left:810px; top:628px; width:300px; height:5px; background:var(--green);"></span>
+        <span class="abs" id="markline" style="left:0; right:0; top:678px; text-align:center; font-size:34px; font-weight:500; color:var(--ink-700);">Your bank lives in your chats</span>
+
+        <span class="shot framed" id="heroShot" data-layout-allow-overflow style="left:160px; top:90px; width:1600px; height:0;">
+          <img src="assets/shots/home-hero.png" alt="" />
+        </span>
+      </section>
+
+      <!-- ============ 3. The personal side ============ -->
+      <section class="clip" id="s3" data-start="27.1" data-duration="27.5" data-track-index="3">
+        <span class="abs kicker" id="s3k" style="left:128px; top:112px;">Part one — sending money</span>
+        <span class="abs display" id="s3h" style="left:128px; top:158px; width:900px; font-size:72px;">Set up once.</span>
+        <span class="abs lead" id="s3n" style="left:128px; top:258px; width:700px;">In Nigeria, in naira</span>
+
+        <span class="step" id="st1" style="left:128px; top:336px; width:700px; height:102px;"><b>1</b>Verify your ID</span>
+        <span class="step" id="st2" style="left:128px; top:458px; width:700px; height:102px;"><b>2</b>Choose a 4-digit PIN</span>
+        <span class="step" id="st3" style="left:128px; top:580px; width:700px; height:102px;"><b>3</b>Get a real account number</span>
+
+        <!-- The account the bot hands back, in its own words. -->
+        <span class="shot framed" id="setupShot" data-layout-allow-overflow style="left:900px; top:300px; width:840px; height:0;">
+          <img src="assets/shots/wa-setup.png" alt="" style="width:2473px; margin-left:-34px; margin-top:-34px;" />
+        </span>
+        <span class="spec" id="sp1" style="left:128px; top:724px; width:700px;">Anyone can pay it by ordinary bank transfer</span>
+
+        <!-- The one-shot command, on the site's own chat surface. Grown from
+             the bottom edge, so the typed command arrives before the thread. -->
+        <span class="shot framed" id="heroChat" data-layout-allow-overflow style="left:430px; bottom:198px; width:1060px; height:0;">
+          <img src="assets/shots/phone-hero.png" alt="" style="position:absolute; left:0; bottom:0; width:1060px;" />
+        </span>
+        <span class="ring" id="cmdRing" style="left:456px; top:794px; width:942px; height:71px; border-radius:999px;"></span>
+
+        <span class="abs kicker mid" id="amtK" style="left:0; right:0; top:264px;">One amount, three ways to say it</span>
+        <span class="chip" id="c0" style="left:206px; top:360px; width:300px; height:160px; font-size:66px;">5k</span>
+        <span class="chip" id="c1" style="left:596px; top:360px; width:456px; height:160px; font-size:66px;">one milla</span>
+        <span class="chip" id="c2" style="left:1142px; top:360px; width:572px; height:160px; font-size:66px;">four thousand</span>
+        <span class="abs display" id="resolve" style="left:0; right:0; top:596px; text-align:center; font-size:148px; color:var(--deep);">₦5,000</span>
+        <span class="spec" id="sp2" style="left:680px; top:816px; width:560px;">₦100 to ₦1,000,000 in one transfer</span>
+
+        <!-- Two windows cut out of the same real transcript, each one the full
+             width of the conversation so both sides of it are visible. -->
+        <span class="shot framed" id="confirmShot" data-layout-allow-overflow style="left:140px; top:262px; width:900px; height:0;">
+          <img src="assets/shots/wa-send.png" alt="" style="width:2007px; margin-left:-22px; margin-top:-1145px;" />
+        </span>
+        <span class="abs display" id="nameTag" style="left:1110px; top:400px; width:660px; font-size:56px;">Check the<br />name first.</span>
+
+        <span class="abs display" id="pinLbl" style="left:128px; top:360px; width:560px; font-size:64px;">Your PIN.</span>
+        <span class="abs" id="pinRow" style="left:128px; top:472px; width:480px; height:84px; display:flex; gap:30px; align-items:center;">
+          <span class="pin" id="pin0"></span><span class="pin" id="pin1"></span><span class="pin" id="pin2"></span><span class="pin" id="pin3"></span>
+        </span>
+        <span class="spec" id="sp3" style="left:128px; top:626px; width:700px; font-size:24px;">3 wrong tries locks transfers for 15 minutes</span>
+        <span class="shot framed" id="refShot" data-layout-allow-overflow style="left:880px; top:400px; width:900px; height:0;">
+          <img src="assets/shots/wa-send.png" alt="" style="width:2007px; margin-left:-22px; margin-top:-1865px;" />
+        </span>
+      </section>
+
+      <!-- ============ 4. The business side ============ -->
+      <section class="clip" id="s4" data-start="54.3" data-duration="25.6" data-track-index="4">
+        <span class="abs kicker two" id="s4k" style="left:128px; top:112px;">Part two — getting paid</span>
+        <span class="abs display" id="s4h" style="left:128px; top:158px; width:900px; font-size:72px;">Same account.</span>
+        <span class="abs lead" id="s4n" style="left:128px; top:258px; width:700px;">In Rwanda, in francs</span>
+
+        <span class="card" id="acct" style="left:510px; top:396px; width:900px; height:208px;">
+          <span class="abs" style="left:0; right:0; top:34px; text-align:center; font-size:21px; font-weight:600; letter-spacing:0.2em; color:var(--ink-700);">YOUR ACCOUNT NUMBER</span>
+          <span class="abs display" style="left:0; right:0; top:80px; text-align:center; font-size:76px; letter-spacing:0.02em;">0123456789</span>
+        </span>
+        <span class="tag" id="tagP" style="left:250px; top:464px; width:236px; height:72px; background:var(--ink); color:#fff;">Personal</span>
+        <span class="tag" id="tagB" style="left:1434px; top:464px; width:236px; height:72px; background:var(--lime); color:var(--ink);">Business</span>
+
+        <span class="shot framed" id="invShot" data-layout-allow-overflow style="left:210px; top:286px; width:1500px; height:0;">
+          <img src="assets/shots/wa-invoice.png" alt="" style="width:1533px; margin-left:-17px; margin-top:-17px;" />
+        </span>
+        <span class="shot framed" id="catShot" data-layout-allow-overflow style="left:210px; top:340px; width:1500px; height:0;">
+          <img src="assets/shots/wa-catalogue.png" alt="" style="width:1533px; margin-left:-17px; margin-top:-400px;" />
+        </span>
+        <span class="spec" id="sp4" style="left:670px; top:790px; width:580px;">The request expires in 30 minutes</span>
+
+        <span class="abs display" id="custH" style="left:0; right:0; top:150px; text-align:center; font-size:64px;">Their side of it.</span>
+        <span class="shot framed" id="paidShot" data-layout-allow-overflow style="left:460px; top:244px; width:1000px; height:0;">
+          <img src="assets/shots/wa-invoice.png" alt="" style="width:1193px; margin-left:-13px; margin-top:-1695px;" />
+        </span>
+        <span class="spec" id="sp5" style="left:580px; top:782px; width:760px;">Approved with MTN, Airtel or KTRN mobile money</span>
+
+        <span class="abs kicker mid" id="noK" style="left:0; right:0; top:360px;">What your customer needs</span>
+        <span class="slab" id="n0" data-layout-allow-overflow style="left:390px; top:440px; width:320px; height:132px; justify-content:center;">No app</span>
+        <span class="slab" id="n1" data-layout-allow-overflow style="left:750px; top:440px; width:320px; height:132px; justify-content:center;">No link</span>
+        <span class="slab" id="n2" data-layout-allow-overflow style="left:1110px; top:440px; width:420px; height:132px; justify-content:center;">No account</span>
+
+        <!-- The receipt, as the product itself itemises it. -->
+        <span class="abs kicker mid" id="feeK" style="left:0; right:0; top:170px;">On a payment of RWF 100</span>
+        <span class="abs display" id="feeH" style="left:0; right:0; top:214px; text-align:center; font-size:64px;">Every fee, written down.</span>
+        <span class="shot framed" id="ledgerShot" data-layout-allow-overflow style="left:210px; top:330px; width:1500px; height:0;">
+          <img src="assets/shots/ledger.png" alt="" style="width:1500px;" />
+        </span>
+      </section>
+
+      <!-- ============ 5. The sign-off ============ -->
+      <section class="clip" id="s5" data-start="79.5" data-duration="10.0" data-track-index="5">
+        <span class="abs display" id="endMark" style="left:0; right:0; top:366px; text-align:center; font-size:214px; letter-spacing:-0.045em;">3rike Pay</span>
+        <span class="abs" id="endRule" style="left:820px; top:622px; width:280px; height:5px; background:var(--green);"></span>
+        <span class="abs" id="endSub" style="left:0; right:0; top:672px; text-align:center; font-size:36px; font-weight:500; color:var(--ink-700);">Nigeria and Rwanda · inside the conversation</span>
+        <span class="abs" id="endUrl" style="left:0; right:0; top:744px; text-align:center; font-size:30px; font-weight:600; letter-spacing:0.12em; color:var(--deep);">3RIKE-PAY.VERCEL.APP</span>
+      </section>
+
+      <!-- Subtitles sit above every scene and outside all of them. -->
+      <div id="subs"></div>
+
+      <audio id="vo" src="assets/film-audio.wav" data-start="0"></audio>
+    </div>
+
+    <script src="cues.js"></script>
+    <script>
+      // ---------------------------------------------------------------
+      // Background: ripples. Hairline circles travel outward from fixed
+      // points over soft pools of colour — money leaving a place and reaching
+      // others. No ruled lines, nothing dashed. The rings are small and
+      // numerous rather than large and sparse, so the field reads as texture
+      // and never competes with the type in front of it. It is asleep while
+      // the problem is on screen, wakes on the name, and is driven only by a
+      // value the timeline tweens, so every seek redraws the same frame.
+      // ---------------------------------------------------------------
+      const cv = document.getElementById("bg");
+      const gl = cv.getContext("webgl", { antialias: true, preserveDrawingBuffer: true });
+      const VS = "attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}";
+      const FS = [
+        "precision highp float;",
+        "uniform vec2 R; uniform float T; uniform float A;",
+        "const vec3 PAPER=vec3(0.961,0.961,0.941);",
+        "const vec3 GREEN=vec3(0.004,0.761,0.349);",
+        "const vec3 DEEP=vec3(0.016,0.424,0.220);",
+        "float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}",
+        "float ring(vec2 p, vec2 c, float r, float w){",
+        "  return smoothstep(w,0.0,abs(length(p-c)-r));}",
+        "float orb(vec2 p, vec2 c, float r){ return smoothstep(r,0.0,length(p-c)); }",
+        "void main(){",
+        "  vec2 uv=gl_FragCoord.xy/R;",
+        "  vec2 p=uv*vec2(R.x/R.y,1.0);",
+        "  vec3 col=PAPER;",
+        "  vec2 em[10];",
+        "  em[0]=vec2(0.13,0.78); em[1]=vec2(1.63,0.24); em[2]=vec2(0.66,0.05);",
+        "  em[3]=vec2(1.21,0.95); em[4]=vec2(0.02,0.33); em[5]=vec2(1.76,0.70);",
+        "  em[6]=vec2(0.41,0.46); em[7]=vec2(1.44,0.56); em[8]=vec2(0.92,0.88);",
+        "  em[9]=vec2(0.28,0.12);",
+        // Soft pools first: depth, and the only place colour gathers.
+        "  for(int i=0;i<10;i++){",
+        "    float br=0.26+0.12*hash(vec2(float(i),3.0));",
+        "    float dr=0.009*sin(T*0.12+float(i)*1.7);",
+        "    float ob=orb(p,em[i]+vec2(dr,dr*0.6),br);",
+        "    col=mix(col,(i==1||i==4||i==8)?DEEP:GREEN,ob*0.034*A);",
+        "  }",
+        // Then the travelling hairlines: four per emitter, small and thin.
+        "  for(int i=0;i<10;i++){",
+        "    float h1=hash(vec2(float(i),7.0));",
+        "    float maxr=0.10+0.15*h1;",
+        "    float spd=0.075+0.070*hash(vec2(float(i),11.0));",
+        "    for(int k=0;k<3;k++){",
+        "      float ph=fract(T*spd+float(k)*0.3333+h1*3.1);",
+        "      float r=(0.34+0.66*ph)*maxr;",
+        "      float fade=(1.0-ph)*(1.0-ph)*1.55;",
+        "      float g=ring(p,em[i],r,0.0024);",
+        "      col=mix(col,(i==1||i==4||i==8)?DEEP:GREEN,g*fade*0.40*A);",
+        "    }",
+        "  }",
+        "  col-=(hash(gl_FragCoord.xy)-0.5)*0.008;",
+        // Wash the middle two thirds back to paper so type and captures
+        // always sit on a clean ground.
+        "  col=mix(col,PAPER,(1.0-smoothstep(0.02,0.68,length((uv-0.5)*vec2(1.25,1.0))))*0.86);",
+        "  gl_FragColor=vec4(col,1.0);",
+        "}"
+      ].join("\n");
+
+      function sh(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src); gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+        return s;
+      }
+      const prog = gl.createProgram();
+      gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+      gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+      gl.useProgram(prog);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, "p");
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      const uR = gl.getUniformLocation(prog, "R");
+      const uT = gl.getUniformLocation(prog, "T");
+      const uA = gl.getUniformLocation(prog, "A");
+      gl.uniform2f(uR, 1920, 1080);
+
+      let amp = 0;
+      function draw(t) {
+        gl.viewport(0, 0, 1920, 1080);
+        gl.uniform1f(uT, t);
+        gl.uniform1f(uA, amp);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      const clock = {
+        _t: 0,
+        get t() { return this._t; },
+        set t(v) { this._t = v; draw(v); }
+      };
+      const ampProxy = {
+        _a: 0,
+        get a() { return this._a; },
+        set a(v) { this._a = v; amp = v; draw(clock._t); }
+      };
+
+      // ---------------------------------------------------------------
+      // Subtitles, built from the cue table. Each chunk is timed by the
+      // words actually spoken under it.
+      // ---------------------------------------------------------------
+      const subsEl = document.getElementById("subs");
+      const chunks = [];
+      Object.keys(CUES.lines).forEach(function (lid) {
+        CUES.lines[lid].chunks.forEach(function (c) { chunks.push(c); });
+      });
+      chunks.sort(function (x, y) { return x.a - y.a; });
+
+      const subEls = chunks.map(function (c) {
+        const el = document.createElement("span");
+        el.className = "sub";
+        el.textContent = c.t;
+        subsEl.appendChild(el);
+        return { el: el, chunk: c };
+      });
+
+      // Handover instants. Line i clears exactly when line i+1 arrives, and a
+      // line never appears more than 0.12s before its first word. A crossfade
+      // here would read as a double exposure.
+      const swaps = chunks.map(function (c, i) {
+        const next = chunks[i + 1];
+        return next ? Math.max(c.b, Math.min(next.a - 0.05, c.b + 0.30)) : c.b + 0.34;
+      });
+      subEls.forEach(function (s, i) {
+        s.hide = swaps[i];
+        s.show = i === 0 ? Math.max(0, s.chunk.a - 0.12)
+                         : Math.max(swaps[i - 1], s.chunk.a - 0.12);
+      });
+
+      // ---------------------------------------------------------------
+      // Timeline
+      // ---------------------------------------------------------------
+      const DUR = 89.5;
+      const at = window.at;
+      const E = "power3.out", EIO = "power2.inOut";
+
+      // Build-time initial state. Everything that moves is set here, so a seek
+      // to any frame reconstructs from one known baseline.
+      gsap.set("#bg", { opacity: 1 });
+      gsap.set(["#th0", "#th1", "#th2"], { opacity: 0, scaleX: 0.86, transformOrigin: "left center" });
+      gsap.set("#s1k", { opacity: 0, y: 14 });
+      gsap.set(["#d0", "#d1", "#d2"], { opacity: 0, x: 150 });
+      gsap.set(["#shotcard", "#shotlbl"], { opacity: 0, y: 44, rotate: -4 });
+      gsap.set("#w1", { opacity: 0, x: -70 });
+      gsap.set("#w2", { opacity: 0, x: 70 });
+
+      gsap.set("#seedDot", { opacity: 0, scale: 0, transformOrigin: "50% 50%" });
+      gsap.set(["#seedRing", "#seedRing2"], { opacity: 0, scale: 0.05, transformOrigin: "50% 50%" });
+      gsap.set("#mark", { opacity: 0, scale: 1.16, transformOrigin: "50% 50%" });
+      gsap.set("#markrule", { scaleX: 0, transformOrigin: "50% 50%" });
+      gsap.set("#markline", { opacity: 0, y: 16 });
+      gsap.set("#heroShot", { opacity: 0 });
+      gsap.set("#heroShot img", { scale: 1.08, transformOrigin: "50% 42%" });
+
+      gsap.set(["#s3k", "#s3h", "#s3n"], { opacity: 0, y: 24 });
+      gsap.set(["#st1", "#st2", "#st3"], { opacity: 0, x: -44 });
+      gsap.set("#setupShot", { opacity: 0 });
+      gsap.set("#sp1", { opacity: 0, y: 18 });
+      gsap.set("#heroChat", { opacity: 0 });
+      gsap.set("#cmdRing", { opacity: 0, scale: 1.07, transformOrigin: "50% 50%" });
+      gsap.set("#amtK", { opacity: 0, y: 14 });
+      gsap.set(["#c0", "#c1", "#c2"], { opacity: 0, y: 38, scale: 0.9, transformOrigin: "50% 50%" });
+      gsap.set("#resolve", { opacity: 0, y: 28 });
+      gsap.set("#sp2", { opacity: 0, y: 18 });
+      gsap.set("#confirmShot", { opacity: 0 });
+      gsap.set("#nameTag", { opacity: 0, x: 34 });
+      gsap.set("#refShot", { opacity: 0 });
+      gsap.set("#pinLbl", { opacity: 0, y: 20 });
+      gsap.set("#sp3", { opacity: 0, y: 18 });
+      gsap.set(["#pin0", "#pin1", "#pin2", "#pin3"], { backgroundColor: "rgba(23,25,28,0)" });
+      gsap.set("#pinRow", { opacity: 0 });
+
+      gsap.set(["#s4k", "#s4h", "#s4n"], { opacity: 0, y: 24 });
+      gsap.set("#acct", { opacity: 0, scale: 0.94, transformOrigin: "50% 50%" });
+      gsap.set("#tagP", { opacity: 0, x: 96 });
+      gsap.set("#tagB", { opacity: 0, x: -96 });
+      gsap.set("#invShot", { opacity: 0 });
+      gsap.set("#catShot", { opacity: 0 });
+      gsap.set("#sp4", { opacity: 0, y: 18 });
+      gsap.set("#custH", { opacity: 0, y: 28 });
+      gsap.set("#paidShot", { opacity: 0 });
+      gsap.set("#sp5", { opacity: 0, y: 18 });
+      gsap.set("#noK", { opacity: 0, y: 14 });
+      gsap.set(["#n0", "#n1", "#n2"], { opacity: 0, y: 34, scale: 0.92, transformOrigin: "50% 50%" });
+      gsap.set(["#feeK", "#feeH"], { opacity: 0, y: 22 });
+      gsap.set("#ledgerShot", { opacity: 0 });
+
+      gsap.set("#endMark", { opacity: 0, y: 34 });
+      gsap.set("#endRule", { scaleX: 0, transformOrigin: "50% 50%" });
+      gsap.set(["#endSub", "#endUrl"], { opacity: 0, y: 18 });
+      subEls.forEach(function (s) { gsap.set(s.el, { opacity: 0, y: 10 }); });
+
+      const tl = gsap.timeline({ paused: true });
+
+      // The background clock runs the whole film; amp gates how loud it is.
+      tl.to(clock, { t: DUR, duration: DUR, ease: "none" }, 0);
+      tl.to(ampProxy, { a: 0.26, duration: 1.2, ease: EIO }, 0.2);
+
+      // ---- 1. The problem -------------------------------------------
+      tl.to("#s1k", { opacity: 1, y: 0, duration: 0.6, ease: E }, 0.5);
+      tl.to("#th0", { opacity: 1, scaleX: 1, duration: 0.5, ease: E }, at("l01", "agree") - 0.35);
+      tl.to("#th1", { opacity: 1, scaleX: 1, duration: 0.5, ease: E }, at("l01", "price") - 0.1);
+      tl.to("#th2", { opacity: 1, scaleX: 1, duration: 0.5, ease: E }, at("l01", "WhatsApp") + 0.1);
+
+      // "Then you leave the chat" — the thread is pushed out of frame, all the
+      // way out, so nothing of it lingers behind what replaces it.
+      tl.to(["#th0", "#th1", "#th2"], { x: -1100, opacity: 0, duration: 0.85, ease: EIO,
+        stagger: 0.06 }, at("l01", "leave") - 0.15);
+      tl.to("#s1k", { opacity: 0, duration: 0.4 }, at("l01", "leave") - 0.15);
+
+      tl.to("#d0", { opacity: 1, x: 0, duration: 0.6, ease: E }, at("l02", "bank") - 0.3);
+      tl.to("#d1", { opacity: 1, x: 0, duration: 0.6, ease: E }, at("l02", "password") - 0.3);
+      tl.to("#d2", { opacity: 1, x: 0, duration: 0.6, ease: E }, at("l02", "code") - 0.45);
+
+      // The screenshot you come back with.
+      tl.to(["#d0", "#d1", "#d2"], { opacity: 0, y: -46, duration: 0.5, ease: EIO, stagger: 0.05 },
+        at("l03", "back") - 0.25);
+      tl.to(["#shotcard", "#shotlbl"], { opacity: 1, y: 0, rotate: 0, duration: 0.66, ease: E,
+        stagger: 0.05 }, at("l03", "screenshot") - 0.3);
+      tl.to(["#shotcard", "#shotlbl"], { opacity: 0, duration: 0.45, ease: EIO },
+        at("l03", "deal") - 0.3);
+
+      tl.to("#w1", { opacity: 1, x: 0, duration: 0.6, ease: E }, at("l03", "deal") - 0.15);
+      tl.to("#w2", { opacity: 1, x: 0, duration: 0.6, ease: E }, at("l03", "money") - 0.15);
+      // The gap closes: the two halves accelerate together and what they meet
+      // as becomes the first ripple. The riser is playing under all of this,
+      // so the second before the name is a beat, not a hole.
+      tl.to("#w1", { x: 150, opacity: 0, duration: 1.5, ease: "power2.in" }, 15.3);
+      tl.to("#w2", { x: -150, opacity: 0, duration: 1.5, ease: "power2.in" }, 15.3);
+      tl.to(ampProxy, { a: 0.55, duration: 1.4, ease: EIO }, 15.4);
+
+      // ---- 2. The name ----------------------------------------------
+      tl.to("#seedDot", { opacity: 1, scale: 1, duration: 0.34, ease: "back.out(3)" }, 16.62);
+      tl.fromTo("#seedRing", { scale: 0.04, opacity: 0.9 },
+        { scale: 1, opacity: 0, duration: 1.15, ease: "power2.out" }, 16.86);
+      tl.fromTo("#seedRing2", { scale: 0.04, opacity: 0.6 },
+        { scale: 1.3, opacity: 0, duration: 1.15, ease: "power2.out" }, 17.26);
+      tl.to("#seedDot", { scale: 0, opacity: 0, duration: 0.32, ease: "power2.in" }, 17.58);
+
+      tl.fromTo("#mark", { opacity: 0, scale: 1.16 },
+        { opacity: 1, scale: 1, duration: 0.72, ease: "power4.out" }, at("l04", "Three") - 0.18);
+      tl.to(ampProxy, { a: 1, duration: 0.9, ease: "power2.out" }, at("l04", "Three") - 0.1);
+      tl.to("#markrule", { scaleX: 1, duration: 0.7, ease: E }, at("l04", "Pay"));
+      tl.to("#markline", { opacity: 1, y: 0, duration: 0.6, ease: E }, at("l04", "Pay") + 0.18);
+
+      tl.to(["#mark", "#markrule", "#markline"], { opacity: 0, duration: 0.5, ease: EIO },
+        at("l05", "bank") - 0.55);
+      tl.to("#heroShot", { opacity: 1, height: 900, duration: 0.95, ease: "power3.inOut" },
+        at("l05", "bank") - 0.5);
+      // A slow push on the real page, so the capture is never static.
+      tl.to("#heroShot img", { scale: 1.0, duration: 5.6, ease: "none" }, at("l05", "bank") - 0.2);
+      tl.to("#heroShot", { opacity: 0, duration: 0.5, ease: EIO }, 26.5);
+
+      // ---- 3. The personal side -------------------------------------
+      tl.to("#s3k", { opacity: 1, y: 0, duration: 0.5, ease: E }, 27.3);
+      tl.to("#s3h", { opacity: 1, y: 0, duration: 0.6, ease: E }, 27.46);
+      tl.to("#s3n", { opacity: 1, y: 0, duration: 0.6, ease: E }, 27.62);
+      // Each step arrives on the word that names it; the account the bot hands
+      // back is the result, so the picture never runs ahead of the sentence.
+      tl.to("#st1", { opacity: 1, x: 0, duration: 0.55, ease: E }, at("l06", "ID") - 0.3);
+      tl.to("#st2", { opacity: 1, x: 0, duration: 0.55, ease: E }, at("l06", "PIN") - 0.45);
+      tl.to("#st3", { opacity: 1, x: 0, duration: 0.55, ease: E }, at("l06", "real") - 0.4);
+      tl.to("#setupShot", { opacity: 1, height: 494, duration: 0.8, ease: E },
+        at("l06", "real") - 0.2);
+      tl.to("#sp1", { opacity: 1, y: 0, duration: 0.6, ease: E }, at("l06", "number") + 0.35);
+      tl.to(["#setupShot", "#sp1", "#st1", "#st2", "#st3", "#s3k", "#s3h", "#s3n"],
+        { opacity: 0, duration: 0.45, ease: EIO }, at("l07", "To") - 0.3);
+
+      // The one-shot command, on the site's own chat surface.
+      tl.to("#heroChat", { opacity: 1, duration: 0.3, ease: "none" }, at("l07", "To") - 0.1);
+      tl.to("#heroChat", { height: 632, duration: 2.1, ease: "power2.out" }, at("l07", "To") - 0.1);
+      tl.to("#cmdRing", { opacity: 1, scale: 1, duration: 0.5, ease: "power3.out" }, at("l07", "type") - 0.15);
+      tl.to(["#heroChat", "#cmdRing"], { opacity: 0, duration: 0.45, ease: EIO }, at("l08", "five") - 0.35);
+
+      // Three ways of writing the same amount.
+      tl.to("#amtK", { opacity: 1, y: 0, duration: 0.5, ease: E }, at("l08", "five") - 0.5);
+      tl.to("#c0", { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(2)" }, at("l08", "five") - 0.1);
+      tl.to("#c1", { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(2)" }, at("l08", "one") - 0.1);
+      tl.to("#c2", { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(2)" }, at("l08", "four") - 0.1);
+      tl.to(["#c0", "#c1", "#c2"], { y: -30, duration: 0.6, ease: EIO }, at("l08", "understands") - 0.25);
+      tl.to("#amtK", { opacity: 0, duration: 0.4, ease: EIO }, at("l08", "understands") - 0.25);
+      tl.to("#resolve", { opacity: 1, y: 0, duration: 0.6, ease: E }, at("l08", "three") - 0.2);
+      tl.to("#sp2", { opacity: 1, y: 0, duration: 0.5, ease: E }, at("l08", "three") + 0.45);
+      tl.to(["#c0", "#c1", "#c2", "#resolve", "#sp2"], { opacity: 0, duration: 0.45, ease: EIO },
+        at("l09", "It") - 0.3);
+
+      // The name check, on the product's own confirmation — both sides of the
+      // conversation in frame, cropped to the bubble that matters.
+      tl.to("#confirmShot", { opacity: 1, height: 583, duration: 0.7, ease: E },
+        at("l09", "It") - 0.1);
+      tl.to("#nameTag", { opacity: 1, x: 0, duration: 0.65, ease: E }, at("l09", "name") - 0.15);
+      tl.to(["#confirmShot", "#nameTag"], { opacity: 0, duration: 0.4, ease: EIO },
+        at("l10", "Your") - 0.3);
+
+      tl.to("#pinLbl", { opacity: 1, y: 0, duration: 0.5, ease: E }, at("l10", "Your") - 0.15);
+      tl.to("#pinRow", { opacity: 1, duration: 0.3, ease: E }, at("l10", "Your") - 0.15);
+      ["#pin0", "#pin1", "#pin2", "#pin3"].forEach(function (d, i) {
+        tl.to(d, { backgroundColor: "rgba(23,25,28,1)", duration: 0.12, ease: "none" },
+          at("l10", "pen") - 0.12 + i * 0.15);
+      });
+      tl.to("#sp3", { opacity: 1, y: 0, duration: 0.5, ease: E }, at("l10", "pen") + 0.5);
+      tl.to("#refShot", { opacity: 1, height: 357, duration: 0.6, ease: E },
+        at("l10", "gone") - 0.2);
+      tl.to(["#pinLbl", "#pinRow", "#sp3", "#refShot"], { opacity: 0, duration: 0.45, ease: EIO }, 54.0);
+
+      // ---- 4. The business side -------------------------------------
+      tl.to("#s4k", { opacity: 1, y: 0, duration: 0.5, ease: E }, 54.5);
+      tl.to("#s4h", { opacity: 1, y: 0, duration: 0.6, ease: E }, 54.66);
+      tl.to("#s4n", { opacity: 1, y: 0, duration: 0.6, ease: E }, 54.82);
+      tl.to("#acct", { opacity: 1, scale: 1, duration: 0.6, ease: E }, at("l11", "same") - 0.15);
+      tl.to("#tagP", { opacity: 1, x: 0, duration: 0.6, ease: E }, at("l11", "also") - 0.1);
+      tl.to("#tagB", { opacity: 1, x: 0, duration: 0.6, ease: E }, at("l11", "shop") - 0.2);
+      tl.to(["#acct", "#tagP", "#tagB", "#s4k", "#s4h", "#s4n"],
+        { opacity: 0, duration: 0.45, ease: EIO }, at("l12", "Type") - 0.35);
+
+      // The request being raised, then the catalogue it priced itself from.
+      tl.to("#invShot", { opacity: 1, height: 529, duration: 0.8, ease: E }, at("l12", "Type") - 0.1);
+      tl.to("#invShot", { opacity: 0, duration: 0.4, ease: EIO }, at("l12", "already") - 0.55);
+      tl.to("#catShot", { opacity: 1, height: 400, duration: 0.7, ease: E }, at("l12", "already") - 0.45);
+      tl.to("#sp4", { opacity: 1, y: 0, duration: 0.5, ease: E }, at("l12", "already") + 0.2);
+      tl.to(["#catShot", "#invShot", "#sp4"], { opacity: 0, duration: 0.5, ease: EIO },
+        at("l13", "customer") - 0.5);
+
+      // Their side of it — the product's own words for what the customer sees.
+      tl.to("#custH", { opacity: 1, y: 0, duration: 0.6, ease: E }, at("l13", "customer") - 0.3);
+      tl.to("#paidShot", { opacity: 1, height: 496, duration: 0.8, ease: E }, at("l13", "approves") - 0.25);
+      tl.to("#sp5", { opacity: 1, y: 0, duration: 0.5, ease: E }, at("l13", "phone") + 0.3);
+      tl.to(["#custH", "#paidShot", "#sp5"], { opacity: 0, duration: 0.45, ease: EIO },
+        at("l14", "app") - 0.6);
+
+      // Three things the customer does not need, landing one per word.
+      tl.to("#noK", { opacity: 1, y: 0, duration: 0.45, ease: E }, at("l14", "app") - 0.55);
+      tl.to("#n0", { opacity: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(2)" }, at("l14", "app") - 0.15);
+      tl.to("#n1", { opacity: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(2)" }, at("l14", "link") - 0.15);
+      tl.to("#n2", { opacity: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(2)" }, at("l14", "account") - 0.15);
+      tl.to(["#noK", "#n0", "#n1", "#n2"], { opacity: 0, duration: 0.45, ease: EIO },
+        at("l15", "see") - 0.5);
+
+      tl.to(["#feeK", "#feeH"], { opacity: 1, y: 0, duration: 0.6, ease: E, stagger: 0.1 },
+        at("l15", "see") - 0.3);
+      // The ledger itemises itself: the deductions first, then the figure the
+      // merchant keeps, on the word.
+      tl.to("#ledgerShot", { opacity: 1, height: 317, duration: 1.3, ease: "power2.inOut" },
+        at("l15", "fee") - 0.15);
+      tl.to("#ledgerShot", { height: 451, duration: 0.7, ease: E }, at("l15", "keep") - 0.25);
+      tl.to(["#feeK", "#feeH", "#ledgerShot"], { opacity: 0, duration: 0.5, ease: EIO }, 79.3);
+
+      // ---- 5. The sign-off ------------------------------------------
+      tl.to("#endMark", { opacity: 1, y: 0, duration: 0.8, ease: "power4.out" }, at("l16", "Three") - 0.25);
+      tl.to("#endRule", { scaleX: 1, duration: 0.7, ease: E }, at("l16", "Pay") + 0.1);
+      tl.to("#endSub", { opacity: 1, y: 0, duration: 0.6, ease: E }, at("l16", "Nigeria") - 0.15);
+      tl.to("#endUrl", { opacity: 1, y: 0, duration: 0.6, ease: E }, at("l16", "having") - 0.1);
+      tl.to(ampProxy, { a: 0.3, duration: 2.4, ease: EIO }, 86.6);
+
+      // ---- Subtitles -------------------------------------------------
+      subEls.forEach(function (s) {
+        // The previous line is gone by the instant the next one starts.
+        tl.to(s.el, { opacity: 0, y: -6, duration: 0.09, ease: "power2.in" },
+          Math.max(s.show + 0.1, s.hide - 0.09));
+        tl.to(s.el, { opacity: 1, y: 0, duration: 0.09, ease: "power2.out" }, s.show);
+      });
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

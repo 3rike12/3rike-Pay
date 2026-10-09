@@ -1,0 +1,345 @@
+{
+  "voice": "am_michael",
+  "speed": 0.88,
+  "phoneme_overrides": {
+    "θɹˈiː ɹˈaɪk": "θɹˈiːɹaɪk",
+    "θɹˈiːɹˈaɪk": "θɹˈiːɹaɪk",
+    "nˈɛɹə": "nˈaɪɹə",
+    "nˈɛɹɐz": "nˈaɪɹəz",
+    "ˈɛɹɾəl": "ˈɛɹtɛl"
+  },
+  "scenes": {
+    "s1_cold": [
+      "l01",
+      "l02",
+      "l03"
+    ],
+    "s2_title": [
+      "l04",
+      "l05"
+    ],
+    "s3_person": [
+      "l06",
+      "l07",
+      "l08",
+      "l09",
+      "l10"
+    ],
+    "s4_biz": [
+      "l11",
+      "l12",
+      "l13",
+      "l14",
+      "l15"
+    ],
+    "s5_close": [
+      "l16"
+    ]
+  },
+  "lines": [
+    {
+      "id": "l01",
+      "say": "You agree a price in a WhatsApp chat. Then you leave the chat to pay.",
+      "subs": [
+        [
+          "You agree a price",
+          4
+        ],
+        [
+          "in a WhatsApp chat.",
+          4
+        ],
+        [
+          "Then you leave the chat to pay.",
+          7
+        ]
+      ]
+    },
+    {
+      "id": "l02",
+      "say": "The bank app. The password. Waiting for the code.",
+      "subs": [
+        [
+          "The bank app.",
+          3
+        ],
+        [
+          "The password.",
+          2
+        ],
+        [
+          "Waiting for the code.",
+          4
+        ]
+      ]
+    },
+    {
+      "id": "l03",
+      "say": "Then back here with a screenshot, to prove it. The deal is here. The money is elsewhere.",
+      "subs": [
+        [
+          "Then back here with a screenshot,",
+          6
+        ],
+        [
+          "to prove it.",
+          3
+        ],
+        [
+          "The deal is here.",
+          4
+        ],
+        [
+          "The money is elsewhere.",
+          4
+        ]
+      ]
+    },
+    {
+      "id": "l04",
+      "say": "3rike Pay.",
+      "subs": [
+        [
+          "3rike Pay",
+          3
+        ]
+      ]
+    },
+    {
+      "id": "l05",
+      "say": "A bank that lives inside WhatsApp. You message it, the way you message a friend.",
+      "subs": [
+        [
+          "A bank that lives",
+          4
+        ],
+        [
+          "inside WhatsApp.",
+          3
+        ],
+        [
+          "You message it, the way",
+          5
+        ],
+        [
+          "you message a friend.",
+          4
+        ]
+      ]
+    },
+    {
+      "id": "l06",
+      "say": "Verify your ID once, choose a PIN, and the bot hands you a real account number.",
+      "subs": [
+        [
+          "Verify your ID once,",
+          4
+        ],
+        [
+          "choose a PIN,",
+          3
+        ],
+        [
+          "and the bot hands you",
+          5
+        ],
+        [
+          "a real account number.",
+          4
+        ]
+      ]
+    },
+    {
+      "id": "l07",
+      "say": "To send, you type it the way you would say it out loud.",
+      "subs": [
+        [
+          "To send,",
+          2
+        ],
+        [
+          "you type it the way",
+          5
+        ],
+        [
+          "you would say it out loud.",
+          6
+        ]
+      ]
+    },
+    {
+      "id": "l08",
+      "say": "Five k. One milla. Four thousand in words. It understands all three.",
+      "subs": [
+        [
+          "5k.",
+          2
+        ],
+        [
+          "One milla.",
+          2
+        ],
+        [
+          "Four thousand in words.",
+          4
+        ],
+        [
+          "It understands all three.",
+          4
+        ]
+      ]
+    },
+    {
+      "id": "l09",
+      "say": "It shows the name on the account first, so you can check before you send.",
+      "subs": [
+        [
+          "It shows the name",
+          4
+        ],
+        [
+          "on the account first,",
+          4
+        ],
+        [
+          "so you can check",
+          4
+        ],
+        [
+          "before you send.",
+          3
+        ]
+      ]
+    },
+    {
+      "id": "l10",
+      "say": "Your PIN, and it is gone — with a receipt and a reference.",
+      "subs": [
+        [
+          "Your PIN,",
+          2
+        ],
+        [
+          "and it is gone —",
+          4
+        ],
+        [
+          "with a receipt",
+          3
+        ],
+        [
+          "and a reference.",
+          3
+        ]
+      ]
+    },
+    {
+      "id": "l11",
+      "say": "The same account is also your shop. Nothing new to sign up for.",
+      "subs": [
+        [
+          "The same account",
+          3
+        ],
+        [
+          "is also your shop.",
+          4
+        ],
+        [
+          "Nothing new to sign up for.",
+          6
+        ]
+      ]
+    },
+    {
+      "id": "l12",
+      "say": "Type slash invoice and what they bought. It already knows your prices.",
+      "subs": [
+        [
+          "Type /invoice",
+          3
+        ],
+        [
+          "and what they bought.",
+          4
+        ],
+        [
+          "It already knows your prices.",
+          5
+        ]
+      ]
+    },
+    {
+      "id": "l13",
+      "say": "Your customer approves a prompt on their phone. That is their whole side.",
+      "subs": [
+        [
+          "Your customer approves a prompt",
+          5
+        ],
+        [
+          "on their phone.",
+          3
+        ],
+        [
+          "That is their whole side.",
+          5
+        ]
+      ]
+    },
+    {
+      "id": "l14",
+      "say": "No app, no link, no account with us.",
+      "subs": [
+        [
+          "No app, no link,",
+          4
+        ],
+        [
+          "no account with us.",
+          4
+        ]
+      ]
+    },
+    {
+      "id": "l15",
+      "say": "And you see every fee. On a hundred francs, you keep eighty nine.",
+      "subs": [
+        [
+          "And you see every fee.",
+          5
+        ],
+        [
+          "On a hundred francs,",
+          4
+        ],
+        [
+          "you keep eighty nine.",
+          4
+        ]
+      ]
+    },
+    {
+      "id": "l16",
+      "say": "3rike Pay. Nigeria and Rwanda — inside the conversation you were already having.",
+      "subs": [
+        [
+          "3rike Pay.",
+          3
+        ],
+        [
+          "Nigeria and Rwanda",
+          3
+        ],
+        [
+          "inside the conversation",
+          3
+        ],
+        [
+          "you were already having.",
+          4
+        ]
+      ]
+    }
+  ]
+}

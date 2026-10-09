@@ -23,3 +23,16 @@ backups/
 /docs
 # Vercel
 .vercel
+
+# Demo film — generated artefacts and the Python env
+demo/.venv/
+demo/build/
+demo/assets/vo/
+demo/film/node_modules/
+demo/film/snapshots/
+demo/film/renders/
+demo/film/.hyperframes/
+# Staged copies of demo/assets — rebuild with demo/tools/stage.sh
+demo/film/assets/
+demo/film/fonts.css
+demo/film/cues.js
