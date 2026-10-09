@@ -21,3 +21,5 @@ prisma/dev.db*
 backups/
 
 /docs
+# Vercel
+.vercel
