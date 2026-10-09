@@ -49,7 +49,7 @@ lengths to land on it, so changing the length is one number, not a re-time.
 | `tools/` | the pipeline above |
 | `tools/shoot.mjs` | ad-hoc Playwright screenshotter, used for design options sheets |
 | `tools/phoneme_probe.py` | prints what the voice will actually say for a word, to decide pronunciation overrides |
-| `assets/shots/` | captures of the live site, with per-bubble geometry in `shots.json` |
+| `assets/shots/` | captures of the live site, with per-bubble geometry in `shots.json`; only the seven the film renders are tracked |
 | `assets/fonts/` | Hepta Slab + Poppins, local woff2 |
 | `film/` | the HyperFrames composition |
 | `build/` | generated (gitignored) |

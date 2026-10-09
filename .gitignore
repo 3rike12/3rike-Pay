@@ -36,3 +36,17 @@ demo/film/.hyperframes/
 demo/film/assets/
 demo/film/fonts.css
 demo/film/cues.js
+
+# Site captures: track only the seven the film actually renders. The others
+# are alternates and regenerate with `node demo/tools/capture.mjs`. Allowlisted
+# rather than blocklisted so a new 3 MB screenshot cannot land here unnoticed.
+demo/assets/shots/*.png
+!demo/assets/shots/home-hero.png
+!demo/assets/shots/ledger.png
+!demo/assets/shots/phone-hero.png
+!demo/assets/shots/wa-catalogue.png
+!demo/assets/shots/wa-invoice.png
+!demo/assets/shots/wa-send.png
+!demo/assets/shots/wa-setup.png
+# Logo art the composition never references
+demo/assets/img/
