@@ -50,3 +50,5 @@ demo/assets/shots/*.png
 !demo/assets/shots/wa-setup.png
 # Logo art the composition never references
 demo/assets/img/
+
+/demo
