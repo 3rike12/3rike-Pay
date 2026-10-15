@@ -52,3 +52,5 @@ demo/assets/shots/*.png
 demo/assets/img/
 
 /demo
+.env.prod
+
