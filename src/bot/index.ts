@@ -787,10 +787,11 @@ export async function handleMessage(
       );
     }
 
-    const text = `Hi ${displayName}! Welcome to 3rike Pay.
-
-Send /start to see what you can do.`;
-    const sent = await whatsapp.sendTextMessage(phone, text);
+    const sent = await whatsapp.sendButtonsMessage(
+      phone,
+      `Hi ${displayName}! Welcome to 3rike Pay. Send, receive, and manage your money with ease.`,
+      [{ id: "create_wallet", title: "Create Wallet" }]
+    );
 
     await logWebhookEvent(
       "notification",
@@ -1577,14 +1578,15 @@ async function sendMenuForUser(phone: string, user: any) {
   return sendMainMenu(phone);
 }
 
-/** Personalized "you don't have an account yet" — now a free text message. */
+/** Personalized "you don't have an account yet" — interactive button, no template. */
 async function sendNoAccountPrompt(phone: string, user: any) {
   const displayName = displayNameOf(user);
 
-  const text = `Hi ${displayName}! Welcome to 3rike Pay.
-
-Send /start to see what you can do.`;
-  const sent = await whatsapp.sendTextMessage(phone, text);
+  const sent = await whatsapp.sendButtonsMessage(
+    phone,
+    `Hi ${displayName}! Welcome to 3rike Pay. Send, receive, and manage your money with ease.`,
+    [{ id: "create_wallet", title: "Create Wallet" }]
+  );
 
   await logWebhookEvent(
     "notification",
