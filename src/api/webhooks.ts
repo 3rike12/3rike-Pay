@@ -11,7 +11,7 @@ import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
 import { cleanPhone, formatAmount, formatCurrency, redactSensitiveText } from "@/utils/helpers";
 import { failInvoicePayment, getInvoiceByReference, settleInvoicePayment } from "@/services/invoice";
-import { TEMPLATES, KYC_STATUS } from "@/config/constants";
+import { MESSAGES, KYC_STATUS } from "@/config/constants";
 
 const router = Router();
 
@@ -462,25 +462,21 @@ async function handleBankTransfer(event: string, data: any) {
           const bank = transaction.bankName || "Bank";
           const account = transaction.bankAccount || "";
 
-          const sent = await whatsapp.sendTemplate(
+          const sent = await whatsapp.sendTextMessage(
             user.phone,
-            TEMPLATES.TRANSFER_COMPLETE.NAME,
-            [amount, recipient, bank, account, transaction.reference],
-            TEMPLATES.TRANSFER_COMPLETE.LANGUAGE
+            MESSAGES.FALLBACK.TRANSFER_COMPLETE(amount, recipient, bank, account, transaction.reference)
           );
           if (!sent) {
-            logger.warn("transfer_complete template send failed", { reference: transaction.reference });
+            logger.warn("transfer_complete message send failed", { reference: transaction.reference });
           }
         } else {
           const name = (user.name || "there").trim() || "there";
-          const sent = await whatsapp.sendTemplate(
+          const sent = await whatsapp.sendTextMessage(
             user.phone,
-            TEMPLATES.TRANSFER_FAILED.NAME,
-            [name, formatAmount(transaction.amount), transaction.accountName || "Recipient", "AutoRamp transfer failed"],
-            TEMPLATES.TRANSFER_FAILED.LANGUAGE
+            `Hi ${name}, your transfer of ${formatAmount(transaction.amount)} to ${transaction.accountName || "Recipient"} failed.\n\nReason: AutoRamp transfer failed.\n\nPlease try again or reply Hi to talk to support.`
           );
           if (!sent) {
-            logger.warn("transfer_failed template send failed", { reference: transaction.reference });
+            logger.warn("transfer_failed message send failed", { reference: transaction.reference });
           }
         }
       }

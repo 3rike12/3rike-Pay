@@ -3,7 +3,7 @@ import { Router, Request, Response } from "express";
 import { createLogger } from "@/utils/logger";
 import { autoramp } from "@/services/autoramp";
 import { whatsapp } from "@/services/whatsapp";
-import { MESSAGES, TEMPLATES } from "@/config/constants";
+import { MESSAGES } from "@/config/constants";
 import { prisma, getSession, updateSession, resetSession, updateTransaction, getTransactionByReference } from "@/services/database";
 import { verifyPin } from "@/utils/pin";
 import { formatAmount, generateTransactionReference } from "@/utils/helpers";
@@ -85,20 +85,18 @@ async function notifyTransferSuccess(userId: string, transfer: PendingTransfer, 
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user?.phone) return;
-    const sent = await whatsapp.sendTemplate(
+    const sent = await whatsapp.sendTextMessage(
       user.phone,
-      TEMPLATES.TRANSFER_COMPLETE.NAME,
-      [
+      MESSAGES.FALLBACK.TRANSFER_COMPLETE(
         formatAmount(transfer.amount),
         transfer.accountName,
         transfer.bankName,
         transfer.accountNumber,
-        reference,
-      ],
-      TEMPLATES.TRANSFER_COMPLETE.LANGUAGE
+        reference
+      )
     );
     if (!sent) {
-      logger.warn("transfer_complete template send failed", { userId, reference });
+      logger.warn("transfer_complete message send failed", { userId, reference });
     }
   } catch (error: any) {
     logger.error("Failed to send transfer success message", { userId, error: error.message });
@@ -123,14 +121,12 @@ async function notifyTransferFailed(userId: string, transfer: PendingTransfer, r
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user?.phone) return;
     const name = (user.name || "there").trim() || "there";
-    const sent = await whatsapp.sendTemplate(
+    const sent = await whatsapp.sendTextMessage(
       user.phone,
-      TEMPLATES.TRANSFER_FAILED.NAME,
-      [name, formatAmount(transfer.amount), transfer.accountName, reason.slice(0, 120)],
-      TEMPLATES.TRANSFER_FAILED.LANGUAGE
+      `Hi ${name}, your transfer of ${formatAmount(transfer.amount)} to ${transfer.accountName} failed.\n\nReason: ${reason.slice(0, 120)}.\n\nPlease try again or reply Hi to talk to support.`
     );
     if (!sent) {
-      logger.warn("transfer_failed template send failed (template may not be approved yet)", { userId });
+      logger.warn("transfer_failed message send failed", { userId });
     }
   } catch (error: any) {
     logger.error("Failed to send transfer failure message", { userId, error: error.message });

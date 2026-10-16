@@ -5,7 +5,6 @@ import { redactPhone } from "@/utils/helpers";
 
 const logger = createLogger("notifications");
 import { formatAmount, cleanPhone } from "@/utils/helpers";
-import { TEMPLATES } from "@/config/constants";
 import { logWebhookEvent } from "./database";
 
 // ============================================
@@ -151,11 +150,10 @@ export async function notifyWelcomeCreateWallet(
   }
 
   try {
-    const sent = await whatsapp.sendTemplate(
+    const sent = await whatsapp.sendButtonsMessage(
       phoneKey,
-      TEMPLATES.WELCOME_CREATE_WALLET.NAME,
-      [cleanName],
-      TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE
+      `Hi ${cleanName}! Welcome to 3rike Pay. Send, receive, and manage your money with ease.`,
+      [{ id: "create_wallet", title: "Create Wallet" }]
     );
 
     await logWebhookEvent(
@@ -165,10 +163,10 @@ export async function notifyWelcomeCreateWallet(
       phoneKey
     ).catch(() => {});
 
-    logger.info("Welcome template sent", { phone: redactPhone(phoneKey), sent });
+    logger.info("Welcome message sent", { phone: redactPhone(phoneKey), sent });
     return { sent, alreadySent: false };
   } catch (error: any) {
-    logger.error("Welcome template failed", { phone: redactPhone(phone), error: error.message });
+    logger.error("Welcome message failed", { phone: redactPhone(phone), error: error.message });
     return { sent: false, alreadySent: false };
   }
 }
