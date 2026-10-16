@@ -25,7 +25,7 @@ import {
 } from "@/services/invoice";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
-import { TRIGGERS, MESSAGES, FLOWS, TEMPLATES, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
+import { TRIGGERS, MESSAGES, FLOWS, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
 
 const logger = createLogger("bot");
 
@@ -765,12 +765,9 @@ export async function handleMessage(
   }
 
   // ---- New-user intro: first message gets the welcome ----
-  // Sent via the approved onboarding_message TEMPLATE only. The button on
-  // that template is configured in WhatsApp Manager to open the KYC Flow
-  // directly. Tapping it opens the form with no further bot message needed.
-  // Sent once per number: logged as notification/welcome_create_wallet/{phone}
-  // (kept for dedup compatibility), shared with the POST /welcome endpoint
-  // so a number never gets both.
+  // Kept as a free text message so we don't need an approved (and billed)
+  // template. Sent only once per number: logged as notification/welcome_create_wallet
+  // for dedup compatibility, shared with the POST /welcome endpoint.
   const isNewUser = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
   const hasAccount = user.kycStatus === KYC_STATUS.VERIFIED || !!user.bankAccount?.accountNumber;
   if (isNewUser && !hasAccount) {
@@ -790,25 +787,18 @@ export async function handleMessage(
       );
     }
 
-    const sent = await whatsapp.sendTemplate(
-      phone,
-      TEMPLATES.WELCOME_CREATE_WALLET.NAME,
-      [displayName],
-      TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE,
-      undefined,
-      user.id
-    );
+    const text = `Hi ${displayName}! Welcome to 3rike Pay.
+
+Send /start to see what you can do.`;
+    const sent = await whatsapp.sendTextMessage(phone, text);
 
     await logWebhookEvent(
       "notification",
       "welcome_create_wallet",
-      { phone, name: displayName, sent, template: TEMPLATES.WELCOME_CREATE_WALLET.NAME },
+      { phone, name: displayName, sent, source: "text_welcome" },
       phone
     ).catch(() => {});
 
-    if (!sent) {
-      logger.warn("Onboarding template failed, no fallback sent", { phone: redactPhone(phone) });
-    }
     return true;
   }
 
@@ -1587,29 +1577,22 @@ async function sendMenuForUser(phone: string, user: any) {
   return sendMainMenu(phone);
 }
 
-/** Personalized "you don't have an account yet" — sent as the onboarding template. */
+/** Personalized "you don't have an account yet" — now a free text message. */
 async function sendNoAccountPrompt(phone: string, user: any) {
   const displayName = displayNameOf(user);
 
-  const sent = await whatsapp.sendTemplate(
-    phone,
-    TEMPLATES.WELCOME_CREATE_WALLET.NAME,
-    [displayName],
-    TEMPLATES.WELCOME_CREATE_WALLET.LANGUAGE,
-    undefined,
-    user.id
-  );
+  const text = `Hi ${displayName}! Welcome to 3rike Pay.
+
+Send /start to see what you can do.`;
+  const sent = await whatsapp.sendTextMessage(phone, text);
 
   await logWebhookEvent(
     "notification",
     "welcome_create_wallet",
-    { phone, name: displayName, sent, template: TEMPLATES.WELCOME_CREATE_WALLET.NAME, source: "no_account_prompt" },
+    { phone, name: displayName, sent, source: "no_account_prompt_text" },
     phone
   ).catch(() => {});
 
-  if (!sent) {
-    logger.warn("Onboarding template failed from no-account prompt", { phone: redactPhone(phone) });
-  }
   return true;
 }
 
