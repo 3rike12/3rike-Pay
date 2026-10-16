@@ -8,23 +8,23 @@
 # so the app always uses THESE postgres + redis containers.
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: threerike-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-threerike}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-threerike}
-      POSTGRES_DB: ${POSTGRES_DB:-threerike_pay}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-threerike}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: threerike-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER:-threerike}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-threerike}
+  #     POSTGRES_DB: ${POSTGRES_DB:-threerike_pay}
+  #   ports:
+  #     - "${POSTGRES_PORT:-5432}:5432"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-threerike}"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
 
   redis:
     image: redis:7-alpine
@@ -57,7 +57,7 @@ services:
       NODE_ENV: development
       PORT: 3000
       # Own postgres DB (overrides .env):
-      DATABASE_URL: postgresql://${POSTGRES_USER:-threerike}:${POSTGRES_PASSWORD:-threerike}@postgres:5432/${POSTGRES_DB:-threerike_pay}
+      # DATABASE_URL: postgresql://${POSTGRES_USER:-threerike}:${POSTGRES_PASSWORD:-threerike}@postgres:5432/${POSTGRES_DB:-threerike_pay}
       # Own redis (overrides .env):
       REDIS_URL: redis://redis:6379
 
