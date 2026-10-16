@@ -45,8 +45,8 @@ services:
     container_name: threerike-api
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      # postgres:
+      # condition: service_healthy
       redis:
         condition: service_healthy
     ports:
