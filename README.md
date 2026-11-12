@@ -1,3 +1,53 @@
+# 3rike Pay: crypto invoicing on NEAR Intents
+
+> **NEAR Hackathon submission, track: Real-World Money (`realworld`).**
+
+**What it is.** A merchant creates an invoice (from WhatsApp, or the demo script below). Their customer opens a pay link and pays from **any supported chain and token**. The merchant is credited in their **local currency** (RWF, NGN, KES, GHS, USD) and the money lands as **USDC**, routed by **NEAR Intents**.
+
+**Problem.** Small merchants in Africa get paid by people who hold money on different chains and in different tokens. Supporting each chain means a wallet, a bridge and a reconciliation process per chain.
+
+**How NEAR is used.**
+- **1Click API (NEAR Intents)** turns "customer holds token X on chain Y" into "merchant receives USDC", with one quote and one deposit address per invoice. (`src/services/nearIntents.ts`)
+- The quote is `EXACT_OUTPUT`: the merchant receives exactly the invoice value, and the customer's input absorbs slippage.
+- Settlement is by polling 1Click `/v0/status`; `SUCCESS` credits the merchant ledger, `REFUNDED` and `FAILED` are shown to the customer. (`src/services/cryptoInvoice.ts`)
+- The treasury can be a **NEAR Intents account** (`NEAR_INTENTS_RECIPIENT=treasury.near`, `NEAR_INTENTS_RECIPIENT_TYPE=INTENTS`), which is cheaper than delivering to an EVM address.
+
+## Try it (no WhatsApp, no API keys, no funds)
+
+Requires Node 18+. Steps 1 to 5 only call the public 1Click API (quotes mint a deposit address; nothing moves until someone sends funds).
+
+1. `npm install`
+2. `cp .env.example .env` then set two values in `.env`:
+   - `DATABASE_URL=file:./prisma/dev.db`
+   - `NEAR_INTENTS_RECIPIENT=<an address you control>` (an `0x...` EVM address, or a NEAR account for an Intents treasury)
+3. `npm run db:generate:sqlite && npm run db:push:sqlite`
+4. `npm run demo:invoice` : prints an invoice reference and a **pay link**. See: `Pay link: http://localhost:3000/pay/3RIKE-...`
+5. `npm run dev`, then open the pay link. Choose **USDC on arb** and press **Get payment details**. See: the exact amount to send, the network, the deposit address, a QR code, and a progress tracker waiting for payment.
+6. *(Optional, real money, about $3.50)* Send exactly the amount shown, on the network shown, to the address. See: the tracker moves to "Payment received, converting" and then **Paid**; the merchant's ledger balance increases. Check with `npm run treasury:report`.
+
+Other checks:
+- `npm test` : unit tests (3 tests in `tests/webhooks.test.ts` fail on a clean checkout and are unrelated to this work).
+- `npm run demo:probe` : prints the live token list and a live quote from the 1Click API, no server needed.
+- Other currencies: `npm run demo:invoice -- NGN 20000`.
+- There is **no testnet** for NEAR Intents, so step 6 uses mainnet with a small amount.
+
+## What was built during the hackathon (and what was already here)
+
+**Baseline (before the hackathon, commit `28cf5b5`, 16 Oct 2026):** a WhatsApp payment bot with Flutterwave mobile-money collections, AutoRamp bank transfers, a multi-currency ledger, merchant profiles, products and invoices.
+
+**Built for the hackathon (NEAR work only):**
+- `src/services/nearIntents.ts` : 1Click client (quotes, status, token list, fiat pricing, token resolution)
+- `src/services/cryptoInvoice.ts` : create a crypto payment for an invoice, poll and settle it
+- `src/api/pay.ts` + `public/pay.html` : the public customer pay page and its API
+- `src/services/treasury.ts`, `src/services/withdrawal.ts` : treasury accounting and withdrawals (experimental; payouts need a signer and are **not** enabled)
+- `scripts/demo-invoice.ts`, `scripts/probe-near-intents.js`, `scripts/treasury-report.ts`
+- `tests/nearIntents.test.ts`, `tests/withdrawal.test.ts`
+- Bot: invoice "Yes" now issues a crypto pay link when `PUBLIC_BASE_URL` is set; mobile money is switched off by default (`MOBILE_MONEY_ENABLED`).
+
+**Known limits.** Prices use a static FX table (`NEAR_INTENTS_FX_RATES`); origin chains are EVM only (the refund address must be valid on the customer's chain); withdrawals are not production-ready.
+
+---
+
 # 3rike Pay
 
 WhatsApp payment bot for sending money to Nigerian bank accounts. Built with Node.js, Express, Prisma, Redis, and the WhatsApp Cloud API. Integrated with AutoRamp for bank transfers and virtual account issuing.

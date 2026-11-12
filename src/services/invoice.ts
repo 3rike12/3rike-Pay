@@ -812,7 +812,10 @@ export async function settleInvoicePayment(
     // fee; null means "could not be determined" or "did not book", either of
     // which prints no line rather than a guessed number.
     let bookedFlutterwaveFee: number | null = null;
-    if (invoice.amount > 0) {
+    // Crypto (NEAR Intents) payments never touch Flutterwave, so there is no
+    // provider fee to resolve - and asking Flutterwave about them would only
+    // produce noise.
+    if (invoice.amount > 0 && metadata.provider !== "near-intents") {
       const flutterwaveFee = await resolveFlutterwaveFee(reference, metadata);
       if (flutterwaveFee !== null && flutterwaveFee > 0) {
         try {

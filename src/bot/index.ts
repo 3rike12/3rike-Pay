@@ -17,12 +17,16 @@ import {
   createDraftInvoice,
   createProduct,
   expireStaleInvoices,
+  issueInvoice,
   humanizeChargeError,
   listInvoices,
   listProducts,
   renderInvoiceSummary,
   scheduleInvoiceVerification,
 } from "@/services/invoice";
+import { createCryptoPayment, scheduleCryptoVerification } from "@/services/cryptoInvoice";
+import { nearIntents } from "@/services/nearIntents";
+import { requestWithdrawal, scheduleWithdrawalVerification } from "@/services/withdrawal";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
 import { TRIGGERS, MESSAGES, FLOWS, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
@@ -491,6 +495,79 @@ async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft)
 }
 
 /**
+ * Crypto path for a confirmed draft: quote a deposit address through NEAR
+ * Intents and hand the merchant the address + exact amount to forward.
+ * `choice` may carry a token, e.g. "crypto usdt arb"; default is the
+ * configured origin asset (USDC on Base).
+ */
+async function issueCryptoInvoice(phone: string, user: any, draft: InvoiceDraft, choice: string) {
+  try {
+    const [, sym, chain] = choice.split(/\s+/);
+    let originAsset: string | undefined;
+    let originLabel: string | undefined;
+    if (sym) {
+      const token = await nearIntents.resolveOriginAsset(sym, chain);
+      if (!token) {
+        return whatsapp.sendTextMessage(
+          phone,
+          `I can't take ${sym.toUpperCase()}${chain ? ` on ${chain}` : ""}. Try e.g. *crypto usdc base*, *crypto usdt arb* or *crypto eth arb*.`
+        );
+      }
+      originAsset = token.assetId;
+      originLabel = `${token.symbol} on ${token.blockchain}`;
+    }
+
+    let draftId = draft.draftId;
+    if (!draftId) {
+      const created = await createDraftInvoice({
+        merchantId: user.id,
+        buyerPhone: draft.buyerPhone || "",
+        items: draft.items.map((i) => ({ name: i.name, qty: i.qty, unitPrice: Number(i.unitPrice || 0) })),
+      });
+      draftId = created.id;
+      await updateSession(user.id, SESSION_STATE.INVOICE_CONFIRM, { ...draft, draftId });
+    }
+
+    // Default path when a public URL is configured: hand the merchant a pay
+    // link. The buyer picks their own chain/token on the page, which is what
+    // creates the deposit address - so nothing is quoted yet.
+    if (!sym && config.app.baseUrl) {
+      const issued = await issueInvoice(draftId, user.id);
+      if (!issued) throw new Error("Invoice not found.");
+      await resetSession(user.id);
+      return whatsapp.sendTextMessage(
+        phone,
+        `*Payment request ready*\n\n${renderInvoiceSummary(issued as any)}\n\n` +
+          `Send this link to your customer:\n${config.app.baseUrl}/pay/${issued.reference}\n\n` +
+          `They can pay from any chain or token they hold. We'll message you when it's paid.`
+      );
+    }
+
+    const result = await createCryptoPayment({
+      merchantId: user.id,
+      invoiceId: draftId,
+      originAsset,
+      originLabel,
+    });
+    scheduleCryptoVerification(result.reference);
+    await resetSession(user.id);
+
+    const label = result.originLabel || "USDC on base";
+    return whatsapp.sendTextMessage(
+      phone,
+      `*Crypto payment request*\n\n${renderInvoiceSummary(result.invoice as any)}\n\n` +
+        `Ask the buyer to send *exactly ${result.amountInFormatted ?? result.amountIn} ${label}* to:\n` +
+        `${result.depositAddress}` +
+        (result.depositMemo ? `\nMemo: ${result.depositMemo}` : "") +
+        `\n\nOnly send on the ${label.split(" on ")[1] ?? "base"} network. We'll message you when it lands.`
+    );
+  } catch (error: any) {
+    logger.error("Failed to issue crypto invoice", { userId: user.id, error: error.message });
+    return sendInvoiceRetryButtons(phone, MESSAGES.BUSINESS.INVOICE.ERROR(error.message));
+  }
+}
+
+/**
  * /invoice [items...] - entry point for the command, the main-menu row and
  * the "invoice" trigger in idle.
  */
@@ -593,7 +670,51 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
  */
 type SlashHandler = (phone: string, user: any, args?: string) => Promise<unknown>;
 
+/**
+ * /withdraw <amount> [currency] <token> [chain] <address>
+ *   /withdraw 50000 usdc base 0xabc...      (spends the merchant's RWF)
+ *   /withdraw 20 usd usdt arb 0xabc...      (spends their USD wallet)
+ * The merchant just sees a payout; the swap behind it is not mentioned.
+ */
+async function handleWithdrawCommand(phone: string, user: any, args = "") {
+  const usage =
+    "To withdraw, send:\n*withdraw <amount> <token> <network> <wallet address>*\n" +
+    "e.g. *withdraw 50000 usdc base 0x1234…*\nOptionally add a currency after the amount, e.g. *withdraw 20 usd usdt arb 0x…*";
+  const parts = args.trim().split(/\s+/).filter(Boolean);
+  const amount = Number((parts.shift() || "").replace(/,/g, ""));
+  const address = parts.pop() || "";
+  if (!Number.isFinite(amount) || amount <= 0 || parts.length === 0) {
+    return whatsapp.sendTextMessage(phone, usage);
+  }
+
+  // An optional 3-letter fiat code right after the amount picks the wallet.
+  let currency = "RWF";
+  if (/^[a-z]{3}$/i.test(parts[0]) && ["RWF", "USD", "NGN", "KES", "GHS"].includes(parts[0].toUpperCase())) {
+    currency = parts.shift()!.toUpperCase();
+  }
+  const [symbol, chain] = parts;
+  if (!symbol) return whatsapp.sendTextMessage(phone, usage);
+
+  try {
+    const result = await requestWithdrawal({ userId: user.id, currency, amount, symbol, chain, address });
+    scheduleWithdrawalVerification(result.reference);
+    return whatsapp.sendTextMessage(
+      phone,
+      `*Withdrawal started*\n\n${formatCurrency(amount, currency)} → ${symbol.toUpperCase()}${chain ? ` on ${chain}` : ""}\n` +
+        `To: ${address}\n\n` +
+        (result.status === "awaiting_signature"
+          ? "We're processing this now and will message you once it's sent."
+          : "It usually arrives in a minute or two. We'll message you when it lands.")
+    );
+  } catch (error: any) {
+    logger.error("Withdrawal command failed", { userId: user.id, error: error.message });
+    return whatsapp.sendTextMessage(phone, error.message || "Withdrawal failed.");
+  }
+}
+
 const SLASH_COMMANDS: Record<string, SlashHandler> = {
+  withdraw: (phone, user, args) => handleWithdrawCommand(phone, user, args || ""),
+  cashout: (phone, user, args) => handleWithdrawCommand(phone, user, args || ""),
   balance: handleCheckBalance,
   checkbalance: handleCheckBalance,
   bal: handleCheckBalance,
@@ -622,6 +743,13 @@ const SLASH_COMMANDS: Record<string, SlashHandler> = {
   businessprofile: (phone, user) => handleBusinessCommand(phone, user),
   mybusiness: (phone, user) => handleBusinessCommand(phone, user),
 };
+
+// Legacy banking commands answer with a notice while that feature is off.
+if (!config.features.legacyBanking) {
+  for (const key of ["send", "transfer", "sendmoney", "kyc", "verify"]) {
+    SLASH_COMMANDS[key] = (phone, user) => sendLegacyOffNotice(phone, user);
+  }
+}
 
 // ============================================
 // Main conversation handler
@@ -743,7 +871,7 @@ export async function handleMessage(
     (actionLower.includes("create") && actionLower.includes("wallet")) ||
     buttonTitleLower.includes("create wallet") ||
     lower.includes("create wallet");
-  if (isCreateWalletTap) {
+  if (isCreateWalletTap && config.features.legacyBanking) {
     logger.debug("Create wallet tap", {
       phone,
       action: action || null,
@@ -770,7 +898,9 @@ export async function handleMessage(
   // for dedup compatibility, shared with the POST /welcome endpoint.
   const isNewUser = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
   const hasAccount = user.kycStatus === KYC_STATUS.VERIFIED || !!user.bankAccount?.accountNumber;
-  if (isNewUser && !hasAccount) {
+  // Hack/default mode onboards a merchant by shop profile; legacy mode by KYC.
+  const needsOnboarding = config.features.legacyBanking ? !hasAccount : !user.business;
+  if (isNewUser && needsOnboarding) {
     await resetSession(user.id).catch(() => {});
     const displayName = displayNameOf(user, name || "there");
 
@@ -787,11 +917,17 @@ export async function handleMessage(
       );
     }
 
-    const sent = await whatsapp.sendButtonsMessage(
-      phone,
-      `Hi ${displayName}! Welcome to 3rike Pay. Send, receive, and manage your money with ease.`,
-      [{ id: "create_wallet", title: "Create Wallet" }]
-    );
+    const sent = config.features.legacyBanking
+      ? await whatsapp.sendButtonsMessage(
+          phone,
+          `Hi ${displayName}! Welcome to 3rike Pay. Send, receive, and manage your money with ease.`,
+          [{ id: "create_wallet", title: "Create Wallet" }]
+        )
+      : await whatsapp.sendButtonsMessage(
+          phone,
+          `Hi ${displayName}! Welcome to 3rike Pay.\n\nSend your customers an invoice and get paid in crypto from any chain, shown in your own currency.\n\nLet's set up your shop first.`,
+          [{ id: "business_profile", title: "Set up my shop" }]
+        );
 
     await logWebhookEvent(
       "notification",
@@ -889,7 +1025,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   await expireStaleInvoices(user.id).catch(() => {});
 
   if (action === "btn_kyc" || action === "kyc") {
-    return startKyc(phone, user);
+    return config.features.legacyBanking ? startKyc(phone, user) : sendLegacyOffNotice(phone, user);
   }
 
   // Invoice list: menu row / /invoices -> page one, "invoices:<offset>" ->
@@ -920,6 +1056,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
 
   if (action === SESSION_STATE.SEND_MONEY) {
+    if (!config.features.legacyBanking) return sendLegacyOffNotice(phone, user);
     if (!user.bankAccount?.accountNumber) {
       return whatsapp.sendButtonsMessage(phone, MESSAGES.KYC_PROMPT.TEXT, [
         { id: "btn_kyc", title: "Verify Now" },
@@ -978,6 +1115,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
 
   // Check for trigger words in free text
   if (TRIGGERS.SEND_MONEY.some((kw) => t.includes(kw))) {
+    if (!config.features.legacyBanking) return sendLegacyOffNotice(phone, user);
     if (!user.bankAccount?.accountNumber) {
       return startKyc(phone, user);
     }
@@ -1005,7 +1143,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
 
   if (TRIGGERS.KYC.some((kw) => t.includes(kw))) {
-    return startKyc(phone, user);
+    return config.features.legacyBanking ? startKyc(phone, user) : sendLegacyOffNotice(phone, user);
   }
 
   // Typed something we don't recognise: a short hint beats re-dumping the
@@ -1350,6 +1488,17 @@ async function handleInvoiceConfirm(
     return whatsapp.sendTextMessage(phone, MESSAGES.CANCEL);
   }
 
+  if (action === "confirm_invoice_crypto" || choice.startsWith("crypto")) {
+    if (!nearIntents.isNearIntentsEnabled()) {
+      return whatsapp.sendTextMessage(phone, "Crypto payments aren't enabled yet.");
+    }
+    if (draft.items.length === 0) {
+      await resetSession(user.id);
+      return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.INVALID_ITEMS);
+    }
+    return issueCryptoInvoice(phone, user, draft, choice);
+  }
+
   const confirmed =
     action === "confirm_invoice" || ["yes", "y", "confirm", "ok", "send", "go"].includes(choice);
 
@@ -1363,6 +1512,18 @@ async function handleInvoiceConfirm(
   if (!draft.buyerPhone || draft.items.length === 0) {
     await resetSession(user.id);
     return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.INVALID_ITEMS);
+  }
+
+  // Mobile money is switched off: "Yes" issues the invoice through the crypto
+  // rail instead (default token). Flip MOBILE_MONEY_ENABLED=true to restore it.
+  if (!config.features.mobileMoneyEnabled) {
+    if (!nearIntents.isNearIntentsEnabled()) {
+      return whatsapp.sendTextMessage(
+        phone,
+        "Payment requests are temporarily unavailable. We're working on it - please try again soon."
+      );
+    }
+    return issueCryptoInvoice(phone, user, draft, "crypto");
   }
 
   return issueAndCharge(phone, user, draft);
@@ -1530,6 +1691,13 @@ async function handleTransactions(phone: string, user: any) {
  * fallback for when the Flow can't be delivered.
  */
 async function startKyc(phone: string, user: any) {
+  // No identity form is ever sent while KYC is off.
+  if (!config.features.kycRequired) {
+    return whatsapp.sendTextMessage(
+      phone,
+      "No identity verification is needed. You can create invoices and check your balance right away."
+    );
+  }
   if (user.kycStatus === KYC_STATUS.VERIFIED) {
     return whatsapp.sendTextMessage(phone, MESSAGES.KYC_COMPLETE.TEXT);
   }
@@ -1572,7 +1740,7 @@ async function startKyc(phone: string, user: any) {
  * starts serving them the real menu.
  */
 async function sendMenuForUser(phone: string, user: any) {
-  if (!user.bankAccount?.accountNumber) {
+  if (config.features.legacyBanking && !user.bankAccount?.accountNumber) {
     return sendNoAccountPrompt(phone, user);
   }
   return sendMainMenu(phone);
@@ -1598,14 +1766,28 @@ async function sendNoAccountPrompt(phone: string, user: any) {
   return true;
 }
 
+/** Menu rows that belong to the legacy Nigerian-banking features. */
+const LEGACY_MENU_ROWS = new Set(["send_money", "buy_airtime", "buy_data"]);
+
 async function sendMainMenu(phone: string) {
+  const sections = MESSAGES.MAIN_MENU.SECTIONS.map((s) => ({
+    title: s.title,
+    rows: s.rows.filter((r) => config.features.legacyBanking || !LEGACY_MENU_ROWS.has(r.id)),
+  })).filter((s) => s.rows.length > 0);
+
   return whatsapp.sendListMessage(
     phone,
     MESSAGES.MAIN_MENU.TEXT,
     MESSAGES.MAIN_MENU.LIST_BUTTON,
-    MESSAGES.MAIN_MENU.SECTIONS.map((s) => ({
-      title: s.title,
-      rows: [...s.rows],
-    }))
+    sections
   );
+}
+
+/** Reply for a legacy feature (KYC, send to bank) that is switched off. */
+async function sendLegacyOffNotice(phone: string, user: any) {
+  await whatsapp.sendTextMessage(
+    phone,
+    "That isn't available right now. You can create invoices, check your balance and manage your shop."
+  );
+  return sendMenuForUser(phone, user);
 }

@@ -18,6 +18,7 @@ import { hashPin } from "@/utils/pin";
 import { MESSAGES, KYC_STATUS } from "@/config/constants";
 import { decryptFlowRequest, encryptFlowResponse, screen } from "@/utils/flowCrypto";
 import { logFlowDecryptFailure } from "@/utils/flowRouter";
+import { config } from "@/config";
 
 const logger = createLogger("flow");
 
@@ -34,6 +35,9 @@ async function saveFlowData(userId: string, data: Record<string, unknown>) {
 }
 
 async function handleIdentity(userId: string, data: any) {
+  // Defence in depth: with KYC off, never collect or verify an ID number.
+  if (!config.features.kycRequired) return screen("COMPLETED");
+
   const idType = String(data.id_type || "").toUpperCase();
   const idNumber = String(data.id_number || "").replace(/[^0-9]/g, "");
   const email = String(data.email || "").trim();
@@ -266,6 +270,11 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (action === "INIT") {
+      if (!config.features.kycRequired) {
+        // Identity checks are switched off: close the form, ask for nothing.
+        await resetSession(userId).catch(() => {});
+        return res.send(encryptFlowResponse(screen("COMPLETED"), aesKey, iv));
+      }
       const user = await getUserWithDetails(userId);
       if (user?.kycStatus === KYC_STATUS.VERIFIED) {
         await resetSession(userId).catch(() => {});

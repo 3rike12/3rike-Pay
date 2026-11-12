@@ -25,7 +25,10 @@
     "db:backup": "node scripts/reset-prod-payments.js",
     "db:wipe-payments": "node scripts/reset-prod-payments.js --wipe",
     "db:reconcile-wallets": "node scripts/reconcile-wallets.js",
-    "send:revalidation": "node scripts/send-revalidation.js"
+    "send:revalidation": "node scripts/send-revalidation.js",
+    "demo:invoice": "ts-node -r tsconfig-paths/register --transpile-only scripts/demo-invoice.ts",
+    "demo:probe": "node scripts/probe-near-intents.js",
+    "treasury:report": "ts-node -r tsconfig-paths/register --transpile-only scripts/treasury-report.ts"
   },
   "keywords": [
     "whatsapp",

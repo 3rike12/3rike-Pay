@@ -1,3 +1,4 @@
+import { payPageRouter, payApiRouter } from "@/api/pay";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -61,6 +62,8 @@ app.get("/health", (_req: express.Request, res: express.Response) => {
 // ============================================
 // API Routes
 // ============================================
+app.use("/pay", payPageRouter);
+app.use("/api/pay", payApiRouter);
 app.use("/webhook", webhooksRouter);
 app.use("/webhook/notify", notifyRouter);
 app.use("/webhook/flow/kyc", flowRouter);

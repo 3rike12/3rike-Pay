@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pay invoice</title>
+<style>
+  :root {
+    --bg: #f6f7f4; --card: #ffffff; --text: #14201a; --muted: #5c6b63; --line: #dfe5df;
+    --accent: #0b7a4b; --accent-text: #ffffff; --warn: #9a5b00; --bad: #b3261e; --ok: #0b7a4b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1512; --card: #17201b; --text: #e8efe9; --muted: #93a39a; --line: #26332c;
+            --accent: #3ddc97; --accent-text: #06241a; --warn: #f2b84b; --bad: #ff8a80; --ok: #3ddc97; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 24px 16px 48px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  h1 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 0 0 4px; }
+  .total { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; }
+  ul { list-style: none; padding: 0; margin: 12px 0 0; border-top: 1px solid var(--line); }
+  li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  select, button { width: 100%; font: inherit; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  button.primary { margin-top: 12px; background: var(--accent); color: var(--accent-text); border: 0; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  .row { margin-top: 14px; }
+  .addr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .copy { margin-top: 8px; width: auto; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+  img.qr { display: block; width: 200px; height: 200px; margin: 12px auto 0; border-radius: 8px; background: #fff; padding: 6px; }
+  .big { font-size: 22px; font-weight: 700; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .warn { color: var(--warn); font-size: 13px; margin-top: 10px; }
+  .steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; border: 0; }
+  .steps li { border: 0; padding: 0; justify-content: flex-start; align-items: center; font-size: 15px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); flex: none; }
+  .dot.on { border-color: var(--accent); background: var(--accent); }
+  .dot.now { border-color: var(--accent); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 25%, transparent); } }
+  .banner { padding: 14px 16px; border-radius: 10px; font-weight: 600; margin-bottom: 16px; }
+  .banner.ok { background: color-mix(in srgb, var(--ok) 15%, var(--card)); color: var(--ok); }
+  .banner.bad { background: color-mix(in srgb, var(--bad) 15%, var(--card)); color: var(--bad); }
+  .hidden { display: none; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <div id="banner" class="banner hidden"></div>
+
+  <div class="card">
+    <h1 id="merchant">Loading…</h1>
+    <div class="total" id="total"></div>
+    <ul id="items"></ul>
+  </div>
+
+  <div class="card hidden" id="chooser">
+    <label for="token">Pay with</label>
+    <select id="token"></select>
+    <button class="primary" id="go">Get payment details</button>
+    <div class="muted row">Pay from any supported chain. The merchant receives the exact invoice amount in USDC.</div>
+  </div>
+
+  <div class="card hidden" id="details">
+    <div class="muted">Send exactly</div>
+    <div class="big" id="amountIn"></div>
+    <div class="muted" id="network"></div>
+    <img class="qr" id="qr" alt="Deposit address QR code">
+    <div class="row"><label>To this address</label><div class="addr" id="addr"></div>
+      <button class="copy" id="copy">Copy address</button></div>
+    <div class="row hidden" id="memoRow"><label>Memo (required)</label><div class="addr" id="memo"></div></div>
+    <div class="warn" id="warn"></div>
+  </div>
+
+  <div class="card hidden" id="progress">
+    <ul class="steps">
+      <li><span class="dot" id="d1"></span><span id="t1">Waiting for your payment</span></li>
+      <li><span class="dot" id="d2"></span><span>Payment received, converting</span></li>
+      <li><span class="dot" id="d3"></span><span>Invoice paid</span></li>
+    </ul>
+  </div>
+
+  <div id="error" class="warn"></div>
+  <footer>Payments routed by NEAR Intents · 3rike Pay</footer>
+</main>
+
+<script>
+(function () {
+  var ref = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+  var $ = function (id) { return document.getElementById(id); };
+  var timer = null;
+
+  function money(n, cur) {
+    try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur, maximumFractionDigits: 2 }).format(n); }
+    catch (e) { return cur + " " + Number(n).toLocaleString(); }
+  }
+  function show(id, on) { $(id).classList.toggle("hidden", !on); }
+  function err(msg) { $("error").textContent = msg || ""; }
+  function banner(kind, text) { var b = $("banner"); b.className = "banner " + kind; b.textContent = text; }
+
+  function setProgress(state) {
+    var step = { awaiting_payment: 1, processing: 2, paid: 3 }[state] || 1;
+    ["d1", "d2", "d3"].forEach(function (id, i) {
+      var n = i + 1, el = $(id);
+      el.className = "dot" + (n < step || (state === "paid") ? " on" : n === step ? " now" : "");
+    });
+  }
+
+  function renderQuote(q) {
+    show("details", true); show("progress", true);
+    $("amountIn").textContent = (q.amountInFormatted || "") + " " + ((q.originLabel || "").split(" on ")[0] || "");
+    var chain = (q.originLabel || "").split(" on ")[1] || "";
+    $("network").textContent = chain ? "on the " + chain + " network" : "";
+    $("addr").textContent = q.depositAddress;
+    if (q.qr) $("qr").src = q.qr;
+    show("memoRow", !!q.depositMemo); $("memo").textContent = q.depositMemo || "";
+    $("warn").textContent = chain
+      ? "Only send on the " + chain + " network. Sending on another network can lose your funds."
+      : "";
+    show("chooser", false);
+  }
+
+  function finish(state) {
+    clearInterval(timer);
+    setProgress(state);
+    if (state === "paid") {
+      banner("ok", "Paid. Thank you!");
+      show("details", false); show("chooser", false);
+    } else if (state === "refunded") {
+      banner("bad", "The swap did not complete and your payment was refunded to the sending address.");
+    } else if (state === "expired") {
+      banner("bad", "This invoice has expired. Ask the merchant for a new one.");
+    } else if (state === "failed") {
+      banner("bad", "This payment did not go through.");
+    }
+  }
+
+  function poll() {
+    fetch("/api/pay/" + encodeURIComponent(ref) + "/status").then(function (r) { return r.json(); }).then(function (s) {
+      if (!s || !s.state) return;
+      if (["paid", "refunded", "failed", "expired"].indexOf(s.state) >= 0) finish(s.state);
+      else setProgress(s.state);
+    }).catch(function () {});
+  }
+  function startPolling() { poll(); clearInterval(timer); timer = setInterval(poll, 4000); }
+
+  fetch("/api/pay/" + encodeURIComponent(ref)).then(function (r) {
+    if (!r.ok) throw new Error("This invoice was not found.");
+    return r.json();
+  }).then(function (inv) {
+    document.title = "Pay " + inv.merchant;
+    $("merchant").textContent = inv.merchant;
+    $("total").textContent = money(inv.amount, inv.currency);
+    (inv.items || []).forEach(function (it) {
+      var li = document.createElement("li");
+      var a = document.createElement("span"); a.textContent = it.qty + " × " + it.name;
+      var b = document.createElement("span"); b.textContent = money(it.qty * it.unitPrice, inv.currency);
+      li.appendChild(a); li.appendChild(b); $("items").appendChild(li);
+    });
+
+    if (inv.status === "paid") return finish("paid");
+    if (inv.status === "expired") return finish("expired");
+    if (inv.status === "cancelled") return finish("failed");
+
+    if (!inv.enabled) { err("Crypto payments are not enabled on this server."); return; }
+
+    var sel = $("token");
+    (inv.tokens || []).forEach(function (t) {
+      var o = document.createElement("option"); o.value = t.symbol + "|" + t.chain; o.textContent = t.label; sel.appendChild(o);
+    });
+    var base = Array.prototype.find.call(sel.options, function (o) { return o.value === "USDC|base"; });
+    if (base) sel.value = base.value;
+
+    if (inv.quote && inv.quote.depositAddress) { renderQuote(inv.quote); startPolling(); }
+    else show("chooser", true);
+  }).catch(function (e) { $("merchant").textContent = "Invoice"; err(e.message); });
+
+  $("go").addEventListener("click", function () {
+    var parts = $("token").value.split("|");
+    var btn = $("go"); btn.disabled = true; btn.textContent = "Getting details…"; err("");
+    fetch("/api/pay/" + encodeURIComponent(ref) + "/quote", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: parts[0], chain: parts[1] })
+    }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || "Failed"); return j; }); })
+      .then(function (inv) { renderQuote(inv.quote); startPolling(); })
+      .catch(function (e) { err(e.message); btn.disabled = false; btn.textContent = "Get payment details"; });
+  });
+
+  $("copy").addEventListener("click", function () {
+    var t = $("addr").textContent, b = $("copy");
+    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () {
+      b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy address"; }, 1500);
+    }).catch(function () {});
+  });
+})();
+</script>
+</body>
+</html>

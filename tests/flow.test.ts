@@ -54,6 +54,10 @@ import {
 } from "@/services/database";
 import { handleDryRunFlow } from "@/services/dryRunFlow";
 import { hashPin } from "@/utils/pin";
+import { config } from "@/config";
+
+// The KYC flow under test is the check being on; one test below turns it off.
+(config.features as any).kycRequired = true;
 
 const mockDecrypt = vi.mocked(decryptFlowRequest);
 const mockGetUser = vi.mocked(getUserWithDetails);
@@ -111,6 +115,23 @@ describe("KYC flow webhook", () => {
   it("INIT returns IDENTITY for an unverified user", async () => {
     const res = await post(buildApp(), flowPayload());
     expect(res.body.screen).toBe("IDENTITY");
+  });
+
+  it("with KYC off, INIT closes the form and IDENTITY never calls AutoRamp", async () => {
+    (config.features as any).kycRequired = false;
+    try {
+      let res = await post(buildApp(), flowPayload());
+      expect(res.body.screen).toBe("COMPLETED");
+
+      res = await post(
+        buildApp(),
+        flowPayload({ action: "data_exchange", data: { id_type: "BVN", id_number: "12345678901", email: "a@b.co" } })
+      );
+      expect(res.body.screen).toBe("COMPLETED");
+      expect(mockIdentity).not.toHaveBeenCalled();
+    } finally {
+      (config.features as any).kycRequired = true;
+    }
   });
 
   it("INIT returns COMPLETED for an already-verified user", async () => {

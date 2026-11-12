@@ -11,6 +11,7 @@ import {
 import { KYC_STATUS } from "@/config/constants";
 import { decryptFlowRequest, encryptFlowResponse, screen } from "@/utils/flowCrypto";
 import { logFlowDecryptFailure } from "@/utils/flowRouter";
+import { config } from "@/config";
 
 const logger = createLogger("revalidation-flow");
 
@@ -31,6 +32,8 @@ async function saveFlowData(userId: string, data: Record<string, unknown>) {
  * We use it to initiate verification, which triggers an OTP to their phone.
  */
 async function handleIdentity(userId: string, data: any) {
+  if (!config.features.kycRequired) return screen("COMPLETED");
+
   const idType = String(data.id_type || "").toUpperCase();
   const idNumber = String(data.id_number || "").replace(/[^0-9]/g, "");
 
@@ -149,6 +152,9 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (action === "INIT") {
+      if (!config.features.kycRequired) {
+        return res.send(encryptFlowResponse(screen("COMPLETED"), aesKey, iv));
+      }
       return res.send(encryptFlowResponse(screen("IDENTITY"), aesKey, iv));
     }
 

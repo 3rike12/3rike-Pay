@@ -27,6 +27,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
+COPY public ./public
 # Prisma client generated files
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 

@@ -30,6 +30,9 @@ import revalidationRouter from "@/api/revalidationFlow";
 import { decryptFlowRequest } from "@/utils/flowCrypto";
 import { autoramp } from "@/services/autoramp";
 import { prisma, getSession, updateSession, resetSession, getUserWithDetails } from "@/services/database";
+import { config } from "@/config";
+
+(config.features as any).kycRequired = true;
 
 const mockDecrypt = vi.mocked(decryptFlowRequest);
 const mockIdentity = vi.mocked(autoramp.initiateIdentityVerification);
@@ -82,6 +85,23 @@ describe("Revalidation flow webhook", () => {
   it("INIT opens on the IDENTITY screen", async () => {
     const res = await post(buildApp(), flowPayload());
     expect(res.body.screen).toBe("IDENTITY");
+  });
+
+  it("with KYC off, INIT closes the form and IDENTITY never calls AutoRamp", async () => {
+    (config.features as any).kycRequired = false;
+    try {
+      let res = await post(buildApp(), flowPayload());
+      expect(res.body.screen).toBe("COMPLETED");
+
+      res = await post(
+        buildApp(),
+        flowPayload({ action: "data_exchange", data: { id_type: "BVN", id_number: "12345678901" } })
+      );
+      expect(res.body.screen).toBe("COMPLETED");
+      expect(mockIdentity).not.toHaveBeenCalled();
+    } finally {
+      (config.features as any).kycRequired = true;
+    }
   });
 
   it("rejects an unsupported id_type", async () => {

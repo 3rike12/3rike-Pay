@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/config", () => ({
   config: {
-    features: { dryRun: false },
+    features: { dryRun: false, mobileMoneyEnabled: true },
     logLevel: "debug",
     whatsapp: { verifyToken: "test-verify-token" },
   },
@@ -363,6 +363,41 @@ describe("invoice conversation", () => {
 
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_ITEMS);
     expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.INVALID_ITEMS);
+  });
+
+  it("answers KYC and send-to-bank requests with a notice while legacy banking is off", async () => {
+    setSession(SESSION_STATE.IDLE, {});
+
+    await say("kyc");
+
+    expect(h.sendTextMessage).toHaveBeenCalledWith(
+      "250788000111",
+      expect.stringContaining("isn't available right now")
+    );
+  });
+
+  it("does not charge mobile money when it is disabled", async () => {
+    const { config } = await import("@/config");
+    (config.features as any).mobileMoneyEnabled = false;
+    try {
+      setSession(SESSION_STATE.INVOICE_CONFIRM, {
+        items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
+        buyerPhone: "0781234567",
+      });
+
+      await say("yes");
+
+      // NEAR is not configured in this test, so the merchant is told to wait
+      // rather than a Flutterwave prompt being fired.
+      expect(h.chargeInvoice).not.toHaveBeenCalled();
+      expect(h.scheduleInvoiceVerification).not.toHaveBeenCalled();
+      expect(h.sendTextMessage).toHaveBeenCalledWith(
+        "250788000111",
+        expect.stringContaining("temporarily unavailable")
+      );
+    } finally {
+      (config.features as any).mobileMoneyEnabled = true;
+    }
   });
 
   it("charges on yes and schedules verification", async () => {
