@@ -2,95 +2,247 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pay invoice</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/png" href="/pay/favicon.png">
+<link rel="apple-touch-icon" href="/pay/favicon.png">
+<title>Pay invoice · 3rike Pay</title>
 <style>
   :root {
-    --bg: #f6f7f4; --card: #ffffff; --text: #14201a; --muted: #5c6b63; --line: #dfe5df;
-    --accent: #0b7a4b; --accent-text: #ffffff; --warn: #9a5b00; --bad: #b3261e; --ok: #0b7a4b;
+    --bg: #f3f5f2; --bg2: #e9efe9; --card: #ffffff; --text: #101a14; --muted: #5d6c63; --line: #e2e8e2;
+    --soft: #f5f8f5; --accent: #0a7d4d; --accent-2: #0c9a60; --accent-text: #ffffff;
+    --warn: #8f5500; --bad: #b3261e; --ok: #0a7d4d; --shadow: 0 1px 2px rgba(16,26,20,.05), 0 8px 24px rgba(16,26,20,.06);
+    --overlay: rgba(10,16,12,.45);
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #0f1512; --card: #17201b; --text: #e8efe9; --muted: #93a39a; --line: #26332c;
-            --accent: #3ddc97; --accent-text: #06241a; --warn: #f2b84b; --bad: #ff8a80; --ok: #3ddc97; }
+    :root { --bg: #0b110e; --bg2: #101a15; --card: #141d18; --text: #e9f0ea; --muted: #8fa196; --line: #243029;
+            --soft: #0f1712; --accent: #3ddc97; --accent-2: #2fc384; --accent-text: #05221a;
+            --warn: #f2b84b; --bad: #ff8a80; --ok: #3ddc97; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+            --overlay: rgba(0,0,0,.6); }
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-  main { max-width: 480px; margin: 0 auto; padding: 24px 16px 48px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
-  h1 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 0 0 4px; }
-  .total { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; }
-  ul { list-style: none; padding: 0; margin: 12px 0 0; border-top: 1px solid var(--line); }
-  li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
-  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-  select, button { width: 100%; font: inherit; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
-  button.primary { margin-top: 12px; background: var(--accent); color: var(--accent-text); border: 0; font-weight: 600; cursor: pointer; }
-  button:disabled { opacity: .6; cursor: default; }
-  .row { margin-top: 14px; }
-  .addr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
-  .copy { margin-top: 8px; width: auto; padding: 8px 14px; font-size: 14px; cursor: pointer; }
-  img.qr { display: block; width: 200px; height: 200px; margin: 12px auto 0; border-radius: 8px; background: #fff; padding: 6px; }
-  .big { font-size: 22px; font-weight: 700; }
-  .muted { color: var(--muted); font-size: 13px; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--bg); }
+  body { margin: 0; min-height: 100vh; color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: radial-gradient(900px 420px at 50% -120px, var(--bg2), transparent 70%), var(--bg); }
+  main { max-width: 460px; margin: 0 auto; padding: 20px 16px calc(40px + env(safe-area-inset-bottom)); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 20px; margin-bottom: 14px; box-shadow: var(--shadow); }
+
+  /* hero */
+  .merchant-row { display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; flex: none; }
+  .mname { font-weight: 600; line-height: 1.2; }
+  .sub { font-size: 13px; color: var(--muted); }
+  .pill { margin-left: auto; font-size: 12.5px; padding: 5px 10px; border-radius: 999px; background: var(--soft); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .amount { font-size: 40px; font-weight: 750; letter-spacing: -1px; margin: 16px 0 2px; line-height: 1.1; }
+  .items-toggle { background: none; border: 0; padding: 4px 0; color: var(--muted); font-size: 14px; }
+  .toggles { display: flex; gap: 18px; flex-wrap: wrap; }
+  dl.items { margin: 8px 0 0; }
+  .items.kv .r { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .items.kv .r:last-child { border-bottom: 0; }
+  .items.kv dt { color: var(--muted); } .items.kv dd { margin: 0; text-align: right; font-weight: 600; word-break: break-word; }
+  .items.kv a { color: var(--accent); text-decoration: none; }
+  .items { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--line); }
+  .items li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .items li:last-child { border-bottom: 0; }
+
+  /* pay card */
+  .field-label { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .select { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--soft); text-align: left; transition: border-color .15s; }
+  .select:hover:not(:disabled) { border-color: var(--accent); }
+  .select:disabled { opacity: .65; cursor: default; }
+  .sel-text { display: flex; flex-direction: column; line-height: 1.25; }
+  .sel-text b { font-size: 16px; }
+  .sel-text small { font-size: 13px; color: var(--muted); }
+  .chev { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .ico { display: inline-flex; flex: none; }
+  .ico svg { display: block; }
+
+  .you-pay { margin: 16px 0 4px; padding: 16px; border-radius: 14px; background: var(--soft); border: 1px solid var(--line); min-height: 92px; }
+  .you-pay .lbl { font-size: 13px; color: var(--muted); }
+  .you-pay .big { font-size: 28px; font-weight: 700; letter-spacing: -.5px; font-variant-numeric: tabular-nums; margin: 2px 0; }
+  .skeleton { height: 14px; border-radius: 7px; background: linear-gradient(90deg, var(--line), var(--soft), var(--line)); background-size: 200% 100%; animation: shimmer 1.2s infinite; margin-top: 10px; }
+  .skeleton.w1 { width: 40%; margin-top: 0; } .skeleton.w2 { width: 70%; height: 26px; } .skeleton.w3 { width: 55%; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  .cta { width: 100%; margin-top: 14px; padding: 16px; border-radius: 14px; border: 0; font-weight: 650; font-size: 17px; background: var(--accent); color: var(--accent-text); transition: transform .05s, opacity .15s; }
+  .cta:active:not(:disabled) { transform: scale(.99); }
+  .cta:disabled { opacity: .55; cursor: default; }
+  .wallet-line { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .live { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+  .link { background: none; border: 0; padding: 0; margin-left: auto; color: var(--muted); text-decoration: underline; font-size: 13px; }
+  .msg { margin-top: 10px; font-size: 14px; color: var(--muted); }
+  .msg.bad { color: var(--bad); }
+  .hint { margin-top: 12px; font-size: 13px; color: var(--muted); }
+
+  /* stepper */
+  .stepper { display: flex; list-style: none; margin: 20px 0 0; padding: 0; }
+  .stepper li { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; font-size: 12px; color: var(--muted); position: relative; }
+  .stepper li::before { content: ""; position: absolute; top: 7px; left: -50%; width: 100%; height: 2px; background: var(--line); z-index: 0; }
+  .stepper li:first-child::before { display: none; }
+  .stepper li.on::before, .stepper li.now::before { background: var(--accent); }
+  .sdot { width: 16px; height: 16px; border-radius: 50%; background: var(--card); border: 2px solid var(--line); position: relative; z-index: 1; }
+  .stepper li.on .sdot { background: var(--accent); border-color: var(--accent); }
+  .stepper li.now .sdot { border-color: var(--accent); animation: pulse 1.3s infinite; }
+  .stepper li.on, .stepper li.now { color: var(--text); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 22%, transparent); } }
+
+  details { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+  summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+  .addr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; margin-top: 6px; }
+  img.qr { display: block; width: 168px; height: 168px; margin: 14px auto 0; border-radius: 12px; background: #fff; padding: 8px; }
+  .small-btn { margin-top: 8px; padding: 8px 14px; font-size: 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); }
   .warn { color: var(--warn); font-size: 13px; margin-top: 10px; }
-  .steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; border: 0; }
-  .steps li { border: 0; padding: 0; justify-content: flex-start; align-items: center; font-size: 15px; }
-  .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); flex: none; }
-  .dot.on { border-color: var(--accent); background: var(--accent); }
-  .dot.now { border-color: var(--accent); animation: pulse 1.2s infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 25%, transparent); } }
-  .banner { padding: 14px 16px; border-radius: 10px; font-weight: 600; margin-bottom: 16px; }
-  .banner.ok { background: color-mix(in srgb, var(--ok) 15%, var(--card)); color: var(--ok); }
-  .banner.bad { background: color-mix(in srgb, var(--bad) 15%, var(--card)); color: var(--bad); }
-  .hidden { display: none; }
-  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
+  .lbl2 { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 0; }
+
+  .banner { padding: 14px 16px; border-radius: 14px; font-weight: 600; margin-bottom: 14px; }
+  .banner.ok { background: color-mix(in srgb, var(--ok) 14%, var(--card)); color: var(--ok); }
+  .banner.bad { background: color-mix(in srgb, var(--bad) 14%, var(--card)); color: var(--bad); }
+  #error { color: var(--warn); font-size: 13px; margin-top: 4px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 22px; }
+
+  .pill.urgent { color: var(--warn); border-color: var(--warn); }
+
+  /* receipt */
+  .receipt { text-align: center; }
+  .check { width: 64px; height: 64px; border-radius: 50%; margin: 4px auto 12px; display: grid; place-items: center; font-size: 30px; font-weight: 700;
+           background: color-mix(in srgb, var(--ok) 16%, var(--card)); color: var(--ok); border: 2px solid var(--ok); animation: pop .35s ease-out; }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } }
+  .receipt h2 { margin: 0; font-size: 22px; }
+  .receipt .rsub { margin: 4px 0 18px; font-size: 15px; color: var(--muted); }
+  .rows { margin: 0; text-align: left; border-top: 1px solid var(--line); }
+  .rows .r { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .rows dt { color: var(--muted); } .rows dd { margin: 0; text-align: right; font-weight: 600; word-break: break-word; }
+  .rows a { color: var(--accent); text-decoration: none; }
+  .receipt .note { margin-top: 14px; font-size: 13px; color: var(--muted); }
+
+  /* sheet */
+  .backdrop { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: flex-end; justify-content: center; z-index: 50; animation: fade .15s; }
+  .sheet { width: 100%; max-width: 460px; max-height: 88vh; overflow: auto; background: var(--card); border: 1px solid var(--line); border-radius: 24px 24px 0 0; padding: 18px 18px calc(22px + env(safe-area-inset-bottom)); animation: up .2s ease-out; }
+  @media (min-width: 560px) { .backdrop { align-items: center; } .sheet { border-radius: 24px; } }
+  @keyframes up { from { transform: translateY(24px); opacity: 0; } }
+  @keyframes fade { from { opacity: 0; } }
+  .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .sheet-head h2 { font-size: 18px; margin: 0; }
+  .x { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--soft); font-size: 18px; line-height: 1; }
+  .sheet .field-label { margin: 16px 0 8px; }
+  .scroll-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .net { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px 8px 8px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--soft); white-space: nowrap; flex: none; font-size: 14px; }
+  .net[aria-checked="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, var(--card)); font-weight: 600; }
+  .list { display: grid; gap: 8px; }
+  .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--soft); text-align: left; width: 100%; }
+  .item:hover:not(:disabled) { border-color: var(--accent); }
+  .item[aria-checked="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, var(--card)); }
+  .item:disabled { opacity: .5; cursor: default; }
+  .item .t { display: flex; flex-direction: column; line-height: 1.25; }
+  .item .t b { font-size: 16px; } .item .t small { font-size: 13px; color: var(--muted); }
+  .item .tick { margin-left: auto; color: var(--accent); font-weight: 700; }
+  .wicon { width: 32px; height: 32px; border-radius: 9px; background: var(--card); border: 1px solid var(--line); object-fit: cover; flex: none; }
+  .wc-mark { width: 32px; height: 32px; border-radius: 9px; background: #3b99fc; display: grid; place-items: center; flex: none; }
 </style>
 </head>
 <body>
 <main>
-  <div id="banner" class="banner hidden"></div>
+  <div id="banner" class="banner hidden" role="status"></div>
 
-  <div class="card">
-    <h1 id="merchant">Loading…</h1>
-    <div class="total" id="total"></div>
-    <ul id="items"></ul>
-  </div>
+  <section class="card hero">
+    <div class="merchant-row">
+      <span class="avatar" id="avatar">·</span>
+      <div><div class="mname" id="merchant">Loading…</div><div class="sub" id="merchantSub">Invoice</div></div>
+      <span class="pill hidden" id="expiry"></span>
+    </div>
+    <div class="amount" id="total"></div>
+    <div class="toggles">
+      <button class="items-toggle hidden" id="itemsToggle" aria-expanded="false"></button>
+      <button class="items-toggle hidden" id="infoToggle" aria-expanded="false">Merchant details &#9662;</button>
+    </div>
+    <ul class="items hidden" id="items"></ul>
+    <dl class="items kv hidden" id="merchantInfo"></dl>
+  </section>
 
-  <div class="card hidden" id="chooser">
-    <label for="token">Pay with</label>
-    <select id="token"></select>
-    <button class="primary" id="go">Get payment details</button>
-    <div class="muted row">Pay from any supported chain. The merchant receives the exact invoice amount in USDC.</div>
-  </div>
+  <section class="card receipt hidden" id="receipt" aria-live="polite">
+    <div class="check" aria-hidden="true">&#10003;</div>
+    <h2>Payment received</h2>
+    <p class="rsub" id="rcpSub"></p>
+    <dl class="rows" id="rcpRows"></dl>
+    <p class="note">The merchant has been notified.</p>
+  </section>
 
-  <div class="card hidden" id="details">
-    <div class="muted">Send exactly</div>
-    <div class="big" id="amountIn"></div>
-    <div class="muted" id="network"></div>
-    <img class="qr" id="qr" alt="Deposit address QR code">
-    <div class="row"><label>To this address</label><div class="addr" id="addr"></div>
-      <button class="copy" id="copy">Copy address</button></div>
-    <div class="row hidden" id="memoRow"><label>Memo (required)</label><div class="addr" id="memo"></div></div>
-    <div class="warn" id="warn"></div>
-  </div>
+  <section class="card hidden" id="payCard">
+    <div class="field-label">Pay with</div>
+    <button class="select" id="payWith" aria-haspopup="dialog">
+      <span class="ico" id="payIco"></span>
+      <span class="sel-text"><b id="payTok">USDC</b><small id="payNet"></small></span>
+      <span class="chev">▼</span>
+    </button>
 
-  <div class="card hidden" id="progress">
-    <ul class="steps">
-      <li><span class="dot" id="d1"></span><span id="t1">Waiting for your payment</span></li>
-      <li><span class="dot" id="d2"></span><span>Payment received, converting</span></li>
-      <li><span class="dot" id="d3"></span><span>Invoice paid</span></li>
-    </ul>
-  </div>
+    <div class="you-pay" id="summary" aria-live="polite"></div>
 
-  <div id="error" class="warn"></div>
+    <button class="cta" id="cta" disabled>Preparing…</button>
+    <div class="wallet-line hidden" id="walletLine">
+      <span class="live"></span><span id="walletName"></span>
+      <button class="link" id="disconnect">Disconnect</button>
+    </div>
+    <div class="msg hidden" id="walletMsg" role="status"></div>
+    <div class="hint hidden" id="noWallet">No wallet detected. Open this page inside your wallet app's browser to pay in one tap, or pay from an exchange below.</div>
+
+    <ol class="stepper hidden" id="progress">
+      <li id="s1"><span class="sdot"></span>Waiting for payment</li>
+      <li id="s2"><span class="sdot"></span>Converting</li>
+      <li id="s3"><span class="sdot"></span>Paid</li>
+    </ol>
+
+    <details id="manual">
+      <summary>Pay from an exchange or another wallet</summary>
+      <img class="qr" id="qr" alt="Deposit address QR code">
+      <span class="lbl2">Send exactly <b id="manualAmount"></b> to</span>
+      <div class="addr" id="addr"></div>
+      <button class="small-btn" id="copy">Copy address</button>
+      <div class="hidden" id="memoRow"><span class="lbl2">Memo (required)</span><div class="addr" id="memo"></div></div>
+      <div class="warn" id="warn"></div>
+      <div class="muted" id="manualNote" style="margin-top:10px;font-size:13px"></div>
+    </details>
+  </section>
+
+  <div id="error" role="alert"></div>
   <footer>Payments routed by NEAR Intents · 3rike Pay</footer>
 </main>
+
+<div class="backdrop hidden" id="backdrop"><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div></div>
 
 <script>
 (function () {
   var ref = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+  var API = "/api/pay/" + encodeURIComponent(ref);
   var $ = function (id) { return document.getElementById(id); };
-  var timer = null;
 
+  var inv = null, TOKENS = [], quote = null, finished = false, locked = false, sending = false, quoting = false;
+  var sel = { chain: null, asset: null };
+  var seq = 0, quoteTimer = null, pollTimer = null, tickTimer = null;
+  var wcProjectId = null;
+
+  // connected wallet
+  var wallet = { provider: null, account: null, name: "" };
+  var found = [];   // EIP-6963 announced wallets
+
+  var CHAINS = {
+    eth:    { name: "Ethereum",  color: "#627EEA", mark: "E" },
+    base:   { name: "Base",      color: "#0052FF", mark: "B" },
+    arb:    { name: "Arbitrum",  color: "#28A0F0", mark: "A" },
+    op:     { name: "Optimism",  color: "#FF0420", mark: "O" },
+    pol:    { name: "Polygon",   color: "#8247E5", mark: "P" },
+    avax:   { name: "Avalanche", color: "#E84142", mark: "A" },
+    gnosis: { name: "Gnosis",    color: "#04795B", mark: "G" }
+  };
+  var CHAIN_IDS = { eth: 1, base: 8453, arb: 42161, op: 10, pol: 137, avax: 43114, gnosis: 100 };
+  var TOKEN_NAMES = { USDC: "USD Coin", USDT: "Tether USD", ETH: "Ether" };
+  var PREFER_CHAIN = ["base", "arb", "op", "eth", "pol", "avax", "gnosis"];
+  var PREFER_ASSET = ["USDC", "USDT", "ETH"];
+
+  // ---------- helpers ----------
   function money(n, cur) {
     try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur, maximumFractionDigits: 2 }).format(n); }
     catch (e) { return cur + " " + Number(n).toLocaleString(); }
@@ -98,94 +250,419 @@
   function show(id, on) { $(id).classList.toggle("hidden", !on); }
   function err(msg) { $("error").textContent = msg || ""; }
   function banner(kind, text) { var b = $("banner"); b.className = "banner " + kind; b.textContent = text; }
+  function cname(c) { return (CHAINS[c] && CHAINS[c].name) || c || ""; }
+  function uniq(a) { return a.filter(function (v, i) { return a.indexOf(v) === i; }); }
+  function byPref(list, pref) {
+    return list.slice().sort(function (a, b) { var x = pref.indexOf(a), y = pref.indexOf(b); return (x < 0 ? 99 : x) - (y < 0 ? 99 : y); });
+  }
+  function valid(chain, asset) { return TOKENS.some(function (t) { return t.chain === chain && t.symbol === asset; }); }
+  function chainsFor(asset) { return byPref(uniq(TOKENS.filter(function (t) { return t.symbol === asset; }).map(function (t) { return t.chain; })), PREFER_CHAIN); }
+  function assetsFor(chain) { return byPref(uniq(TOKENS.filter(function (t) { return t.chain === chain; }).map(function (t) { return t.symbol; })), PREFER_ASSET); }
+  function pad32(hex) { return ("0".repeat(64) + hex.replace(/^0x/, "")).slice(-64); }
+  function short(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
+  function amountLabel(q) { return (q.amountInFormatted || "") + " " + ((q.origin && q.origin.symbol) || ""); }
 
-  function setProgress(state) {
-    var step = { awaiting_payment: 1, processing: 2, paid: 3 }[state] || 1;
-    ["d1", "d2", "d3"].forEach(function (id, i) {
-      var n = i + 1, el = $(id);
-      el.className = "dot" + (n < step || (state === "paid") ? " on" : n === step ? " now" : "");
+  // static, trusted markup only (never built from server strings)
+  function tokenIcon(sym, size) {
+    var color = { USDC: "#2775CA", USDT: "#26A17B", ETH: "#627EEA" }[sym] || "#6b7a72";
+    var inner = sym === "ETH"
+      ? '<path d="M16 5l-7 11.2 7-3.2 7 3.2z" fill="#fff" fill-opacity=".92"/><path d="M16 27l-7-9.6 7 3.2 7-3.2z" fill="#fff" fill-opacity=".75"/>'
+      : '<text x="16" y="21.6" text-anchor="middle" font-size="16" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">' + (sym === "USDT" ? "₮" : "$") + '</text>';
+    return '<svg viewBox="0 0 32 32" width="' + size + '" height="' + size + '" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="' + color + '"/>' + inner + '</svg>';
+  }
+  function chainDot(c, size) {
+    var m = CHAINS[c] || { color: "#6b7a72", mark: (c || "?")[0].toUpperCase() };
+    var d = document.createElement("span");
+    d.style.cssText = "width:" + size + "px;height:" + size + "px;border-radius:50%;background:" + m.color + ";color:#fff;font-size:" + Math.round(size * .5) + "px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex:none";
+    d.textContent = m.mark; return d;
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  // ---------- sheet ----------
+  var lastFocus = null;
+  function openSheet(build) {
+    lastFocus = document.activeElement;
+    var s = $("sheet"); s.innerHTML = ""; build(s);
+    show("backdrop", true);
+    var f = s.querySelector("button:not(:disabled)"); if (f) f.focus();
+  }
+  function closeSheet() { show("backdrop", false); if (lastFocus && lastFocus.focus) lastFocus.focus(); }
+  function sheetHead(title) {
+    var h = el("div", "sheet-head"), t = el("h2", null, title); t.id = "sheetTitle";
+    var x = el("button", "x", "×"); x.type = "button"; x.setAttribute("aria-label", "Close"); x.addEventListener("click", closeSheet);
+    h.appendChild(t); h.appendChild(x); return h;
+  }
+  $("backdrop").addEventListener("click", function (e) { if (e.target === $("backdrop")) closeSheet(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("backdrop").classList.contains("hidden")) closeSheet(); });
+
+  // ---------- "Pay with" selector ----------
+  function renderPayWith() {
+    $("payIco").innerHTML = tokenIcon(sel.asset, 36);
+    $("payTok").textContent = sel.asset;
+    $("payNet").textContent = "on " + cname(sel.chain);
+    $("payWith").disabled = locked || finished;
+  }
+  function openPaySheet() {
+    if (locked || finished) return;
+    var draft = sel.chain;
+    openSheet(function (s) {
+      s.appendChild(sheetHead("Pay with"));
+      var body = el("div"); s.appendChild(body);
+      (function render() {
+        body.innerHTML = "";
+        body.appendChild(el("div", "field-label", "Network"));
+        var row = el("div", "scroll-row"); row.setAttribute("role", "radiogroup");
+        byPref(uniq(TOKENS.map(function (t) { return t.chain; })), PREFER_CHAIN).forEach(function (c) {
+          var b = el("button", "net"); b.type = "button"; b.setAttribute("role", "radio"); b.setAttribute("aria-checked", c === draft ? "true" : "false");
+          b.appendChild(chainDot(c, 22)); b.appendChild(document.createTextNode(cname(c)));
+          b.addEventListener("click", function () { draft = c; render(); });
+          row.appendChild(b);
+        });
+        body.appendChild(row);
+
+        body.appendChild(el("div", "field-label", "Token on " + cname(draft)));
+        var list = el("div", "list"); list.setAttribute("role", "radiogroup");
+        byPref(uniq(TOKENS.map(function (t) { return t.symbol; })), PREFER_ASSET).forEach(function (a) {
+          var ok = valid(draft, a), chosen = ok && a === sel.asset && draft === sel.chain;
+          var b = el("button", "item"); b.type = "button"; b.disabled = !ok;
+          b.setAttribute("role", "radio"); b.setAttribute("aria-checked", chosen ? "true" : "false");
+          var ico = el("span", "ico"); ico.innerHTML = tokenIcon(a, 36);
+          var t = el("span", "t"); t.appendChild(el("b", null, a)); t.appendChild(el("small", null, ok ? (TOKEN_NAMES[a] || a) : "Not available on " + cname(draft)));
+          b.appendChild(ico); b.appendChild(t);
+          if (chosen) b.appendChild(el("span", "tick", "✓"));
+          b.addEventListener("click", function () {
+            sel.chain = draft; sel.asset = a; closeSheet(); renderPayWith(); scheduleQuote();
+          });
+          list.appendChild(b);
+        });
+        body.appendChild(list);
+      })();
+    });
+  }
+  $("payWith").addEventListener("click", openPaySheet);
+
+  // ---------- quoting (automatic) ----------
+  function skeleton() {
+    var s = $("summary"); s.innerHTML = "";
+    s.appendChild(el("div", "skeleton w1")); s.appendChild(el("div", "skeleton w2")); s.appendChild(el("div", "skeleton w3"));
+  }
+  function scheduleQuote() {
+    clearTimeout(quoteTimer); quoting = true; quote = null; skeleton(); updateUi();
+    quoteTimer = setTimeout(requestQuote, 350);
+  }
+  function requestQuote() {
+    var mine = ++seq; err("");
+    fetch(API + "/quote", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: sel.asset, chain: sel.chain, refundTo: wallet.account || undefined })
+    }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || "Failed"); return j; }); })
+      .then(function (j) { if (mine === seq) applyQuote(j.quote); })
+      .catch(function (e) {
+        if (mine !== seq) return;
+        quoting = false; quote = null; var s = $("summary"); s.innerHTML = "";
+        s.appendChild(el("div", "lbl", "We couldn't prepare this payment."));
+        var retry = el("button", "small-btn", "Try again"); retry.type = "button"; retry.addEventListener("click", scheduleQuote);
+        s.appendChild(retry);
+        err(/timeout|abort/i.test(e.message) ? "The payment network is slow right now." : e.message); updateUi();
+      });
+  }
+  function applyQuote(q) {
+    quote = q; quoting = false;
+    var s = $("summary"); s.innerHTML = "";
+    s.appendChild(el("div", "lbl", "You pay"));
+    s.appendChild(el("div", "big", amountLabel(q)));
+    s.appendChild(el("div", "lbl", "on " + cname(q.origin && q.origin.chain) + " · invoice total " + money(inv.amount, inv.currency)));
+
+    $("addr").textContent = q.depositAddress;
+    if (q.qr) $("qr").src = q.qr;
+    $("manualAmount").textContent = amountLabel(q) + " on " + cname(q.origin && q.origin.chain);
+    show("memoRow", !!q.depositMemo); $("memo").textContent = q.depositMemo || "";
+    $("warn").textContent = "Only send on the " + cname(q.origin && q.origin.chain) + " network. Sending on another network can lose your funds.";
+    $("manualNote").textContent = q.refundTo
+      ? "If the swap fails, your funds are returned to " + short(q.refundTo) + "."
+      : "If the swap fails, contact the merchant to arrange a refund. Paying with a connected wallet returns it to that wallet automatically.";
+
+    show("progress", true); updateUi(); startPolling();
+  }
+
+  // ---------- wallets ----------
+  window.addEventListener("eip6963:announceProvider", function (e) {
+    var d = e.detail; if (!d || !d.info || !d.provider) return;
+    if (found.some(function (w) { return w.info.uuid === d.info.uuid; })) return;
+    found.push(d);
+  });
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+  function injected() {
+    if (found.length) return found;
+    if (window.ethereum) return [{ info: { uuid: "legacy", name: window.ethereum.isMetaMask ? "MetaMask" : "Browser wallet", icon: "" }, provider: window.ethereum }];
+    return [];
+  }
+  function canConnect() { return injected().length > 0 || !!wcProjectId; }
+
+  function setWallet(provider, account, name) {
+    wallet = { provider: provider, account: account, name: name };
+    if (provider.on) {
+      provider.on("accountsChanged", function (a) {
+        wallet.account = (a && a[0]) || null;
+        if (!wallet.account) wallet = { provider: null, account: null, name: "" };
+        updateUi(); if (!finished && !locked) scheduleQuote();
+      });
+      provider.on("disconnect", function () { wallet = { provider: null, account: null, name: "" }; updateUi(); });
+    }
+    closeSheet(); updateUi();
+    // The refund address is part of the quote: quote again with this wallet.
+    if (!finished && !locked) scheduleQuote();
+  }
+
+  var wcPromise = null;
+  function loadWalletConnect() {
+    if (wcPromise) return wcPromise;
+    wcPromise = import("https://esm.sh/@walletconnect/ethereum-provider@2.17.0").then(function (m) {
+      var EP = m.EthereumProvider || (m.default && m.default.EthereumProvider);
+      return EP.init({
+        projectId: wcProjectId,
+        chains: [8453],
+        optionalChains: [1, 10, 137, 42161, 43114, 100],
+        showQrModal: true,
+        metadata: { name: "3rike Pay", description: "Pay an invoice", url: location.origin, icons: [] }
+      });
+    });
+    wcPromise.catch(function () { wcPromise = null; });
+    return wcPromise;
+  }
+  function connectWalletConnect(btn) {
+    var label = btn.querySelector("small"), old = label.textContent;
+    label.textContent = "Opening WalletConnect…"; btn.disabled = true;
+    return loadWalletConnect().then(function (p) {
+      closeSheet();   // the WalletConnect modal takes over
+      var ready = p.session && p.accounts && p.accounts.length ? Promise.resolve() : p.connect();
+      return ready.then(function () { setWallet(p, p.accounts[0], "WalletConnect"); });
+    }).catch(function (e) {
+      var m = (e && e.message) || "";
+      if (!$("backdrop").classList.contains("hidden")) { label.textContent = old; btn.disabled = false; }
+      if (!/reject|closed|cancel|denied/i.test(m)) wmsg("Could not open WalletConnect. " + m, true);
+    });
+  }
+  function connectInjected(w) {
+    return w.provider.request({ method: "eth_requestAccounts" }).then(function (a) {
+      setWallet(w.provider, a && a[0], w.info.name || "Wallet");
+    }).catch(function (e) { closeSheet(); wmsg(e && e.code === 4001 ? "Connection cancelled." : ((e && e.message) || "Could not connect."), true); });
+  }
+  function openWalletSheet() {
+    openSheet(function (s) {
+      s.appendChild(sheetHead("Connect a wallet"));
+      var list = el("div", "list"); list.style.marginTop = "12px";
+      injected().forEach(function (w) {
+        var b = el("button", "item"); b.type = "button";
+        if (w.info.icon && /^data:image\//.test(w.info.icon)) { var i = el("img", "wicon"); i.src = w.info.icon; i.alt = ""; b.appendChild(i); }
+        else b.appendChild(el("span", "wicon"));
+        var t = el("span", "t"); t.appendChild(el("b", null, w.info.name || "Wallet")); t.appendChild(el("small", null, "Detected in this browser"));
+        b.appendChild(t); b.addEventListener("click", function () { connectInjected(w); }); list.appendChild(b);
+      });
+      if (wcProjectId) {
+        var wb = el("button", "item"); wb.type = "button";
+        var mark = el("span", "wc-mark"); mark.innerHTML = '<svg width="20" height="12" viewBox="0 0 24 15" fill="#fff" aria-hidden="true"><path d="M4.9 2.9c3.9-3.8 10.3-3.8 14.2 0l.5.5c.2.2.2.5 0 .7L18 5.7c-.1.1-.3.1-.4 0l-.6-.6c-2.7-2.7-7.2-2.7-9.9 0l-.7.7c-.1.1-.3.1-.4 0L4.4 4.2c-.2-.2-.2-.5 0-.7zM21.6 5.5l1.4 1.4c.2.2.2.5 0 .7l-6.4 6.3c-.2.2-.5.2-.7 0l-4.5-4.4c0-.1-.1-.1-.2 0L7.7 13.9c-.2.2-.5.2-.7 0L.6 7.6c-.2-.2-.2-.5 0-.7L2 5.5c.2-.2.5-.2.7 0l4.5 4.4c.1 0 .1 0 .2 0l4.5-4.4c.2-.2.5-.2.7 0l4.5 4.4c.1 0 .1 0 .2 0l4.5-4.4c.2-.2.5-.2.7 0z"/></svg>';
+        var wt = el("span", "t"); wt.appendChild(el("b", null, "WalletConnect")); wt.appendChild(el("small", null, "Mobile and 400+ other wallets"));
+        wb.appendChild(mark); wb.appendChild(wt); wb.addEventListener("click", function () { connectWalletConnect(wb); }); list.appendChild(wb);
+      }
+      s.appendChild(list);
+    });
+  }
+  function wmsg(t, bad) { var m = $("walletMsg"); m.textContent = t || ""; m.className = "msg" + (bad ? " bad" : "") + (t ? "" : " hidden"); }
+
+  $("disconnect").addEventListener("click", function () {
+    var p = wallet.provider;
+    if (p && p.disconnect) { try { p.disconnect(); } catch (e) {} }
+    wallet = { provider: null, account: null, name: "" };
+    wcPromise = null; updateUi(); if (!finished && !locked) scheduleQuote();
+  });
+
+  // ---------- the one button ----------
+  function updateUi() {
+    renderPayWith();
+    var cta = $("cta");
+    show("walletLine", !!wallet.account && !finished);
+    if (wallet.account) $("walletName").textContent = wallet.name + " · " + short(wallet.account);
+
+    var noWallet = !canConnect();
+    show("noWallet", noWallet && !finished && !!quote);
+    $("manual").open = noWallet || $("manual").open;
+
+    if (finished || locked) { show("cta", false); return; }
+    show("cta", !noWallet);
+    cta.onclick = null;
+    if (sending) { cta.disabled = true; cta.textContent = "Confirm in your wallet…"; return; }
+    if (quoting || !quote) { cta.disabled = true; cta.textContent = "Preparing your payment…"; return; }
+    cta.disabled = false;
+    if (!wallet.account) { cta.textContent = "Connect wallet"; cta.onclick = openWalletSheet; return; }
+    cta.textContent = "Pay " + amountLabel(quote); cta.onclick = pay;
+  }
+
+  function pay() {
+    var q = quote, o = q && q.origin, p = wallet.provider;
+    if (!p || !wallet.account || !o) return;
+    sending = true; wmsg(""); updateUi();
+    var chainHex = "0x" + Number(o.chainId || CHAIN_IDS[o.chain]).toString(16);
+
+    p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] }).then(function () {
+      var amount = BigInt(q.amountIn);
+      var tx = o.tokenAddress
+        ? { from: wallet.account, to: o.tokenAddress, value: "0x0", data: "0xa9059cbb" + pad32(q.depositAddress) + pad32(amount.toString(16)) }
+        : { from: wallet.account, to: q.depositAddress, value: "0x" + amount.toString(16) };
+      return p.request({ method: "eth_sendTransaction", params: [tx] });
+    }).then(function (hash) {
+      sending = false; locked = true; updateUi();
+      wmsg("Payment sent. Waiting for confirmation…");
+      fetch(API + "/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ txHash: hash }) }).catch(function () {});
+      poll();
+    }).catch(function (e) {
+      sending = false;
+      var m = e && e.code === 4001 ? "You cancelled the payment in your wallet."
+        : e && e.code === 4902 ? "Add the " + cname(o.chain) + " network to your wallet, then try again."
+        : (e && e.message) || "The wallet could not send the payment.";
+      wmsg(m, true); updateUi();
     });
   }
 
-  function renderQuote(q) {
-    show("details", true); show("progress", true);
-    $("amountIn").textContent = (q.amountInFormatted || "") + " " + ((q.originLabel || "").split(" on ")[0] || "");
-    var chain = (q.originLabel || "").split(" on ")[1] || "";
-    $("network").textContent = chain ? "on the " + chain + " network" : "";
-    $("addr").textContent = q.depositAddress;
-    if (q.qr) $("qr").src = q.qr;
-    show("memoRow", !!q.depositMemo); $("memo").textContent = q.depositMemo || "";
-    $("warn").textContent = chain
-      ? "Only send on the " + chain + " network. Sending on another network can lose your funds."
-      : "";
-    show("chooser", false);
+  // ---------- status ----------
+  function setProgress(state) {
+    var step = { awaiting_payment: 1, processing: 2, paid: 3 }[state] || 1;
+    ["s1", "s2", "s3"].forEach(function (id, i) {
+      var n = i + 1;
+      $(id).className = state === "paid" || n < step ? "on" : n === step ? "now" : "";
+    });
+  }
+  function finish(state) {
+    finished = true; clearInterval(pollTimer); clearInterval(tickTimer); clearTimeout(quoteTimer);
+    setProgress(state); wmsg(""); show("expiry", false); updateUi();
+    if (state === "paid") { show("payCard", false); loadReceipt(); }
+    else if (state === "refunded") banner("bad", "The swap did not complete and your payment was refunded to the sending address.");
+    else if (state === "expired") { banner("bad", "This invoice has expired. Ask the merchant for a new one."); show("payCard", false); }
+    else if (state === "failed") banner("bad", "This payment did not go through.");
+  }
+  function poll() {
+    fetch(API + "/status").then(function (r) { return r.json(); }).then(function (s) {
+      if (!s || !s.state || finished) return;
+      if (["paid", "refunded", "failed", "expired"].indexOf(s.state) >= 0) return finish(s.state);
+      if (s.state === "processing" && !locked) { locked = true; updateUi(); }
+      setProgress(s.state);
+    }).catch(function () {});
+  }
+  function startPolling() { poll(); clearInterval(pollTimer); pollTimer = setInterval(poll, 4000); }
+
+  function fmtLeft(sec) {
+    var h = Math.floor(sec / 3600), mm = Math.floor((sec % 3600) / 60), ss = sec % 60;
+    if (h > 0) return h + "h " + (mm < 10 ? "0" : "") + mm + "m";
+    return mm + ":" + (ss < 10 ? "0" : "") + ss;
+  }
+  function tick() {
+    if (!inv || !inv.expiresAt || finished) return;
+    var left = Math.max(0, Math.floor((new Date(inv.expiresAt).getTime() - Date.now()) / 1000));
+    $("expiry").textContent = left > 0 ? "Expires in " + fmtLeft(left) : "Checking\u2026";
+    $("expiry").classList.toggle("urgent", left > 0 && left < 300);
+    show("expiry", true);
+    if (left === 0) { clearInterval(tickTimer); poll(); }
   }
 
-  function finish(state) {
-    clearInterval(timer);
-    setProgress(state);
-    if (state === "paid") {
-      banner("ok", "Paid. Thank you!");
-      show("details", false); show("chooser", false);
-    } else if (state === "refunded") {
-      banner("bad", "The swap did not complete and your payment was refunded to the sending address.");
-    } else if (state === "expired") {
-      banner("bad", "This invoice has expired. Ask the merchant for a new one.");
-    } else if (state === "failed") {
-      banner("bad", "This payment did not go through.");
+  // ---------- receipt ----------
+  function renderReceipt(d) {
+    show("payCard", false); show("banner", false);
+    $("rcpSub").textContent = money(d.amount, d.currency) + " to " + d.merchant;
+    var rows = $("rcpRows"); rows.innerHTML = "";
+    function row(k, v, href) {
+      var r = el("div", "r"), dt = el("dt", null, k), dd = el("dd");
+      if (href && /^https:\/\//.test(href)) { var a = el("a", null, v); a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer"; dd.appendChild(a); }
+      else dd.textContent = v;
+      r.appendChild(dt); r.appendChild(dd); rows.appendChild(r);
+    }
+    var rc = d.receipt || {};
+    if (rc.paidWith) row("Paid with", rc.paidWith);
+    var when = rc.paidAt ? new Date(rc.paidAt) : null;
+    if (when && !isNaN(when)) row("Date", when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+    if (rc.txUrl) row("Transaction", "View on explorer \u2197", rc.txUrl);
+    show("receipt", true);
+  }
+  function loadReceipt() {
+    if (inv && inv.status === "paid" && inv.receipt) return renderReceipt(inv);
+    fetch(API).then(function (r) { return r.json(); }).then(renderReceipt).catch(function () {
+      renderReceipt({ amount: inv.amount, currency: inv.currency, merchant: inv.merchant, receipt: null });
+    });
+  }
+
+  // ---------- merchant details (from the merchant's saved business profile) ----------
+  function renderMerchant(d) {
+    var m = d.merchantInfo || {}, rows = $("merchantInfo");
+    rows.innerHTML = "";
+    function row(k, v, href) {
+      if (!v) return;
+      var r = el("div", "r"), dt = el("dt", null, k), dd = el("dd");
+      if (href) { var a = el("a", null, v); a.href = href; dd.appendChild(a); } else dd.textContent = v;
+      r.appendChild(dt); r.appendChild(dd); rows.appendChild(r);
+    }
+    var country = m.country;
+    try { if (country) country = new Intl.DisplayNames(undefined, { type: "region" }).of(String(m.country).toUpperCase()) || m.country; } catch (e) {}
+    row("Business", m.name);
+    row("Registration no.", m.registrationNumber);
+    row("Phone", m.phone, m.phone && /^[+0-9 ()-]{6,24}$/.test(m.phone) ? "tel:" + m.phone.replace(/[^+0-9]/g, "") : null);
+    row("Email", m.email, m.email && /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(m.email) ? "mailto:" + m.email : null);
+    row("Country", country);
+    if (d.issuedAt) { var t = new Date(d.issuedAt); if (!isNaN(t)) row("Issued", t.toLocaleDateString(undefined, { dateStyle: "medium" })); }
+
+    if (country) $("merchantSub").textContent = "Invoice \u00B7 " + country;
+    if (rows.children.length) {
+      var tg = $("infoToggle"); show("infoToggle", true);
+      tg.addEventListener("click", function () {
+        var open = rows.classList.toggle("hidden") === false;
+        tg.setAttribute("aria-expanded", open ? "true" : "false");
+        tg.textContent = "Merchant details " + (open ? "\u25B4" : "\u25BE");
+      });
     }
   }
 
-  function poll() {
-    fetch("/api/pay/" + encodeURIComponent(ref) + "/status").then(function (r) { return r.json(); }).then(function (s) {
-      if (!s || !s.state) return;
-      if (["paid", "refunded", "failed", "expired"].indexOf(s.state) >= 0) finish(s.state);
-      else setProgress(s.state);
-    }).catch(function () {});
-  }
-  function startPolling() { poll(); clearInterval(timer); timer = setInterval(poll, 4000); }
-
-  fetch("/api/pay/" + encodeURIComponent(ref)).then(function (r) {
+  // ---------- boot ----------
+  fetch(API).then(function (r) {
     if (!r.ok) throw new Error("This invoice was not found.");
     return r.json();
-  }).then(function (inv) {
-    document.title = "Pay " + inv.merchant;
+  }).then(function (d) {
+    inv = d; wcProjectId = d.walletConnectProjectId || null;
+    document.title = "Pay " + inv.merchant + " \u00B7 3rike Pay";
     $("merchant").textContent = inv.merchant;
+    $("avatar").textContent = (inv.merchant || "?").trim().charAt(0).toUpperCase();
     $("total").textContent = money(inv.amount, inv.currency);
-    (inv.items || []).forEach(function (it) {
-      var li = document.createElement("li");
-      var a = document.createElement("span"); a.textContent = it.qty + " × " + it.name;
-      var b = document.createElement("span"); b.textContent = money(it.qty * it.unitPrice, inv.currency);
-      li.appendChild(a); li.appendChild(b); $("items").appendChild(li);
-    });
+
+    var items = inv.items || [];
+    if (items.length) {
+      items.forEach(function (it) {
+        var li = el("li"); li.appendChild(el("span", null, it.qty + " × " + it.name));
+        li.appendChild(el("span", null, money(it.qty * it.unitPrice, inv.currency))); $("items").appendChild(li);
+      });
+      var tg = $("itemsToggle"); tg.textContent = items.length + (items.length === 1 ? " item" : " items") + " ▾"; show("itemsToggle", true);
+      tg.addEventListener("click", function () {
+        var open = $("items").classList.toggle("hidden") === false; tg.setAttribute("aria-expanded", open ? "true" : "false");
+        tg.textContent = items.length + (items.length === 1 ? " item" : " items") + (open ? " ▴" : " ▾");
+      });
+    }
+
+    renderMerchant(inv);
 
     if (inv.status === "paid") return finish("paid");
     if (inv.status === "expired") return finish("expired");
     if (inv.status === "cancelled") return finish("failed");
-
     if (!inv.enabled) { err("Crypto payments are not enabled on this server."); return; }
 
-    var sel = $("token");
-    (inv.tokens || []).forEach(function (t) {
-      var o = document.createElement("option"); o.value = t.symbol + "|" + t.chain; o.textContent = t.label; sel.appendChild(o);
-    });
-    var base = Array.prototype.find.call(sel.options, function (o) { return o.value === "USDC|base"; });
-    if (base) sel.value = base.value;
+    TOKENS = inv.tokens || [];
+    if (!TOKENS.length) { err("Payment options are unavailable right now. Please try again shortly."); return; }
 
-    if (inv.quote && inv.quote.depositAddress) { renderQuote(inv.quote); startPolling(); }
-    else show("chooser", true);
+    // Start from the payment already initiated for this invoice, else USDC on Base.
+    var o = inv.quote && inv.quote.origin, fromQuote = o && valid(o.chain, o.symbol);
+    sel.asset = fromQuote ? o.symbol : (valid("base", "USDC") ? "USDC" : TOKENS[0].symbol);
+    sel.chain = fromQuote ? o.chain : (valid("base", sel.asset) ? "base" : chainsFor(sel.asset)[0]);
+
+    show("payCard", true); renderPayWith();
+    tickTimer = setInterval(tick, 1000); tick();
+    if (inv.quote && inv.quote.depositAddress) applyQuote(inv.quote); else { quoting = true; skeleton(); updateUi(); requestQuote(); }
   }).catch(function (e) { $("merchant").textContent = "Invoice"; err(e.message); });
-
-  $("go").addEventListener("click", function () {
-    var parts = $("token").value.split("|");
-    var btn = $("go"); btn.disabled = true; btn.textContent = "Getting details…"; err("");
-    fetch("/api/pay/" + encodeURIComponent(ref) + "/quote", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol: parts[0], chain: parts[1] })
-    }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || "Failed"); return j; }); })
-      .then(function (inv) { renderQuote(inv.quote); startPolling(); })
-      .catch(function (e) { err(e.message); btn.disabled = false; btn.textContent = "Get payment details"; });
-  });
 
   $("copy").addEventListener("click", function () {
     var t = $("addr").textContent, b = $("copy");

@@ -24,9 +24,10 @@ import {
   renderInvoiceSummary,
   scheduleInvoiceVerification,
 } from "@/services/invoice";
-import { createCryptoPayment, scheduleCryptoVerification } from "@/services/cryptoInvoice";
+import { createCryptoPayment, createDefaultCryptoPayment, scheduleCryptoVerification } from "@/services/cryptoInvoice";
 import { nearIntents } from "@/services/nearIntents";
 import { requestWithdrawal, scheduleWithdrawalVerification } from "@/services/withdrawal";
+import { paymentQrPng } from "@/utils/qr";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
 import { TRIGGERS, MESSAGES, FLOWS, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
@@ -535,12 +536,38 @@ async function issueCryptoInvoice(phone: string, user: any, draft: InvoiceDraft,
       const issued = await issueInvoice(draftId, user.id);
       if (!issued) throw new Error("Invoice not found.");
       await resetSession(user.id);
-      return whatsapp.sendTextMessage(
+
+      // Initiate the payment now (default: USDC on Base) so the customer finds
+      // it ready when they open the link. Best effort: the page requests one
+      // itself if this fails or the customer picks something else.
+      try {
+        await createDefaultCryptoPayment(user.id, draftId);
+        scheduleCryptoVerification(issued.reference);
+      } catch (error: any) {
+        logger.warn("Could not pre-create the default crypto payment", {
+          reference: issued.reference,
+          error: error?.message,
+        });
+      }
+
+      const payUrl = `${config.app.baseUrl}/pay/${issued.reference}`;
+      const sent = await whatsapp.sendTextMessage(
         phone,
         `*Payment request ready*\n\n${renderInvoiceSummary(issued as any)}\n\n` +
-          `Send this link to your customer:\n${config.app.baseUrl}/pay/${issued.reference}\n\n` +
+          `Send this link to your customer, or show them the QR code below:\n${payUrl}\n\n` +
           `They can pay from any chain or token they hold. We'll message you when it's paid.`
       );
+
+      // A scannable QR of the pay link, for paying in person. Best effort: the
+      // link above already works, so a failed image never fails the invoice.
+      try {
+        const png = await paymentQrPng(payUrl);
+        const mediaId = await whatsapp.uploadMedia(png, "image/png", `invoice-${issued.reference}.png`);
+        await whatsapp.sendImageMessage(phone, mediaId, "Customer scans this to pay");
+      } catch (error: any) {
+        logger.warn("Could not send the pay-link QR", { reference: issued.reference, error: error?.message });
+      }
+      return sent;
     }
 
     const result = await createCryptoPayment({

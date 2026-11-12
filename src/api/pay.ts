@@ -3,9 +3,10 @@ import { Router, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import { prisma } from "@/db/prisma";
 import { config } from "@/config";
-import { nearIntents } from "@/services/nearIntents";
+import { nearIntents, EVM_ADDRESS_RE } from "@/services/nearIntents";
 import {
   createCryptoPayment,
+  originMetaFor,
   getCryptoPaymentState,
   scheduleCryptoVerification,
 } from "@/services/cryptoInvoice";
@@ -38,6 +39,22 @@ const limiter = rateLimit({
 export const payPageRouter = Router();
 export const payApiRouter = Router();
 
+// Brand favicon. Declared before "/:reference" so it is not read as an invoice.
+payPageRouter.get("/favicon.png", (_req: Request, res: Response) => {
+  res.set("Cache-Control", "public, max-age=86400").sendFile(path.join(__dirname, "../../public/favicon.png"));
+});
+
+// QR of the pay link itself (the thing a customer scans in person), as a PNG.
+payPageRouter.get("/:reference/qr.png", limiter, async (req: Request, res: Response) => {
+  try {
+    const origin = config.app.baseUrl || `${req.protocol}://${req.get("host")}`;
+    const png = await paymentQrPng(`${origin}/pay/${encodeURIComponent(req.params.reference)}`);
+    res.type("png").set("Cache-Control", "public, max-age=3600").send(png);
+  } catch (error: any) {
+    res.status(500).json({ error: "Could not render the QR code" });
+  }
+});
+
 payPageRouter.get("/:reference", limiter, (_req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, "../../public/pay.html"));
 });
@@ -60,14 +77,36 @@ async function publicView(reference: string) {
   return {
     reference: invoice.reference,
     merchant: invoice.merchant?.business?.name || invoice.merchant?.name || "Merchant",
+    // The shop details the merchant saved in their business profile - the same
+    // ones an invoice carries. Never the user id, the buyer's phone, or the
+    // internal invoice id.
+    merchantInfo: {
+      name: invoice.merchant?.business?.name || invoice.merchant?.name || null,
+      country: invoice.merchant?.business?.country ?? null,
+      phone: invoice.merchant?.business?.phone ?? null,
+      email: invoice.merchant?.business?.email ?? null,
+      registrationNumber: invoice.merchant?.business?.registrationNumber ?? null,
+    },
+    issuedAt: invoice.createdAt,
     amount: invoice.amount,
     currency: invoice.currency,
     items: invoice.items,
     status: invoice.status,
     expiresAt: invoice.expiresAt,
+    receipt:
+      invoice.status === "paid"
+        ? {
+            paidAt: invoice.paidAt,
+            paidWith: (tx?.metadata as any)?.receipt?.paidWith ?? null,
+            txUrl: (tx?.metadata as any)?.receipt?.txUrl ?? null,
+          }
+        : null,
     quote: quote && {
       depositAddress: quote.depositAddress,
       depositMemo: quote.depositMemo,
+      amountIn: quote.amountIn,
+      origin: quote.origin,
+      refundTo: quote.refundTo,
       amountInFormatted: quote.amountInFormatted,
       originLabel: quote.originLabel,
       deadline: quote.deadline,
@@ -91,7 +130,12 @@ payApiRouter.get("/:reference", limiter, async (req: Request, res: Response) => 
     } catch (error: any) {
       logger.warn("Could not load token list", { error: error?.message });
     }
-    res.json({ ...view, tokens, enabled: nearIntents.isNearIntentsEnabled() });
+    res.json({
+      ...view,
+      tokens,
+      enabled: nearIntents.isNearIntentsEnabled(),
+      walletConnectProjectId: config.walletConnect.projectId || null,
+    });
   } catch (error: any) {
     logger.error("Pay view failed", { error: error?.message });
     res.status(500).json({ error: "Something went wrong" });
@@ -111,11 +155,19 @@ payApiRouter.post("/:reference/quote", limiter, async (req: Request, res: Respon
     const token = await nearIntents.resolveOriginAsset(symbol, chain);
     if (!token) return res.status(400).json({ error: "That token isn't supported." });
 
+    // A failed swap refunds here, so it must be the buyer's own address.
+    const refundTo = req.body?.refundTo ? String(req.body.refundTo).trim() : undefined;
+    if (refundTo && !EVM_ADDRESS_RE.test(refundTo)) {
+      return res.status(400).json({ error: "That refund address isn't a valid 0x address." });
+    }
+
     await createCryptoPayment({
       merchantId: invoice.merchantId,
       invoiceId: invoice.id,
       originAsset: token.assetId,
       originLabel: `${token.symbol} on ${token.blockchain}`,
+      refundTo,
+      originMeta: originMetaFor(token),
     });
     scheduleCryptoVerification(invoice.reference);
 
@@ -123,6 +175,25 @@ payApiRouter.post("/:reference/quote", limiter, async (req: Request, res: Respon
   } catch (error: any) {
     logger.error("Pay quote failed", { error: error?.message });
     res.status(400).json({ error: error?.message || "Could not create the payment." });
+  }
+});
+
+// Optional: tell 1Click the deposit tx hash so it can start verifying early.
+payApiRouter.post("/:reference/submit", limiter, async (req: Request, res: Response) => {
+  try {
+    const txHash = String(req.body?.txHash || "");
+    if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) return res.status(400).json({ error: "Invalid transaction hash" });
+
+    const tx = await prisma.transaction.findUnique({ where: { reference: req.params.reference } });
+    const quote = (tx?.metadata as any)?.nearIntents;
+    if (!quote?.depositAddress) return res.status(404).json({ error: "No payment in progress" });
+
+    await nearIntents
+      .submitDepositTx({ txHash, depositAddress: quote.depositAddress, depositMemo: quote.depositMemo ?? undefined })
+      .catch((e: any) => logger.warn("Deposit submit failed", { error: e?.message }));
+    res.json({ ok: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Something went wrong" });
   }
 });
 
