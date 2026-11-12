@@ -134,6 +134,16 @@ export const config = {
   },
 
   /**
+   * WalletConnect (Reown) project id for the buyer pay page's wallet picker.
+   * Public by design (it is sent to browsers). Create one free at
+   * https://dashboard.reown.com . Empty = the page offers installed browser
+   * wallets only, with no mobile-wallet (QR / deep link) option.
+   */
+  walletConnect: {
+    projectId: process.env.WALLETCONNECT_PROJECT_ID || "",
+  },
+
+  /**
    * Crypto treasury: the on-chain pool that backs merchant ledger balances.
    * Inbound crypto payments land here (NEAR_INTENTS_RECIPIENT should be this
    * address) and withdrawals are paid out of it.

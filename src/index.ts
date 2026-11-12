@@ -1,4 +1,7 @@
 import { payPageRouter, payApiRouter } from "@/api/pay";
+import { startCryptoSweeper } from "@/services/cryptoSweep";
+import { startCryptoQueue, stopCryptoQueue } from "@/services/cryptoQueue";
+import { nearIntents } from "@/services/nearIntents";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -124,7 +127,28 @@ async function main() {
     logger.info(`AutoRamp webhook: /webhook/autoramp`);
     logger.info(`Notify webhook: /webhook/notify`);
     logger.info(`Health check: /health`);
+
+    // 1Click has no webhooks, so payments are found by polling. This durable
+    // background check covers payments whose customer closed the page and
+    // survives restarts (the per-payment timers do not).
+    if (nearIntents.isNearIntentsEnabled()) {
+      // Durable BullMQ queue when Redis is configured; otherwise the in-process sweeper.
+      startCryptoQueue()
+        .then((started) => {
+          if (!started) startCryptoSweeper();
+        })
+        .catch((error: any) => {
+          logger.error("Crypto queue failed to start, using the in-process sweeper", { error: error?.message });
+          startCryptoSweeper();
+        });
+    }
   });
+
+  const shutdown = () => {
+    stopCryptoQueue().finally(() => process.exit(0));
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
 }
 
 main().catch((err) => {

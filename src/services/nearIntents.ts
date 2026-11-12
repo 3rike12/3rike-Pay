@@ -53,7 +53,9 @@ export function isNearIntentsEnabled(): boolean {
 async function call<T>(path: string, init: RequestInit & { query?: Record<string, string> } = {}): Promise<T> {
   const { query, ...rest } = init;
   const qs = query ? `?${new URLSearchParams(query).toString()}` : "";
+  // A hung upstream must fail fast, not leave a customer on a spinner.
   const res = await fetch(`${config.nearIntents.baseUrl}${path}${qs}`, {
+    signal: AbortSignal.timeout(15_000),
     ...rest,
     headers: {
       "Content-Type": "application/json",
@@ -93,7 +95,39 @@ export interface PayableToken {
   blockchain: string;
   decimals: number;
   price: number;
+  /** ERC-20 contract on the token's chain; absent for the native coin (ETH). */
+  contractAddress?: string | null;
 }
+
+/** EVM chain ids for the origin chains we accept (wallet network switching). */
+export const EVM_CHAIN_IDS: Record<string, number> = {
+  eth: 1,
+  base: 8453,
+  arb: 42161,
+  op: 10,
+  pol: 137,
+  avax: 43114,
+  gnosis: 100,
+};
+
+export const CHAIN_NAMES: Record<string, string> = {
+  eth: "Ethereum",
+  base: "Base",
+  arb: "Arbitrum",
+  op: "Optimism",
+  pol: "Polygon",
+  avax: "Avalanche",
+  gnosis: "Gnosis",
+};
+
+/** "USDC on base" -> "USDC on Base". */
+export function prettyOrigin(label?: string | null): string {
+  if (!label) return "";
+  const [token, chain] = label.split(" on ");
+  return chain ? `${token} on ${CHAIN_NAMES[chain] ?? chain}` : label;
+}
+
+export const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
 /**
  * Origin chains we accept. A quote's `refundTo` must be a valid address on

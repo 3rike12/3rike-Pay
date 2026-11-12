@@ -808,3 +808,26 @@ describe("humanizeChargeError", () => {
     expect(humanizeChargeError(undefined)).toBe("unknown error");
   });
 });
+
+describe("renderPaidInvoiceMessage (crypto payments)", () => {
+  const invoice = { items: [{ name: "waters", qty: 2, unitPrice: 1500 }], amount: 3000, currency: "RWF", buyerPhone: "0781234567" };
+  const balance = { currency: "RWF", amount: 2850 };
+
+  it("adds what was paid and the transaction link", async () => {
+    const { renderPaidInvoiceMessage } = await import("@/services/invoice");
+    const msg = renderPaidInvoiceMessage(invoice, balance, {}, {
+      paidWith: "1.9 USDC on Base",
+      txUrl: "https://basescan.org/tx/0xabc",
+    });
+    expect(msg).toContain("Paid with: 1.9 USDC on Base");
+    expect(msg).toContain("Transaction: https://basescan.org/tx/0xabc");
+    expect(msg.indexOf("Paid with")).toBeLessThan(msg.indexOf("New balance"));
+  });
+
+  it("is unchanged for non-crypto payments", async () => {
+    const { renderPaidInvoiceMessage } = await import("@/services/invoice");
+    const msg = renderPaidInvoiceMessage(invoice, balance, {});
+    expect(msg).not.toContain("Paid with");
+    expect(msg).not.toContain("Transaction:");
+  });
+});

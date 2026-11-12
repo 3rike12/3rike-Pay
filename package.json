@@ -26,7 +26,7 @@
     "db:wipe-payments": "node scripts/reset-prod-payments.js --wipe",
     "db:reconcile-wallets": "node scripts/reconcile-wallets.js",
     "send:revalidation": "node scripts/send-revalidation.js",
-    "demo:invoice": "ts-node -r tsconfig-paths/register --transpile-only scripts/demo-invoice.ts",
+    "demo:invoice": "ts-node -r tsconfig-paths/register --transpile-only src/cli/demoInvoice.ts",
     "demo:probe": "node scripts/probe-near-intents.js",
     "treasury:report": "ts-node -r tsconfig-paths/register --transpile-only scripts/treasury-report.ts"
   },
@@ -47,6 +47,7 @@
     "@types/qrcode": "^1.5.6",
     "axios": "^1.7.0",
     "bcryptjs": "^3.0.3",
+    "bullmq": "^6.7.5",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",

@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
-import { nearIntents } from "@/services/nearIntents";
+import { nearIntents, EVM_CHAIN_IDS, prettyOrigin, type PayableToken } from "@/services/nearIntents";
 import {
   INVOICE_STATUS,
   INVOICE_TTL_MINUTES,
@@ -15,6 +15,37 @@ import {
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("crypto-invoice");
+
+/**
+ * Every quote mints its own deposit address, and money sent to ANY of them is
+ * a real payment. Quotes are therefore kept as a history and all polled; this
+ * caps how many one invoice may mint (also stops quote-spam).
+ */
+const MAX_QUOTES_PER_INVOICE = 8;
+
+/** What a wallet needs to build the transfer for a token. */
+export function originMetaFor(token: PayableToken) {
+  return {
+    symbol: token.symbol,
+    chain: token.blockchain,
+    chainId: EVM_CHAIN_IDS[token.blockchain] ?? null,
+    tokenAddress: token.contractAddress ?? null,
+    decimals: token.decimals,
+  };
+}
+
+/** Default payment (USDC on Base) so a customer opening the link finds it ready. */
+export async function createDefaultCryptoPayment(merchantId: string, invoiceId: string) {
+  const token = await nearIntents.resolveOriginAsset("USDC", "base");
+  if (!token) throw new Error("The default payment token is unavailable.");
+  return createCryptoPayment({
+    merchantId,
+    invoiceId,
+    originAsset: token.assetId,
+    originLabel: `${token.symbol} on ${token.blockchain}`,
+    originMeta: originMetaFor(token),
+  });
+}
 
 /**
  * Create a crypto payment for an invoice via NEAR Intents.
@@ -31,6 +62,10 @@ export async function createCryptoPayment(params: {
   originAsset?: string;
   /** Human label for messages, e.g. "USDC on Base". */
   originLabel?: string;
+  /** Where a failed swap's refund goes: the buyer's own wallet when known. */
+  refundTo?: string;
+  /** Token/chain details a wallet needs to build the transfer. */
+  originMeta?: Record<string, unknown>;
 }) {
   if (!nearIntents.isNearIntentsEnabled()) {
     throw new Error("Crypto payments are not enabled yet.");
@@ -51,6 +86,7 @@ export async function createCryptoPayment(params: {
   if (
     existing?.depositAddress &&
     existing.originAsset === wantedOrigin &&
+    (existing.refundTo ?? null) === (params.refundTo ?? null) &&
     existing.deadline &&
     new Date(existing.deadline) > new Date()
   ) {
@@ -73,11 +109,21 @@ export async function createCryptoPayment(params: {
     });
   }
 
+  const prior: Array<Record<string, unknown>> =
+    (transaction.metadata as any)?.nearQuotes ??
+    (existing?.depositAddress
+      ? [{ depositAddress: existing.depositAddress, depositMemo: existing.depositMemo ?? null }]
+      : []);
+  if (prior.length >= MAX_QUOTES_PER_INVOICE) {
+    throw new Error("Too many payment changes for this invoice. Please reload the page and keep your current choice.");
+  }
+
   const deadline = new Date(Date.now() + INVOICE_TTL_MINUTES * 60 * 1000);
   const amountOut = nearIntents.fiatToDestinationUnits(invoice.amount, invoice.currency);
   const { quote } = await nearIntents.requestQuote({
     amountOut,
     originAsset: params.originAsset,
+    refundTo: params.refundTo,
     deadline,
   });
 
@@ -91,6 +137,8 @@ export async function createCryptoPayment(params: {
     amountOut: quote.amountOut,
     originAsset: params.originAsset ?? config.nearIntents.originAsset,
     originLabel: params.originLabel ?? null,
+    refundTo: params.refundTo ?? null,
+    origin: params.originMeta ?? null,
     // The invoice's own TTL, not 1Click's quote lifetime (which can be days).
     deadline: deadline.toISOString(),
   };
@@ -109,6 +157,16 @@ export async function createCryptoPayment(params: {
         invoiceId: invoice.id,
         provider: "near-intents",
         nearIntents: details,
+        nearQuotes: [
+          ...prior,
+          {
+            depositAddress: details.depositAddress,
+            depositMemo: details.depositMemo,
+            originLabel: details.originLabel,
+            amountInFormatted: details.amountInFormatted,
+            createdAt: new Date().toISOString(),
+          },
+        ],
       } as Prisma.InputJsonValue,
     },
   });
@@ -125,6 +183,15 @@ export type CryptoPayState =
   | "failed"
   | "expired"
   | "unknown";
+
+async function recordReceipt(reference: string, receipt: Record<string, unknown>) {
+  const tx = await prisma.transaction.findUnique({ where: { reference } });
+  if (!tx) return;
+  await prisma.transaction.update({
+    where: { reference },
+    data: { metadata: { ...((tx.metadata as Record<string, unknown>) || {}), receipt } as Prisma.InputJsonValue },
+  });
+}
 
 async function recordNearStatus(reference: string, nearStatus: string) {
   const tx = await prisma.transaction.findUnique({ where: { reference } });
@@ -146,7 +213,10 @@ export async function getCryptoPaymentState(
   const invoice = await getInvoiceByReference(reference);
   if (!invoice) return { state: "unknown" };
   if (invoice.status === INVOICE_STATUS.PAID) return { state: "paid" };
-  if (invoice.status === INVOICE_STATUS.EXPIRED) return { state: "expired" };
+  // An expired invoice is NOT final: money may still arrive for a deposit
+  // address minted before it expired, and that is a real payment. Fall through
+  // and poll; only report "expired" once we know nothing was paid.
+  const wasExpired = invoice.status === INVOICE_STATUS.EXPIRED;
   if (invoice.status === INVOICE_STATUS.CANCELLED) return { state: "failed" };
 
   const transaction = await prisma.transaction.findUnique({ where: { reference } });
@@ -156,31 +226,67 @@ export async function getCryptoPaymentState(
     return { state: meta.nearStatus === "REFUNDED" ? "refunded" : "failed", nearStatus: meta.nearStatus };
   }
 
-  const details = meta.nearIntents;
-  if (!details?.depositAddress) return { state: "unknown" };
+  const quotes: Array<{ depositAddress: string; depositMemo?: string | null }> =
+    meta.nearQuotes ?? (meta.nearIntents?.depositAddress ? [meta.nearIntents] : []);
+  if (quotes.length === 0) return { state: "unknown" };
 
-  try {
-    const res = await nearIntents.getStatus(details.depositAddress, details.depositMemo ?? undefined);
+  // Poll every deposit address this invoice ever minted: the customer may
+  // have paid an earlier one before changing their selection.
+  const results = await Promise.allSettled(
+    quotes.map((q) => nearIntents.getStatus(q.depositAddress, q.depositMemo ?? undefined))
+  );
+  const statuses = results.map((r) => (r.status === "fulfilled" ? r.value : null));
+  const answered = statuses.filter((r): r is NonNullable<typeof r> => r !== null);
 
-    if (res.status === "SUCCESS") {
-      await settleInvoicePayment(reference, { source: "near_poll", provider: "near-intents", nearIntents: res });
-      await prisma.transaction.updateMany({ where: { reference }, data: { status: "completed" } });
-      return { state: "paid", nearStatus: res.status };
-    }
-    if (res.status === "REFUNDED" || res.status === "FAILED") {
-      await recordNearStatus(reference, res.status);
-      await failInvoicePayment(reference, res.status);
-      await prisma.transaction.updateMany({ where: { reference }, data: { status: "failed" } });
-      return { state: res.status === "REFUNDED" ? "refunded" : "failed", nearStatus: res.status };
-    }
-    if (res.status === "PROCESSING" || res.status === "KNOWN_DEPOSIT_TX") {
-      return { state: "processing", nearStatus: res.status };
-    }
-    return { state: "awaiting_payment", nearStatus: res.status };
-  } catch (error: any) {
-    logger.warn("Crypto verification poll failed", { reference, error: error?.message });
-    return { state: "awaiting_payment" };
+  const successIdx = statuses.findIndex((r) => r?.status === "SUCCESS");
+  if (successIdx >= 0) {
+    const success = statuses[successIdx]!;
+    // What was actually paid, and the proof - shown to the customer and the merchant.
+    const sd: any = (success as any).swapDetails || {};
+    const paidQuote: any = quotes[successIdx] || {};
+    const tx = sd.originChainTxHashes?.[0];
+    const crypto = {
+      paidAt: new Date().toISOString(),
+      paidWith:
+        `${sd.amountInFormatted ?? paidQuote.amountInFormatted ?? ""} ${prettyOrigin(paidQuote.originLabel)}`.trim() ||
+        null,
+      txHash: tx?.hash ?? null,
+      txUrl: typeof tx?.explorerUrl === "string" && tx.explorerUrl.startsWith("https://") ? tx.explorerUrl : null,
+    };
+    if (wasExpired) logger.warn("Late payment on an expired invoice - settling it", { reference });
+    await settleInvoicePayment(reference, { source: "near_poll", provider: "near-intents", nearIntents: success, crypto });
+    await prisma.transaction.updateMany({ where: { reference }, data: { status: "completed" } });
+    await recordReceipt(reference, crypto);
+    return { state: "paid", nearStatus: success.status };
   }
+
+  const inFlight = answered.find((r) => r.status === "PROCESSING" || r.status === "KNOWN_DEPOSIT_TX");
+  if (inFlight) return { state: "processing", nearStatus: inFlight.status };
+
+  if (wasExpired) return { state: "expired" };
+
+  // Refunded/failed only when EVERY address is dead - one unused or expired
+  // quote must not fail an invoice that still has a live one.
+  const allDead =
+    answered.length === quotes.length && answered.every((r) => r.status === "REFUNDED" || r.status === "FAILED");
+  if (allDead) {
+    const nearStatus = answered.some((r) => r.status === "REFUNDED") ? "REFUNDED" : "FAILED";
+    await recordNearStatus(reference, nearStatus);
+    await failInvoicePayment(reference, nearStatus);
+    await prisma.transaction.updateMany({ where: { reference }, data: { status: "failed" } });
+    return { state: nearStatus === "REFUNDED" ? "refunded" : "failed", nearStatus };
+  }
+
+  // Nothing paid and the window has closed.
+  if (invoice.expiresAt && invoice.expiresAt.getTime() < Date.now()) {
+    await prisma.invoice.updateMany({
+      where: { id: invoice.id, status: { in: [INVOICE_STATUS.SENT, INVOICE_STATUS.PENDING] } },
+      data: { status: INVOICE_STATUS.EXPIRED },
+    });
+    return { state: "expired" };
+  }
+
+  return { state: "awaiting_payment", nearStatus: answered[answered.length - 1]?.status };
 }
 
 /** Poll 1Click once and settle/fail the invoice. */
@@ -196,8 +302,32 @@ export async function verifyCryptoPayment(
 
 const POLL_DELAYS_MS = [20_000, 40_000, 60_000, 120_000, 180_000, 300_000, 600_000, 900_000];
 
-/** Fire-and-forget polling chain (no cron in this repo), mirroring Flutterwave's. */
+/**
+ * When a durable queue (BullMQ over Redis) is running it registers itself
+ * here, and polling is handed to it. Without Redis this stays null and the
+ * in-process timer chain below is used instead.
+ */
+let queueScheduler: ((reference: string) => Promise<void>) | null = null;
+export function setVerificationScheduler(fn: ((reference: string) => Promise<void>) | null) {
+  queueScheduler = fn;
+}
+
+/** Start tracking a payment: the durable queue if available, else an in-process timer chain. */
 export function scheduleCryptoVerification(reference: string, delaysMs: number[] = POLL_DELAYS_MS): void {
+  if (queueScheduler) {
+    // Never let a slow or unreachable Redis hang the caller or lose the payment:
+    // fall back to timers if the queue does not accept the job quickly.
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("queue timeout")), 5_000).unref?.());
+    Promise.race([queueScheduler(reference), timeout]).catch((error: any) => {
+      logger.warn("Queue unavailable, tracking with in-process timers", { reference, error: error?.message });
+      startTimerChain(reference, delaysMs);
+    });
+    return;
+  }
+  startTimerChain(reference, delaysMs);
+}
+
+function startTimerChain(reference: string, delaysMs: number[]): void {
   const run = (index: number) => {
     if (index >= delaysMs.length) return;
     const timer = setTimeout(() => {

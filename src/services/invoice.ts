@@ -31,7 +31,8 @@ const logger = createLogger("invoice");
 // Flutterwave tx_ref. It is INTERNAL trace only - buyers never see it.
 // ============================================
 
-export const INVOICE_TTL_MINUTES = 30;
+/** How long an invoice stays payable. Override with INVOICE_TTL_MINUTES (handy for demos). */
+export const INVOICE_TTL_MINUTES = Number(process.env.INVOICE_TTL_MINUTES) > 0 ? Number(process.env.INVOICE_TTL_MINUTES) : 30;
 
 export const INVOICE_STATUS = {
   DRAFT: "draft",
@@ -878,10 +879,12 @@ export async function settleInvoicePayment(
       try {
         await whatsapp.sendTextMessage(
           invoice.merchant.phone,
-          renderPaidInvoiceMessage(invoice, newBalance, {
-            platform: bookedPlatformFee,
-            flutterwave: bookedFlutterwaveFee,
-          })
+          renderPaidInvoiceMessage(
+            invoice,
+            newBalance,
+            { platform: bookedPlatformFee, flutterwave: bookedFlutterwaveFee },
+            (metadata as any).crypto ?? null
+          )
         );
         logger.info("Paid-invoice notification sent", {
           reference,
@@ -1057,7 +1060,8 @@ export function renderPaidInvoiceMessage(
     buyerPhone: string;
   },
   newBalance: { currency: string; amount: number },
-  fees: { platform?: number | null; flutterwave?: number | null } = {}
+  fees: { platform?: number | null; flutterwave?: number | null } = {},
+  crypto?: { paidWith?: string | null; txUrl?: string | null } | null
 ): string {
   const lines = invoiceItemLines(invoice);
 
@@ -1077,7 +1081,10 @@ export function renderPaidInvoiceMessage(
     `*Payment Received*\n\n` +
     (lines ? `${lines}\n\n` : "") +
     `*Total: ${formatCurrency(invoice.amount, invoice.currency)}*\n` +
-    `Buyer: ${invoice.buyerPhone}\n\n` +
+    `Buyer: ${invoice.buyerPhone}\n` +
+    (crypto?.paidWith ? `Paid with: ${crypto.paidWith}\n` : "") +
+    (crypto?.txUrl ? `Transaction: ${crypto.txUrl}\n` : "") +
+    `\n` +
     feeBlock +
     `*New balance: ${formatCurrency(newBalance.amount, newBalance.currency)}*`
   );
