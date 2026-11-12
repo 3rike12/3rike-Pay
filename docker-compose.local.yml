@@ -1,0 +1,13 @@
+# Local-only: publish ports on your machine. NOT used by Coolify.
+# Enable by adding this to your .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
+services:
+  app:
+    ports:
+      - "${PORT:-3000}:3000"
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"

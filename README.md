@@ -25,6 +25,20 @@ Requires Node 18+. Steps 1 to 5 only call the public 1Click API (quotes mint a d
 5. `npm run dev`, then open the pay link. Choose **USDC on arb** and press **Get payment details**. See: the exact amount to send, the network, the deposit address, a QR code, and a progress tracker waiting for payment.
 6. *(Optional, real money, about $3.50)* Send exactly the amount shown, on the network shown, to the address. See: the tracker moves to "Payment received, converting" and then **Paid**; the merchant's ledger balance increases. Check with `npm run treasury:report`.
 
+### Or with Docker (API + Redis + Postgres, one command)
+
+1. `cp .env.example .env`, then set in `.env`:
+   - `DATABASE_URL=postgresql://threerike:threerike@postgres:5432/threerike_pay`
+   - `NEAR_INTENTS_RECIPIENT=<an address you control>`
+   - `COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml` (publishes ports on your machine)
+2. `docker compose --profile local-db up --build` (wait until `docker compose ps` shows the app as healthy)
+3. `docker compose exec app node dist/cli/demoInvoice.js` : prints a **pay link**. Open it. See: the same pay page as above.
+4. `docker compose logs app | grep -i queue` : See: `Durable crypto payment queue started`. Redis is wired in, so payment tracking runs on a BullMQ queue that survives restarts.
+
+The app runs `prisma db push` on boot, so `DATABASE_URL` must point at a database you intend it to change.
+
+**Deploying with Coolify.** `docker-compose.yml` is written for it: no fixed container names, no published ports, and none of your variables are set in the file. Use the "Docker Compose" build pack, set your variables in Coolify (see `.env.example`), give the `app` service your domain on port 3000, and use a Coolify or hosted Postgres through `DATABASE_URL` (do not enable the `local-db` profile). Redis persists to a volume and never evicts jobs, which the payment queue needs.
+
 Other checks:
 - `npm test` : unit tests (3 tests in `tests/webhooks.test.ts` fail on a clean checkout and are unrelated to this work).
 - `npm run demo:probe` : prints the live token list and a live quote from the 1Click API, no server needed.
@@ -43,6 +57,8 @@ Other checks:
 - `scripts/demo-invoice.ts`, `scripts/probe-near-intents.js`, `scripts/treasury-report.ts`
 - `tests/nearIntents.test.ts`, `tests/withdrawal.test.ts`
 - Bot: invoice "Yes" now issues a crypto pay link when `PUBLIC_BASE_URL` is set; mobile money is switched off by default (`MOBILE_MONEY_ENABLED`).
+
+**How a payment is detected.** NEAR Intents has no webhooks, so we poll its status endpoint. With `REDIS_URL` set, a BullMQ queue (`src/services/cryptoQueue.ts`) owns this: one self-rescheduling job per invoice, retries with back-off, a rate limiter, and a repeating sweep that re-adds any invoice that lost its job. Without Redis the same tracking runs in-process (`src/services/cryptoSweep.ts`), so no Redis is needed to try the project. Late payments on an already-expired invoice are still detected and settled.
 
 **Known limits.** Prices use a static FX table (`NEAR_INTENTS_FX_RATES`); origin chains are EVM only (the refund address must be valid on the customer's chain); withdrawals are not production-ready.
 
