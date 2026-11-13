@@ -53,8 +53,8 @@
         "rows": [
           {
             "id": "create_invoice",
-            "title": "New invoice",
-            "description": "Get paid by a customer"
+            "title": "Request payment",
+            "description": "Get paid by anyone"
           },
           {
             "id": "invoices",

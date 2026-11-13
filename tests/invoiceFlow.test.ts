@@ -43,7 +43,7 @@ const h = vi.hoisted(() => {
     getSession: vi.fn(),
     listPaidInvoices: vi.fn(),
     listBalances: vi.fn(),
-    businessUpdate: vi.fn(async () => ({})),
+    userUpdate: vi.fn(async () => ({})),
     createSession: vi.fn(),
     issueInvoice: vi.fn(),
     createDefaultCryptoPayment: vi.fn(),
@@ -105,8 +105,7 @@ vi.mock("@/services/cashout", () => ({
 vi.mock("@/services/database", () => ({
   prisma: {
     webhookEvent: { findFirst: vi.fn().mockResolvedValue(null) },
-    user: { findUnique: vi.fn(), update: vi.fn(async () => ({})) },
-    business: { update: (...args: any[]) => h.businessUpdate(...args) },
+    user: { findUnique: vi.fn(), update: (...args: any[]) => h.userUpdate(...args) },
     transaction: { findUnique: vi.fn() },
   },
   findOrCreateUser: vi.fn(async () => h.user),
@@ -691,7 +690,7 @@ describe("balance without bank features", () => {
     expect(reply).not.toMatch(/bank|not linked|account:/i);
     expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([
       { id: "top_up", title: "Add money" },
-      { id: "create_invoice", title: "New invoice" },
+      { id: "create_invoice", title: "Request payment" },
       { id: "cash_out", title: "Cash out" },
     ]);
   });
@@ -910,6 +909,67 @@ describe("add money (top-up)", () => {
   });
 });
 
+describe("a person without a shop (consumer path)", () => {
+  const shop = { ...(h.user as any).business };
+  beforeEach(() => {
+    h.user.business = null;
+    (h.user as any).currency = undefined;
+    (config as any).app = { baseUrl: "https://pay.example" };
+    (config as any).treasury = { maxWithdrawUsd: 2000 };
+    h.nearEnabled = true;
+    h.issueInvoice.mockResolvedValue({ id: "inv_top", reference: "3RIKE-TOP-9" });
+    h.createDraftInvoice.mockResolvedValue({ id: "inv_top" });
+    h.createDefaultCryptoPayment.mockResolvedValue({});
+  });
+  afterEach(() => {
+    h.user.business = shop;
+    delete (h.user as any).currency;
+    delete (config as any).app;
+    delete (config as any).treasury;
+    h.nearEnabled = false;
+  });
+
+  it("sees a balance in the default currency", async () => {
+    h.listBalances.mockResolvedValue([]);
+    expect(await say("/balance")).toContain("KES 0");
+  });
+
+  it("can choose NGN and the choice sticks on the user, not on a shop", async () => {
+    await say("", "currency_NGN");
+    expect(h.userUpdate).toHaveBeenCalledWith({ where: { id: "user_1" }, data: { currency: "NGN" } });
+  });
+
+  it("uses the chosen currency for the balance and top-ups", async () => {
+    (h.user as any).currency = "NGN";
+    h.listBalances.mockResolvedValue([{ currency: "NGN", balance: 5000 }, { currency: "KES", balance: 9 }]);
+    expect(await say("/balance")).toMatch(/NGN\s?5,000/);
+
+    await say("/topup 15000");
+    expect(h.createDraftInvoice).toHaveBeenCalledWith(expect.objectContaining({ currency: "NGN" }));
+  });
+
+  it("can add money without a shop", async () => {
+    await say("/topup 13000");
+    expect(String(h.sendTextMessage.mock.calls.at(-1)?.[1])).toContain("https://pay.example/pay/3RIKE-TOP-9");
+  });
+
+  it("can start a cash-out without a shop", async () => {
+    h.listBanks.mockResolvedValue([{ code: "000013", name: "GTBank" }]);
+    h.nameEnquiry.mockResolvedValue({ accountName: "ADA OBI" });
+    h.quoteCashout.mockResolvedValue({ currency: "KES", amount: 13000, usd: 100, ngn: 150000, usdc: 100, rate: 1500 });
+    expect(await say("/cashout 13000 gtbank 0123456789")).toContain("Confirm cash-out");
+  });
+
+  it("still sends a shop-based action (new invoice) to shop setup", async () => {
+    await say("", "create_invoice");
+    // It does not walk them into the items prompt without a shop profile.
+    expect(h.session.state).not.toBe("invoice_items");
+    expect(h.createDraftInvoice).not.toHaveBeenCalled();
+    const asked = [...h.sendTextMessage.mock.calls, ...h.sendButtonsMessage.mock.calls, ...vi.mocked(whatsapp.sendFlowMessage).mock.calls];
+    expect(asked.length).toBeGreaterThan(0);
+  });
+});
+
 describe("currency menu", () => {
   it("offers Kenya, Tanzania and Nigeria as buttons from /currency and the menu row", async () => {
     for (const send of [() => say("/currency"), () => say("", "set_currency")]) {
@@ -925,13 +985,13 @@ describe("currency menu", () => {
 
   it("saves the choice on the business and confirms it", async () => {
     const reply = await say("", "currency_TZS");
-    expect(h.businessUpdate).toHaveBeenCalledWith({ where: { userId: "user_1" }, data: { country: "TZ" } });
+    expect(h.userUpdate).toHaveBeenCalledWith({ where: { id: "user_1" }, data: { currency: "TZS" } });
     expect(reply).toContain("*TZS*");
   });
 
   it("ignores a currency we do not offer", async () => {
     await say("", "currency_RWF");
-    expect(h.businessUpdate).not.toHaveBeenCalled();
+    expect(h.userUpdate).not.toHaveBeenCalled();
   });
 });
 
@@ -983,13 +1043,14 @@ describe("main menu", () => {
     expect(rows).not.toContain("send_money");
   });
 
-  it("sends a brand-new merchant to shop setup instead of a menu that goes nowhere", async () => {
+  it("shows the menu even before a shop exists, so money features work without one", async () => {
     h.user.business = null;
     try {
-      const reply = await say("/menu");
-      expect(reply).toContain("Let's set up your shop");
-      expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([{ id: "business_profile", title: "Set up my shop" }]);
-      expect(vi.mocked(whatsapp.sendListMessage)).not.toHaveBeenCalled();
+      await say("/menu");
+      const call = vi.mocked(whatsapp.sendListMessage).mock.calls.at(-1)!;
+      const rows = (call[3] as any[]).flatMap((s) => s.rows.map((r: any) => r.id));
+      expect(rows).toEqual(expect.arrayContaining(["top_up", "check_balance", "cash_out", "set_currency"]));
+      expect(call[1]).not.toContain("*"); // no shop name to show
     } finally {
       h.user.business = { id: "biz_1", userId: "user_1", name: "Test Shop", email: "shop@test.example", phone: "0788000111", country: "KE", registrationNumber: null };
     }

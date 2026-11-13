@@ -1143,7 +1143,12 @@ export async function handleMessage(
   const isNewUser = Date.now() - user.createdAt.getTime() < 5 * 60 * 1000;
   const hasAccount = user.kycStatus === KYC_STATUS.VERIFIED || !!user.bankAccount?.accountNumber;
   // Hack/default mode onboards a merchant by shop profile; legacy mode by KYC.
-  const needsOnboarding = config.features.legacyBanking ? !hasAccount : !user.business;
+  const alreadyWelcomed = config.features.legacyBanking
+    ? false
+    : !!(await prisma.webhookEvent
+        .findFirst({ where: { source: "notification", eventType: "welcome_create_wallet", reference: phone } })
+        .catch(() => null));
+  const needsOnboarding = config.features.legacyBanking ? !hasAccount : !alreadyWelcomed;
   if (isNewUser && needsOnboarding) {
     await resetSession(user.id).catch(() => {});
     const displayName = displayNameOf(user, name || "there");
@@ -1169,8 +1174,12 @@ export async function handleMessage(
         )
       : await whatsapp.sendButtonsMessage(
           phone,
-          `Hi ${displayName}! Welcome to 3rike Pay.\n\nSend your customers an invoice and get paid in crypto from any chain, shown in your own currency.\n\nLet's set up your shop first.`,
-          [{ id: "business_profile", title: "Set up my shop" }]
+          `Hi ${displayName}! Welcome to 3rike Pay.\n\nAdd money from any chain, request payments, and cash out to a bank. Your balance is in one currency: KES by default, and you can change it any time with /currency.`,
+          [
+            { id: "top_up", title: "Add money" },
+            { id: "btn_menu", title: "Main Menu" },
+            { id: "business_profile", title: "Set up my shop" },
+          ]
         );
 
     await logWebhookEvent(
@@ -1882,7 +1891,7 @@ async function sendWalletBalance(phone: string, user: any) {
     amount > 0 ? MESSAGES.CHECK_BALANCE.WALLET_TEXT(wallet) : MESSAGES.CHECK_BALANCE.WALLET_EMPTY(wallet),
     [
       { id: "top_up", title: "Add money" },
-      { id: "create_invoice", title: "New invoice" },
+      { id: "create_invoice", title: "Request payment" },
       { id: "cash_out", title: "Cash out" },
     ]
   );
@@ -1890,6 +1899,8 @@ async function sendWalletBalance(phone: string, user: any) {
 
 /** The one currency a merchant's balance, products and invoices use. */
 function merchantCurrency(user: any): string {
+  const picked = String(user?.currency || "").toUpperCase();
+  if (MERCHANT_CURRENCIES.some((c) => c.code === picked)) return picked;
   return currencyForCountry(user?.business?.country);
 }
 
@@ -1905,15 +1916,14 @@ async function sendCurrencyPicker(phone: string, user: any) {
 
 async function setMerchantCurrency(phone: string, user: any, code: string) {
   const choice = MERCHANT_CURRENCIES.find((c) => c.code === code);
-  if (!choice || !user.business) {
-    return user.business ? sendCurrencyPicker(phone, user) : openBusinessSetup(phone, user, MESSAGES.BUSINESS.PROFILE.REQUIRED);
-  }
-  await prisma.business.update({ where: { userId: user.id }, data: { country: choice.country } });
+  if (!choice) return sendCurrencyPicker(phone, user);
+  // Stored on the user, so it works before (or without) a shop profile.
+  await prisma.user.update({ where: { id: user.id }, data: { currency: choice.code } });
   await whatsapp.sendTextMessage(
     phone,
     `Done. Your balance and new invoices are now in *${choice.code}*.\n\nInvoices you already created keep their old currency.`
   );
-  return sendMenuForUser(phone, { ...user, business: { ...user.business, country: choice.country } });
+  return sendMenuForUser(phone, { ...user, currency: choice.code });
 }
 
 async function handleCheckBalance(phone: string, user: any) {
@@ -2118,11 +2128,8 @@ async function sendMenuForUser(phone: string, user: any) {
   if (config.features.legacyBanking && !user.bankAccount?.accountNumber) {
     return sendNoAccountPrompt(phone, user);
   }
-  // A merchant with no shop yet has nothing to do from a menu: every row would
-  // send them to setup anyway, so start them there.
-  if (!config.features.legacyBanking && !user.business) {
-    return sendShopSetupPrompt(phone, user);
-  }
+  // No shop is needed to hold a balance, add money or cash out; only the
+  // shop-based rows (invoices, products) send someone to setup when tapped.
   return sendMainMenu(phone, user);
 }
 
