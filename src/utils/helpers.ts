@@ -42,6 +42,22 @@ export function formatCurrency(amount: number, currency = "RWF"): string {
  * `RWF 12,000` or `NGN 0`. An empty list renders a zero RWF line so a
  * balance reply always has the same shape whether or not funds landed.
  */
+/**
+ * The currencies a merchant can pick as their one balance currency. The pick
+ * is stored as the business country (KE/TZ/NG) so no schema change is needed.
+ */
+export const MERCHANT_CURRENCIES = [
+  { code: "KES", country: "KE", label: "Kenya (KES)" },
+  { code: "TZS", country: "TZ", label: "Tanzania (TZS)" },
+  { code: "NGN", country: "NG", label: "Nigeria (NGN)" },
+] as const;
+
+/** Balance/invoice currency for a business country. Anything else -> KES. */
+export function currencyForCountry(country?: string | null): string {
+  const match = MERCHANT_CURRENCIES.find((c) => c.country === String(country || "").toUpperCase());
+  return match ? match.code : "KES";
+}
+
 export function formatWalletLines(
   balances: Array<{ currency: string; balance: number }> = []
 ): string {

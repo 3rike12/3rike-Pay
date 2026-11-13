@@ -44,6 +44,8 @@ export const SESSION_STATE = {
   INVOICE_PRICE: "invoice_price",
   INVOICE_PHONE: "invoice_phone",
   INVOICE_CONFIRM: "invoice_confirm",
+  // Cash out to a Naira bank account
+  CASHOUT_CONFIRM: "cashout_confirm",
 } as const;
 
 export type SessionState = (typeof SESSION_STATE)[keyof typeof SESSION_STATE];
@@ -299,10 +301,18 @@ export const MESSAGES = {
       render(messagesJson.CHECK_BALANCE.TEXT, { wallet, bank, account, balance }),
     NO_BALANCE: (bank: string, account: string) =>
       render(messagesJson.CHECK_BALANCE.NO_BALANCE, { bank, account }),
+    WALLET_TEXT: (wallet: string) => render(messagesJson.CHECK_BALANCE.WALLET_TEXT, { wallet }),
+    WALLET_EMPTY: (wallet: string) => render(messagesJson.CHECK_BALANCE.WALLET_EMPTY, { wallet }),
     ERROR: messagesJson.CHECK_BALANCE.ERROR,
   },
 
   TRANSACTIONS: messagesJson.TRANSACTIONS,
+
+  PAYMENTS: {
+    TEXT: (list: string, total: string) => render(messagesJson.PAYMENTS.TEXT, { list, total }),
+    EMPTY: messagesJson.PAYMENTS.EMPTY,
+    ERROR: messagesJson.PAYMENTS.ERROR,
+  },
 
   HELP: messagesJson.HELP,
 
@@ -329,11 +339,13 @@ export const MESSAGES = {
     },
     INVOICE: {
       PROMPT_ITEMS: messagesJson.BUSINESS.INVOICE.PROMPT_ITEMS,
+      PROMPT_ITEMS_LINK: messagesJson.BUSINESS.INVOICE.PROMPT_ITEMS_LINK,
       PROMPT_PRICE: (name: string) =>
         render(messagesJson.BUSINESS.INVOICE.PROMPT_PRICE, { name }),
       PROMPT_PHONE: messagesJson.BUSINESS.INVOICE.PROMPT_PHONE,
       INVALID_ITEMS: messagesJson.BUSINESS.INVOICE.INVALID_ITEMS,
       CONFIRM_HINT: messagesJson.BUSINESS.INVOICE.CONFIRM_HINT,
+      CONFIRM_HINT_LINK: messagesJson.BUSINESS.INVOICE.CONFIRM_HINT_LINK,
       ISSUED: messagesJson.BUSINESS.INVOICE.ISSUED,
       ISSUED_PUSH: messagesJson.BUSINESS.INVOICE.ISSUED_PUSH,
       ERROR: (reason: string) => render(messagesJson.BUSINESS.INVOICE.ERROR, { reason }),

@@ -155,16 +155,23 @@ export async function deactivateProduct(id: string, merchantId: string) {
  */
 export async function createDraftInvoice(params: {
   merchantId: string;
-  buyerPhone: string;
+  /** Optional: only mobile money needs it. Crypto invoices have no buyer number. */
+  buyerPhone?: string;
   items: InvoiceItem[];
   description?: string;
   currency?: string;
 }) {
-  const phone = toRwandaPhone(params.buyerPhone);
-  if (!phone) {
-    throw new Error(
-      `That does not look like a Rwanda mobile number: ${params.buyerPhone}. Use e.g. 0781234567 or +250781234567.`
-    );
+  // A number that IS given must be valid; one that is not given is fine (stored
+  // as an empty string - the column is non-null and we avoid a schema change).
+  let phone = "";
+  if (params.buyerPhone && params.buyerPhone.trim()) {
+    const normalised = toRwandaPhone(params.buyerPhone);
+    if (!normalised) {
+      throw new Error(
+        `That does not look like a Rwanda mobile number: ${params.buyerPhone}. Use e.g. 0781234567 or +250781234567.`
+      );
+    }
+    phone = normalised;
   }
 
   const amount = totalInvoiceItems(params.items);
@@ -189,6 +196,15 @@ export async function createDraftInvoice(params: {
     items: params.items.length,
   });
   return invoice;
+}
+
+/** The merchant's most recent PAID invoices, newest first. Powers the "Payments" screen. */
+export async function listPaidInvoices(merchantId: string, limit = 10) {
+  return prisma.invoice.findMany({
+    where: { merchantId, status: INVOICE_STATUS.PAID },
+    orderBy: { paidAt: "desc" },
+    take: Math.min(Math.max(limit, 1), 25),
+  });
 }
 
 export async function getInvoiceById(id: string, merchantId: string) {
@@ -351,6 +367,10 @@ export async function chargeInvoice(params: {
   }
   if (!OPEN_STATUSES.includes(invoice.status as InvoiceStatus)) {
     throw new Error(`This invoice is ${invoice.status} and cannot be charged.`);
+  }
+
+  if (!invoice.buyerPhone) {
+    throw new Error("Mobile money needs the customer's phone number.");
   }
 
   const reference = invoice.reference;
@@ -982,6 +1002,16 @@ export async function expireStaleInvoices(merchantId?: string) {
   return `${day} ${monthName} ${year}, ${timePart.slice(0, 5)} UTC`;
 }
 
+const SUMMARY_STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  sent: "Awaiting payment",
+  pending_payment: "Awaiting payment",
+  paid: "Paid",
+  expired: "Expired",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
 /**
  * Invoice summary shown to the MERCHANT. Never sent to a buyer - we do not
  * message buyers at all; the merchant forwards the link themselves.
@@ -997,7 +1027,7 @@ export function renderInvoiceSummary(
     expiresAt?: Date | null;
     paymentUrl?: string | null;
   },
-  options: { showInternalRef?: boolean } = {}
+  options: { showInternalRef?: boolean; payUrl?: string | null } = {}
 ): string {
   const items = (Array.isArray(invoice.items) ? invoice.items : []) as InvoiceItem[];
   const lines: string[] = [];
@@ -1013,15 +1043,19 @@ export function renderInvoiceSummary(
   }
   lines.push("");
   lines.push(`*Total: ${formatCurrency(invoice.amount, invoice.currency)}*`);
-  lines.push(`Buyer: ${invoice.buyerPhone}`);
-  lines.push(`Status: ${invoice.status}`);
+  if (invoice.buyerPhone) lines.push(`Buyer: ${invoice.buyerPhone}`);
+  lines.push(`Status: ${SUMMARY_STATUS_LABELS[invoice.status] || invoice.status}`);
   if (invoice.expiresAt) {
     lines.push(`Expires: ${formatExpiry(invoice.expiresAt)}`);
   }
   if (options.showInternalRef) {
     lines.push(`Reference (internal): ${invoice.reference}`);
   }
-  if (invoice.paymentUrl) {
+  if (options.payUrl) {
+    lines.push("");
+    lines.push("Payment link (send this to your customer):");
+    lines.push(options.payUrl);
+  } else if (invoice.paymentUrl) {
     lines.push("");
     lines.push("Fallback link (forward this to the buyer yourself):");
     lines.push(invoice.paymentUrl);
@@ -1081,7 +1115,7 @@ export function renderPaidInvoiceMessage(
     `*Payment Received*\n\n` +
     (lines ? `${lines}\n\n` : "") +
     `*Total: ${formatCurrency(invoice.amount, invoice.currency)}*\n` +
-    `Buyer: ${invoice.buyerPhone}\n` +
+    (invoice.buyerPhone ? `Buyer: ${invoice.buyerPhone}\n` : "") +
     (crypto?.paidWith ? `Paid with: ${crypto.paidWith}\n` : "") +
     (crypto?.txUrl ? `Transaction: ${crypto.txUrl}\n` : "") +
     `\n` +

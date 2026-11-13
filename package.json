@@ -28,7 +28,8 @@
     "send:revalidation": "node scripts/send-revalidation.js",
     "demo:invoice": "ts-node -r tsconfig-paths/register --transpile-only src/cli/demoInvoice.ts",
     "demo:probe": "node scripts/probe-near-intents.js",
-    "treasury:report": "ts-node -r tsconfig-paths/register --transpile-only scripts/treasury-report.ts"
+    "treasury:report": "ts-node -r tsconfig-paths/register --transpile-only scripts/treasury-report.ts",
+    "cashout:pending": "ts-node -r tsconfig-paths/register --transpile-only scripts/pending-cashouts.ts"
   },
   "keywords": [
     "whatsapp",

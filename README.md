@@ -39,11 +39,43 @@ The app runs `prisma db push` on boot, so `DATABASE_URL` must point at a databas
 
 **Deploying with Coolify.** `docker-compose.yml` is written for it: no fixed container names, no published ports, and none of your variables are set in the file. Use the "Docker Compose" build pack, set your variables in Coolify (see `.env.example`), give the `app` service your domain on port 3000, and use a Coolify or hosted Postgres through `DATABASE_URL` (do not enable the `local-db` profile). Redis persists to a volume and never evicts jobs, which the payment queue needs.
 
+### Hosting the pay page separately (Vercel)
+
+The pay page is one static file (`public/pay.html`), so it can live on its own domain (e.g. `pay.3rike.com`) while the backend runs elsewhere. The page calls the backend directly from the browser for the invoice and merchant details; the backend already allows cross-origin requests.
+
+1. Import the repo into Vercel. `vercel.json` sets everything: no framework, no install, output directory `public`.
+2. Add one environment variable in the Vercel project: `PAY_API_URL=https://<your backend's public URL>`. The build (`scripts/vercel-build.js`) writes it into `public/config.js`; no URL is committed.
+3. Add `pay.3rike.com` as the project's domain, and set `PUBLIC_BASE_URL=https://pay.3rike.com` on the backend so WhatsApp links point there.
+4. Routes: `/pay/<reference>` is the page, `/pay/favicon.png` is the icon, and **everything else, including `/`, is a 404**. An unknown reference shows an "Invoice not found" screen.
+
+Tested with a simulated static host plus a stand-in API on a different origin, not on Vercel itself.
+
 Other checks:
 - `npm test` : unit tests (3 tests in `tests/webhooks.test.ts` fail on a clean checkout and are unrelated to this work).
 - `npm run demo:probe` : prints the live token list and a live quote from the 1Click API, no server needed.
 - Other currencies: `npm run demo:invoice -- NGN 20000`.
 - There is **no testnet** for NEAR Intents, so step 6 uses mainnet with a small amount.
+
+### Cash out to a Nigerian bank (AutoRamp off-ramp)
+
+`/cashout 13000 gtbank 0123456789` converts the merchant's balance (in their one
+currency, KES / TZS / NGN) to naira and pays it to a verified bank account.
+The ledger is debited first; AutoRamp's `offramp.completed` / `offramp.failed`
+webhook settles it, and a failure credits the balance back.
+
+The treasury must send the USDC (Base) to the deposit address AutoRamp returns.
+No signer ships with the repo: without one, cash-outs are parked as
+`awaiting_signature`, and `npm run cashout:pending` lists the exact USDC amount
+and address for an operator to fund by hand. Register a `TreasurySigner`
+(`setTreasurySigner`) to automate it.
+
+### Basic KYC (Toden)
+
+Set `TODEN_SECRET_KEY` and `TODEN_WORKFLOW_ID` and payouts (`/cashout`,
+`/withdraw`) require a verified merchant. `/verify` sends a hosted link
+(ID document + selfie + liveness); Toden's signed webhook
+(`POST /webhook/toden`, `X-Myaza-Signature-V2`, secret `TODEN_WEBHOOK_SECRET`)
+marks the merchant verified or tells them why not. Unset, KYC is skipped.
 
 ## What was built during the hackathon (and what was already here)
 

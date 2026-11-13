@@ -246,6 +246,8 @@ describe("invoice requires a business profile", () => {
 
     expect(h.sendFlowMessage).not.toHaveBeenCalled();
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_ITEMS);
-    expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS);
+    // Mobile money is off by default, so the prompt does not ask for a customer number.
+    expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS_LINK);
+    expect(reply).not.toMatch(/number/i);
   });
 });

@@ -46,6 +46,8 @@ app.use("/webhook/autoramp", express.raw({ type: "application/json" }));
 // Flutterwave v4 signs the raw payload (HMAC-SHA256); v3 sends a plain
 // secret-hash header. Raw covers both.
 app.use("/webhook/flutterwave", express.raw({ type: "application/json" }));
+// Toden signs the exact bytes too (HMAC-SHA256, X-Myaza-Signature-V2).
+app.use("/webhook/toden", express.raw({ type: "application/json" }));
 
 // Parse JSON
 app.use(express.json({ limit: "10mb" }));

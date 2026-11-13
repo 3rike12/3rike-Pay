@@ -235,7 +235,8 @@ describe("invoice detail", () => {
     expect(prisma.invoice.findFirst).toHaveBeenCalledWith({
       where: { id: "inv_42", merchantId: "user_1" },
     });
-    expect(h.renderInvoiceSummary).toHaveBeenCalledWith(target);
+    // No public base URL is configured here, so there is no pay link to add.
+    expect(h.renderInvoiceSummary).toHaveBeenCalledWith(target, { payUrl: null });
     expect(h.sendTextMessage).toHaveBeenCalledWith(PHONE, "summary of inv_42");
   });
 

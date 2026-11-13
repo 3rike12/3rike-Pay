@@ -10,7 +10,7 @@ import {
   logWebhookEvent,
   prisma,
 } from "@/services/database";
-import { generateReference, generateTransactionReference, formatAmount, formatWalletLines, extractAmount, redactSensitiveText, redactPhone, parseTransferRequest, parseProductCreateRequest, parseInvoiceRequest, stripProductIntent, toRwandaPhone, parseAmountFromText, formatCurrency } from "@/utils/helpers";
+import { generateReference, generateTransactionReference, formatAmount, formatWalletLines, extractAmount, redactSensitiveText, redactPhone, parseTransferRequest, parseProductCreateRequest, parseInvoiceRequest, stripProductIntent, toRwandaPhone, parseAmountFromText, formatCurrency, currencyForCountry, MERCHANT_CURRENCIES } from "@/utils/helpers";
 import { ledger } from "@/services/ledger";
 import {
   chargeInvoice,
@@ -20,12 +20,15 @@ import {
   issueInvoice,
   humanizeChargeError,
   listInvoices,
+  listPaidInvoices,
   listProducts,
   renderInvoiceSummary,
   scheduleInvoiceVerification,
 } from "@/services/invoice";
 import { createCryptoPayment, createDefaultCryptoPayment, scheduleCryptoVerification } from "@/services/cryptoInvoice";
 import { nearIntents } from "@/services/nearIntents";
+import { quoteCashout, requestCashout } from "@/services/cashout";
+import { createVerificationSession } from "@/services/toden";
 import { requestWithdrawal, scheduleWithdrawalVerification } from "@/services/withdrawal";
 import { paymentQrPng } from "@/utils/qr";
 import { createLogger } from "@/utils/logger";
@@ -204,12 +207,12 @@ async function saveProduct(phone: string, user: any, name: string, price: number
       merchantId: user.id,
       name,
       price,
-      currency: "RWF",
+      currency: merchantCurrency(user),
     });
     await resetSession(user.id);
     return whatsapp.sendTextMessage(
       phone,
-      MESSAGES.BUSINESS.PRODUCT.CREATED(product.name, formatCurrency(product.price))
+      MESSAGES.BUSINESS.PRODUCT.CREATED(product.name, formatCurrency(product.price, product.currency))
     );
   } catch (error: any) {
     logger.error("Failed to create product", { userId: user.id, error: error.message });
@@ -334,8 +337,8 @@ const INVOICES_PAGE_SIZE = 9;
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
-  sent: "Sent",
-  pending_payment: "Pending",
+  sent: "Unpaid",
+  pending_payment: "Unpaid",
   paid: "Paid",
   expired: "Expired",
   failed: "Failed",
@@ -412,7 +415,10 @@ async function handleInvoiceDetail(phone: string, user: any, invoiceId: string) 
     if (!invoice) {
       return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICES.NOT_FOUND);
     }
-    return whatsapp.sendTextMessage(phone, renderInvoiceSummary(invoice));
+    const open = ["sent", "pending_payment"].includes(invoice.status);
+    const baseUrl = config.app?.baseUrl;
+    const payUrl = open && baseUrl ? `${baseUrl}/pay/${invoice.reference}` : null;
+    return whatsapp.sendTextMessage(phone, renderInvoiceSummary(invoice, { payUrl }));
   } catch (error: any) {
     logger.error("Failed to load invoice detail", { userId: user.id, error: error.message });
     return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICES.ERROR);
@@ -468,7 +474,9 @@ async function advanceInvoice(phone: string, user: any, draft: InvoiceDraft) {
     draft.items[i].unitPrice = price;
   }
 
-  if (!draft.buyerPhone) {
+  // Only mobile money needs the customer's number (to push the prompt). A
+  // crypto payment link needs nobody's phone, so don't ask for it.
+  if (!draft.buyerPhone && config.features.mobileMoneyEnabled) {
     await updateSession(user.id, SESSION_STATE.INVOICE_PHONE, draft);
     return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_PHONE);
   }
@@ -487,7 +495,11 @@ async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft)
   // type it. Typed "yes"/"cancel" still works in handleInvoiceConfirm.
   return whatsapp.sendButtonsMessage(
     phone,
-    `*Confirm invoice*\n\n${lines}\n\n*Total: ${formatCurrency(total)}*\nBuyer: ${draft.buyerPhone}${MESSAGES.BUSINESS.INVOICE.CONFIRM_HINT}`,
+    `*Confirm invoice*\n\n${lines}\n\n*Total: ${formatCurrency(total)}*` +
+      (draft.buyerPhone ? `\nBuyer: ${draft.buyerPhone}` : "") +
+      (config.features.mobileMoneyEnabled
+        ? MESSAGES.BUSINESS.INVOICE.CONFIRM_HINT
+        : MESSAGES.BUSINESS.INVOICE.CONFIRM_HINT_LINK),
     [
       { id: "confirm_invoice", title: "Yes" },
       { id: "cancel_invoice", title: "No" },
@@ -523,6 +535,7 @@ async function issueCryptoInvoice(phone: string, user: any, draft: InvoiceDraft,
       const created = await createDraftInvoice({
         merchantId: user.id,
         buyerPhone: draft.buyerPhone || "",
+        currency: merchantCurrency(user),
         items: draft.items.map((i) => ({ name: i.name, qty: i.qty, unitPrice: Number(i.unitPrice || 0) })),
       });
       draftId = created.id;
@@ -598,6 +611,13 @@ async function issueCryptoInvoice(phone: string, user: any, draft: InvoiceDraft,
  * /invoice [items...] - entry point for the command, the main-menu row and
  * the "invoice" trigger in idle.
  */
+/** The "what is it for?" prompt: no mention of a customer number unless mobile money needs one. */
+function invoiceItemsPrompt(): string {
+  return config.features.mobileMoneyEnabled
+    ? MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS
+    : MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS_LINK;
+}
+
 async function handleInvoiceCommand(phone: string, user: any, args: string) {
   await expireStaleInvoices(user.id).catch(() => {});
 
@@ -619,7 +639,7 @@ async function handleInvoiceCommand(phone: string, user: any, args: string) {
   }
 
   await updateSession(user.id, SESSION_STATE.INVOICE_ITEMS, {});
-  return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS);
+  return whatsapp.sendTextMessage(phone, invoiceItemsPrompt());
 }
 
 /**
@@ -646,6 +666,7 @@ async function issueAndCharge(phone: string, user: any, draft: InvoiceDraft) {
       const created = await createDraftInvoice({
         merchantId: user.id,
         buyerPhone: draft.buyerPhone || "",
+        currency: merchantCurrency(user),
         items: draft.items.map((i) => ({
           name: i.name,
           qty: i.qty,
@@ -704,6 +725,7 @@ type SlashHandler = (phone: string, user: any, args?: string) => Promise<unknown
  * The merchant just sees a payout; the swap behind it is not mentioned.
  */
 async function handleWithdrawCommand(phone: string, user: any, args = "") {
+  if (await requireVerifiedForPayout(phone, user)) return true;
   const usage =
     "To withdraw, send:\n*withdraw <amount> <token> <network> <wallet address>*\n" +
     "e.g. *withdraw 50000 usdc base 0x1234…*\nOptionally add a currency after the amount, e.g. *withdraw 20 usd usdt arb 0x…*";
@@ -715,8 +737,8 @@ async function handleWithdrawCommand(phone: string, user: any, args = "") {
   }
 
   // An optional 3-letter fiat code right after the amount picks the wallet.
-  let currency = "RWF";
-  if (/^[a-z]{3}$/i.test(parts[0]) && ["RWF", "USD", "NGN", "KES", "GHS"].includes(parts[0].toUpperCase())) {
+  let currency = merchantCurrency(user);
+  if (/^[a-z]{3}$/i.test(parts[0]) && ["USD", "NGN", "KES", "TZS"].includes(parts[0].toUpperCase())) {
     currency = parts.shift()!.toUpperCase();
   }
   const [symbol, chain] = parts;
@@ -739,10 +761,114 @@ async function handleWithdrawCommand(phone: string, user: any, args = "") {
   }
 }
 
+
+// ============================================
+// Cash out to a Naira bank account (AutoRamp off-ramp)
+// ============================================
+
+const CASHOUT_USAGE =
+  "*Cash out to a bank*\n\nSend:\n*/cashout <amount> <bank> <account number>*\n\n" +
+  "e.g. */cashout 5000 gtbank 0123456789*\n\n" +
+  "The amount is in your balance currency. It's paid out in Nigerian naira.";
+
+async function handleCashoutCommand(phone: string, user: any, args = "") {
+  if (await requireVerifiedForPayout(phone, user)) return true;
+  const parts = args.trim().split(/\s+/).filter(Boolean);
+  const amount = Number((parts.shift() || "").replace(/,/g, ""));
+  const accountNumber = parts.pop() || "";
+  const bankQuery = parts.join(" ");
+  if (!Number.isFinite(amount) || amount <= 0 || !bankQuery || !/^\d{10}$/.test(accountNumber)) {
+    return whatsapp.sendTextMessage(phone, CASHOUT_USAGE);
+  }
+
+  try {
+    const currency = merchantCurrency(user);
+    const quote = await quoteCashout(currency, amount);
+
+    const banks = await searchBanks(bankQuery);
+    if (banks.length === 0) {
+      return whatsapp.sendTextMessage(phone, `I couldn't find a bank called "${bankQuery}". Try a shorter name, e.g. *gtbank*, *opay*, *kuda*.`);
+    }
+    if (banks.length > 1 && banks[0].name.toLowerCase() !== bankQuery.toLowerCase()) {
+      const shown = banks.slice(0, 5).map((b) => `• ${b.name}`).join("\n");
+      return whatsapp.sendTextMessage(phone, `Several banks match "${bankQuery}":\n${shown}\n\nType more of the name and send it again.`);
+    }
+    const bank = banks[0];
+
+    const enquiry: any = await autoramp.nameEnquiry(bank.code, accountNumber);
+    const accountName = String(enquiry?.accountName || enquiry?.data?.accountName || enquiry?.name || "").trim();
+    if (!accountName) {
+      return whatsapp.sendTextMessage(phone, "I couldn't verify that account. Check the bank and account number and try again.");
+    }
+
+    await updateSession(user.id, SESSION_STATE.CASHOUT_CONFIRM, {
+      amount,
+      currency,
+      bankCode: bank.code,
+      bankName: bank.name,
+      accountNumber,
+      accountName,
+    });
+    return whatsapp.sendButtonsMessage(
+      phone,
+      `*Confirm cash-out*\n\n${formatCurrency(amount, currency)} → *₦${quote.ngn.toLocaleString("en-US")}*\n` +
+        `Rate: ₦${Math.round(quote.rate).toLocaleString("en-US")} per $1\n\n` +
+        `${accountName}\n${bank.name} · ${accountNumber}\n\nTap *Yes* to send it, or *No* to stop.`,
+      [
+        { id: "cashout_yes", title: "Yes" },
+        { id: "cashout_no", title: "No" },
+      ]
+    );
+  } catch (error: any) {
+    logger.warn("Cash-out preview failed", { userId: user.id, error: error?.message });
+    return whatsapp.sendTextMessage(phone, error?.message || "I couldn't start that cash-out.");
+  }
+}
+
+async function handleCashoutConfirm(phone: string, user: any, flowData: FlowData, action?: string, text?: string) {
+  const yes = action === "cashout_yes" || /^(yes|y|confirm)$/i.test((text || "").trim());
+  const no = action === "cashout_no" || /^(no|n|cancel)$/i.test((text || "").trim());
+  if (no) {
+    await resetSession(user.id);
+    return whatsapp.sendTextMessage(phone, "Cash-out cancelled. Nothing was sent.");
+  }
+  if (!yes) {
+    return whatsapp.sendTextMessage(phone, "Tap *Yes* to send the cash-out, or *No* to stop.");
+  }
+
+  const d = flowData as any;
+  await resetSession(user.id);
+  if (await requireVerifiedForPayout(phone, user)) return true;
+  try {
+    const result = await requestCashout({
+      userId: user.id,
+      currency: d.currency,
+      amount: d.amount,
+      bankCode: d.bankCode,
+      accountNumber: d.accountNumber,
+      accountName: d.accountName,
+      bankName: d.bankName,
+    });
+    return whatsapp.sendTextMessage(
+      phone,
+      `*Cash-out started*\n\n${formatCurrency(d.amount, d.currency)} → ₦${result.quote.ngn.toLocaleString("en-US")}\n` +
+        `${d.accountName} · ${d.bankName}\n\n` +
+        (result.status === "awaiting_signature"
+          ? "We're processing this now. We'll message you when it's been sent."
+          : "It usually arrives within minutes. We'll message you when it's sent.")
+    );
+  } catch (error: any) {
+    logger.error("Cash-out failed", { userId: user.id, error: error?.message });
+    return whatsapp.sendTextMessage(phone, error?.message || "The cash-out failed.");
+  }
+}
+
 const SLASH_COMMANDS: Record<string, SlashHandler> = {
   withdraw: (phone, user, args) => handleWithdrawCommand(phone, user, args || ""),
-  cashout: (phone, user, args) => handleWithdrawCommand(phone, user, args || ""),
+  cashout: (phone, user, args) => handleCashoutCommand(phone, user, args || ""),
+  tobank: (phone, user, args) => handleCashoutCommand(phone, user, args || ""),
   balance: handleCheckBalance,
+  currency: sendCurrencyPicker,
   checkbalance: handleCheckBalance,
   bal: handleCheckBalance,
   start: sendMenuForUser,
@@ -752,6 +878,8 @@ const SLASH_COMMANDS: Record<string, SlashHandler> = {
   transfer: startSendMoneyCommand,
   sendmoney: startSendMoneyCommand,
   transactions: handleTransactions,
+  payments: handleTransactions,
+  payment: handleTransactions,
   history: handleTransactions,
   cancel: (phone) => whatsapp.sendTextMessage(phone, MESSAGES.CANCEL),
   kyc: startKyc,
@@ -772,9 +900,15 @@ const SLASH_COMMANDS: Record<string, SlashHandler> = {
 };
 
 // Legacy banking commands answer with a notice while that feature is off.
+// /kyc and /verify are decided per message: Toden's identity check when it is
+// configured, the legacy notice otherwise.
 if (!config.features.legacyBanking) {
-  for (const key of ["send", "transfer", "sendmoney", "kyc", "verify"]) {
+  for (const key of ["send", "transfer", "sendmoney"]) {
     SLASH_COMMANDS[key] = (phone, user) => sendLegacyOffNotice(phone, user);
+  }
+  for (const key of ["kyc", "verify"]) {
+    SLASH_COMMANDS[key] = (phone, user) =>
+      config.toden?.enabled ? startTodenKyc(phone, user) : sendLegacyOffNotice(phone, user);
   }
 }
 
@@ -1015,6 +1149,8 @@ export async function handleMessage(
         return await handleInvoicePhone(phone, user, flowData, messageText);
       case SESSION_STATE.INVOICE_CONFIRM:
         return await handleInvoiceConfirm(phone, user, flowData, action, messageText);
+      case SESSION_STATE.CASHOUT_CONFIRM:
+        return await handleCashoutConfirm(phone, user, flowData, action, messageText);
       case SESSION_STATE.KYC_FLOW:
         // Form is open on the user's phone; the Flow endpoint owns the steps.
         // If they are already verified, the session is stale (form completed but
@@ -1100,6 +1236,16 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
   }
 
+  if (action === "cash_out") {
+    return whatsapp.sendTextMessage(phone, CASHOUT_USAGE);
+  }
+  if (action === "set_currency") {
+    return sendCurrencyPicker(phone, user);
+  }
+  if (action?.startsWith("currency_")) {
+    return setMerchantCurrency(phone, user, action.slice("currency_".length));
+  }
+
   if (action === "check_balance" || action === "btn_balance") {
     return handleCheckBalance(phone, user);
   }
@@ -1133,7 +1279,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
       });
     }
     await updateSession(user.id, SESSION_STATE.INVOICE_ITEMS, {});
-    return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS);
+    return whatsapp.sendTextMessage(phone, invoiceItemsPrompt());
   }
 
   if (TRIGGERS.PRODUCT.some((kw) => t.includes(kw))) {
@@ -1536,7 +1682,7 @@ async function handleInvoiceConfirm(
     );
   }
 
-  if (!draft.buyerPhone || draft.items.length === 0) {
+  if ((!draft.buyerPhone && config.features.mobileMoneyEnabled) || draft.items.length === 0) {
     await resetSession(user.id);
     return whatsapp.sendTextMessage(phone, MESSAGES.BUSINESS.INVOICE.INVALID_ITEMS);
   }
@@ -1628,7 +1774,63 @@ async function handleNaturalTransfer(
 // Check Balance
 // ============================================
 
+/**
+ * Balance for the crypto-invoicing product: just what the merchant has earned,
+ * per currency. No bank block - there is no bank account in this mode.
+ */
+async function sendWalletBalance(phone: string, user: any) {
+  const currency = merchantCurrency(user);
+  let amount = 0;
+  try {
+    const rows = await ledger.listBalances(user.id);
+    amount = Number(rows.find((r) => r.currency === currency)?.balance ?? 0);
+  } catch (error: any) {
+    logger.warn("Wallet balance lookup failed", { userId: user.id, error: error?.message });
+    return whatsapp.sendTextMessage(phone, MESSAGES.CHECK_BALANCE.ERROR);
+  }
+  const wallet = formatCurrency(amount, currency);
+  return whatsapp.sendButtonsMessage(
+    phone,
+    amount > 0 ? MESSAGES.CHECK_BALANCE.WALLET_TEXT(wallet) : MESSAGES.CHECK_BALANCE.WALLET_EMPTY(wallet),
+    [
+      { id: "create_invoice", title: "New invoice" },
+      { id: "transactions", title: "Payments" },
+      { id: "set_currency", title: "Change currency" },
+    ]
+  );
+}
+
+/** The one currency a merchant's balance, products and invoices use. */
+function merchantCurrency(user: any): string {
+  return currencyForCountry(user?.business?.country);
+}
+
+/** Offer KES / TZS / NGN as the merchant's balance currency. */
+async function sendCurrencyPicker(phone: string, user: any) {
+  const current = merchantCurrency(user);
+  return whatsapp.sendButtonsMessage(
+    phone,
+    `*Balance currency*\n\nYour balance and invoices are in *${current}* now. Pick the one you want:`,
+    MERCHANT_CURRENCIES.map((c) => ({ id: `currency_${c.code}`, title: c.label.length > 20 ? c.code : c.label }))
+  );
+}
+
+async function setMerchantCurrency(phone: string, user: any, code: string) {
+  const choice = MERCHANT_CURRENCIES.find((c) => c.code === code);
+  if (!choice || !user.business) {
+    return user.business ? sendCurrencyPicker(phone, user) : openBusinessSetup(phone, user, MESSAGES.BUSINESS.PROFILE.REQUIRED);
+  }
+  await prisma.business.update({ where: { userId: user.id }, data: { country: choice.country } });
+  await whatsapp.sendTextMessage(
+    phone,
+    `Done. Your balance and new invoices are now in *${choice.code}*.\n\nInvoices you already created keep their old currency.`
+  );
+  return sendMenuForUser(phone, { ...user, business: { ...user.business, country: choice.country } });
+}
+
 async function handleCheckBalance(phone: string, user: any) {
+  if (!config.features.legacyBanking) return sendWalletBalance(phone, user);
+
   // Always show the ledger wallet: that is where an invoice settlement
   // actually lands, and it is the merchant's own money - not the pooled
   // company account, which getMerchantAccount() would return and which stays
@@ -1669,7 +1871,35 @@ async function handleCheckBalance(phone: string, user: any) {
   );
 }
 
+/** Recent payments received: the merchant's paid invoices, newest first. */
+async function handlePayments(phone: string, user: any) {
+  try {
+    const paid = await listPaidInvoices(user.id, 10);
+    if (paid.length === 0) return whatsapp.sendTextMessage(phone, MESSAGES.PAYMENTS.EMPTY);
+
+    const list = paid
+      .map((inv, i) => {
+        const when = inv.paidAt
+          ? new Date(inv.paidAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+          : "";
+        return `${i + 1}. ${formatCurrency(inv.amount, inv.currency)} - ${invoiceItemsLabel(inv.items)}${when ? `\n   ${when}` : ""}`;
+      })
+      .join("\n\n");
+
+    const totals = new Map<string, number>();
+    for (const inv of paid) totals.set(inv.currency, (totals.get(inv.currency) || 0) + inv.amount);
+    const total = [...totals.entries()].map(([cur, amt]) => formatCurrency(amt, cur)).join(", ");
+
+    return whatsapp.sendTextMessage(phone, MESSAGES.PAYMENTS.TEXT(list, total));
+  } catch (error: any) {
+    logger.error("Payments list failed", { userId: user.id, error: error.message });
+    return whatsapp.sendTextMessage(phone, MESSAGES.PAYMENTS.ERROR);
+  }
+}
+
 async function handleTransactions(phone: string, user: any) {
+  if (!config.features.legacyBanking) return handlePayments(phone, user);
+
   if (!user.bankAccount?.accountNumber) {
     return sendNoAccountPrompt(phone, user);
   }
@@ -1717,7 +1947,37 @@ async function handleTransactions(phone: string, user: any) {
  * message in the chat the way a typed reply does. Chat entry is only a
  * fallback for when the Flow can't be delivered.
  */
+/** Basic KYC through Toden: send the merchant a hosted verification link. */
+async function startTodenKyc(phone: string, user: any) {
+  if (user.kycStatus === KYC_STATUS.VERIFIED) {
+    return whatsapp.sendTextMessage(phone, "You're already verified. You can cash out any time with /cashout.");
+  }
+  try {
+    const session = await createVerificationSession({ externalUserId: user.id });
+    await prisma.user.update({ where: { id: user.id }, data: { kycStatus: KYC_STATUS.PENDING } });
+    return whatsapp.sendTextMessage(
+      phone,
+      "*Verify your identity*\n\nThis takes about two minutes. Have your ID ready, then open this link on your phone:\n\n" +
+        `${session.url}\n\nYou'll take a photo of your ID and a quick selfie. We'll message you as soon as it's done.`
+    );
+  } catch (error: any) {
+    logger.error("Identity check could not start", { userId: user.id, error: error?.message });
+    return whatsapp.sendTextMessage(phone, error?.message || "I couldn't start the identity check.");
+  }
+}
+
+/** True (after prompting) when this merchant must verify before a payout. */
+async function requireVerifiedForPayout(phone: string, user: any): Promise<boolean> {
+  if (!config.toden?.enabled || user.kycStatus === KYC_STATUS.VERIFIED) return false;
+  await whatsapp.sendTextMessage(
+    phone,
+    "Before you cash out we need to verify your identity once. Type */verify* to start. It takes about two minutes."
+  );
+  return true;
+}
+
 async function startKyc(phone: string, user: any) {
+  if (config.toden?.enabled) return startTodenKyc(phone, user);
   // No identity form is ever sent while KYC is off.
   if (!config.features.kycRequired) {
     return whatsapp.sendTextMessage(
@@ -1770,7 +2030,23 @@ async function sendMenuForUser(phone: string, user: any) {
   if (config.features.legacyBanking && !user.bankAccount?.accountNumber) {
     return sendNoAccountPrompt(phone, user);
   }
-  return sendMainMenu(phone);
+  // A merchant with no shop yet has nothing to do from a menu: every row would
+  // send them to setup anyway, so start them there.
+  if (!config.features.legacyBanking && !user.business) {
+    return sendShopSetupPrompt(phone, user);
+  }
+  return sendMainMenu(phone, user);
+}
+
+/** First-run welcome for the crypto-invoicing product: one button into shop setup. */
+async function sendShopSetupPrompt(phone: string, user: any) {
+  return whatsapp.sendButtonsMessage(
+    phone,
+    `Hi ${displayNameOf(user)}! Welcome to 3rike Pay.\n\n` +
+      `Send your customers an invoice and get paid in crypto from any chain, shown in your own currency.\n\n` +
+      `Let's set up your shop first.`,
+    [{ id: "business_profile", title: "Set up my shop" }]
+  );
 }
 
 /** Personalized "you don't have an account yet" — interactive button, no template. */
@@ -1796,7 +2072,8 @@ async function sendNoAccountPrompt(phone: string, user: any) {
 /** Menu rows that belong to the legacy Nigerian-banking features. */
 const LEGACY_MENU_ROWS = new Set(["send_money", "buy_airtime", "buy_data"]);
 
-async function sendMainMenu(phone: string) {
+async function sendMainMenu(phone: string, user?: any) {
+  const shop = user?.business?.name;
   const sections = MESSAGES.MAIN_MENU.SECTIONS.map((s) => ({
     title: s.title,
     rows: s.rows.filter((r) => config.features.legacyBanking || !LEGACY_MENU_ROWS.has(r.id)),
@@ -1804,7 +2081,7 @@ async function sendMainMenu(phone: string) {
 
   return whatsapp.sendListMessage(
     phone,
-    MESSAGES.MAIN_MENU.TEXT,
+    shop ? MESSAGES.MAIN_MENU.TEXT_NAMED.replace("{{shop}}", shop) : MESSAGES.MAIN_MENU.TEXT,
     MESSAGES.MAIN_MENU.LIST_BUTTON,
     sections
   );

@@ -10,6 +10,8 @@ import { autoramp } from "@/services/autoramp";
 import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
 import { cleanPhone, formatAmount, formatCurrency, redactSensitiveText } from "@/utils/helpers";
+import { applyOfframpEvent } from "@/services/cashout";
+import { outcomeFromEvent, verifyTodenWebhook } from "@/services/toden";
 import { failInvoicePayment, getInvoiceByReference, settleInvoicePayment } from "@/services/invoice";
 import { MESSAGES, KYC_STATUS } from "@/config/constants";
 
@@ -213,6 +215,65 @@ router.post("/autoramp", async (req: Request, res: Response) => {
 // ============================================
 // Flutterwave Webhook (POST)
 // ============================================
+// ============================================
+// Toden identity verification result
+// ============================================
+router.post("/toden", async (req: Request, res: Response) => {
+  const secrets = [config.toden.webhookSecret, config.toden.webhookSecretPrevious];
+  let event: any;
+  try {
+    event = verifyTodenWebhook(
+      Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {})),
+      String(req.header("X-Myaza-Signature-V2") || ""),
+      secrets
+    );
+  } catch (error: any) {
+    logger.warn("Toden webhook rejected", { reason: error?.message });
+    return res.status(401).send("Invalid signature");
+  }
+
+  // Acknowledge first; Toden retries on anything but 2xx.
+  res.status(200).send("OK");
+
+  try {
+    // Dedupe on the event id: a retry must not message the merchant twice.
+    const seen = await prisma.webhookEvent.findFirst({ where: { source: "toden", reference: event.id } });
+    if (seen) return;
+    await logWebhookEvent("toden", String(event.type ?? event.event ?? "unknown"), { id: event.id }, event.id);
+
+    const result = outcomeFromEvent(event);
+    if (!result) return;
+
+    const user = await prisma.user.findUnique({ where: { id: result.userId } });
+    if (!user) {
+      logger.warn("Toden result for an unknown user", { eventId: event.id });
+      return;
+    }
+
+    if (result.outcome === "approved") {
+      await prisma.user.update({ where: { id: user.id }, data: { kycStatus: KYC_STATUS.VERIFIED } });
+      await whatsapp.sendTextMessage(user.phone, "*You're verified*\n\nThanks. You can now cash out your balance. Type /cashout to start.").catch(() => {});
+    } else if (result.outcome === "declined") {
+      await prisma.user.update({ where: { id: user.id }, data: { kycStatus: KYC_STATUS.REJECTED } });
+      await whatsapp
+        .sendTextMessage(
+          user.phone,
+          `*We couldn't verify you*\n\n${result.reason ? `${result.reason}\n\n` : ""}Type /verify to try again.`
+        )
+        .catch(() => {});
+    } else {
+      await whatsapp
+        .sendTextMessage(
+          user.phone,
+          `*One more step*\n\n${result.reason ? `${result.reason}\n\n` : ""}${result.resubmissionUrl ? `Please retake it here:\n${result.resubmissionUrl}` : "Type /verify to continue."}`
+        )
+        .catch(() => {});
+    }
+  } catch (error: any) {
+    logger.error("Toden webhook handling failed", { eventId: event?.id, error: error?.message });
+  }
+});
+
 router.post("/flutterwave", async (req: Request, res: Response) => {
   // v3 signs with a plain secret-hash header (`verif-hash`); v4 replaced it
   // with `flutterwave-signature`, an HMAC over the raw body. Accept either -
@@ -395,6 +456,28 @@ async function handleOnrampEvent(event: string, data: any) {
 
 async function handleOfframpEvent(event: string, data: any) {
   logger.info("Offramp event", { event, reference: data.reference, status: data.status });
+
+  // A merchant cash-out: settle (or reverse) it and tell them.
+  if (data.reference && (event === "offramp.completed" || event === "offramp.failed")) {
+    const done = await applyOfframpEvent(event, data.reference).catch((error: any) => {
+      logger.error("Cash-out settle failed", { reference: data.reference, error: error?.message });
+      return null;
+    });
+    if (done) {
+      const user = await prisma.user.findUnique({ where: { id: done.userId } });
+      if (user?.phone) {
+        await whatsapp
+          .sendTextMessage(
+            user.phone,
+            done.outcome === "completed"
+              ? `*Cash-out sent*\n\n₦${done.ngn.toLocaleString("en-US")} is on its way to your bank account.`
+              : `*Cash-out failed*\n\nWe couldn't complete it, and ${formatCurrency(done.amount, done.currency)} is back in your balance.`
+          )
+          .catch(() => {});
+      }
+      return;
+    }
+  }
 
   if (data.reference) {
     const transaction = await prisma.transaction.findFirst({

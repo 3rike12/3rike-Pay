@@ -25,7 +25,7 @@ const h = vi.hoisted(() => {
         name: "Test Shop",
         email: "shop@test.example",
         phone: "0788000111",
-        country: "RW",
+        country: "KE",
         registrationNumber: null,
       } as any,
     },
@@ -41,6 +41,14 @@ const h = vi.hoisted(() => {
     updateSession: vi.fn(),
     resetSession: vi.fn(),
     getSession: vi.fn(),
+    listPaidInvoices: vi.fn(),
+    listBalances: vi.fn(),
+    businessUpdate: vi.fn(async () => ({})),
+    createSession: vi.fn(),
+    listBanks: vi.fn(),
+    nameEnquiry: vi.fn(),
+    quoteCashout: vi.fn(),
+    requestCashout: vi.fn(),
   };
 });
 
@@ -62,13 +70,25 @@ vi.mock("@/services/autoramp", () => ({
     transfer: vi.fn(),
     getSubAccount: vi.fn(),
     verifyIdentity: vi.fn(),
+    listBanks: (...args: any[]) => h.listBanks(...args),
+    nameEnquiry: (...args: any[]) => h.nameEnquiry(...args),
   },
+}));
+
+vi.mock("@/services/toden", () => ({
+  createVerificationSession: (...args: any[]) => h.createSession(...args),
+}));
+
+vi.mock("@/services/cashout", () => ({
+  quoteCashout: (...args: any[]) => h.quoteCashout(...args),
+  requestCashout: (...args: any[]) => h.requestCashout(...args),
 }));
 
 vi.mock("@/services/database", () => ({
   prisma: {
     webhookEvent: { findFirst: vi.fn().mockResolvedValue(null) },
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), update: vi.fn(async () => ({})) },
+    business: { update: (...args: any[]) => h.businessUpdate(...args) },
     transaction: { findUnique: vi.fn() },
   },
   findOrCreateUser: vi.fn(async () => h.user),
@@ -80,6 +100,10 @@ vi.mock("@/services/database", () => ({
   logWebhookEvent: vi.fn(),
 }));
 
+vi.mock("@/services/ledger", () => ({
+  ledger: { listBalances: (...args: any[]) => h.listBalances(...args) },
+}));
+
 vi.mock("@/services/invoice", () => ({
   createProduct: (...args: any[]) => h.createProduct(...args),
   listProducts: (...args: any[]) => h.listProducts(...args),
@@ -88,6 +112,7 @@ vi.mock("@/services/invoice", () => ({
   renderInvoiceSummary: (...args: any[]) => h.renderInvoiceSummary(...args),
   scheduleInvoiceVerification: (...args: any[]) => h.scheduleInvoiceVerification(...args),
   expireStaleInvoices: (...args: any[]) => h.expireStaleInvoices(...args),
+  listPaidInvoices: (...args: any[]) => h.listPaidInvoices(...args),
   humanizeChargeError: (error: unknown) =>
     error instanceof Error ? error.message : String((error as any)?.message ?? error ?? ""),
 }));
@@ -174,7 +199,7 @@ describe("product command", () => {
       merchantId: "user_1",
       name: "Batteries",
       price: 1000,
-      currency: "RWF",
+      currency: "KES",
     });
     expect(reply).toContain("Added *Batteries*");
     expect(h.resetSession).toHaveBeenCalled();
@@ -199,7 +224,7 @@ describe("product command", () => {
       merchantId: "user_1",
       name: "Umbrella",
       price: 5000,
-      currency: "RWF",
+      currency: "KES",
     });
     expect(reply).toContain("Added *Umbrella*");
     expect(h.session.state).toBe("idle");
@@ -411,6 +436,7 @@ describe("invoice conversation", () => {
     expect(h.createDraftInvoice).toHaveBeenCalledWith({
       merchantId: "user_1",
       buyerPhone: "0781234567",
+      currency: "KES",
       items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],
     });
     expect(h.chargeInvoice).toHaveBeenCalledWith({
@@ -570,5 +596,318 @@ describe("invoice conversation", () => {
     expect(reply).toContain("Payment request issued");
     expect(reply).not.toContain("has not been sent anything");
     expect(reply).not.toContain("provider returned no payment link");
+  });
+});
+
+
+// ============================================
+// The merchant's screens while mobile money and the bank features are off
+// ============================================
+
+import { config } from "@/config";
+
+/** Run `fn` with mobile money switched off (the product's default), then restore. */
+async function withMobileMoneyOff(fn: () => Promise<void>) {
+  (config.features as any).mobileMoneyEnabled = false;
+  try {
+    await fn();
+  } finally {
+    (config.features as any).mobileMoneyEnabled = true;
+  }
+}
+
+describe("invoice without mobile money", () => {
+  it("never asks for the customer's number", async () => {
+    await withMobileMoneyOff(async () => {
+      setSession(SESSION_STATE.INVOICE_ITEMS, {});
+
+      const reply = await say("2 waters at 1500");
+
+      expect(h.session.state).toBe(SESSION_STATE.INVOICE_CONFIRM); // not INVOICE_PHONE
+      expect(reply).toContain("*Confirm invoice*");
+      expect(reply).toContain("Total: RWF 3,000");
+      expect(reply).not.toContain("Buyer:");
+      expect(reply).toContain("create the payment link");
+      expect(reply).not.toMatch(/mobile number/i);
+    });
+  });
+
+  it("the opening prompt does not mention a customer number", async () => {
+    await withMobileMoneyOff(async () => {
+      const reply = await say("/invoice");
+      expect(reply).toBe(MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS_LINK);
+      expect(reply).not.toMatch(/number/i);
+    });
+  });
+
+  it("confirming without a number is accepted (it is not an 'invalid items' error)", async () => {
+    await withMobileMoneyOff(async () => {
+      setSession(SESSION_STATE.INVOICE_CONFIRM, { items: [{ name: "waters", qty: 2, unitPrice: 1500 }] });
+
+      const reply = await say("yes");
+
+      // NEAR is not configured in this test, so the merchant is told to wait -
+      // the point is that the missing number did not reject the invoice.
+      expect(reply).not.toBe(MESSAGES.BUSINESS.INVOICE.INVALID_ITEMS);
+      expect(reply).toContain("temporarily unavailable");
+    });
+  });
+
+  it("still asks for the number when mobile money is on", async () => {
+    setSession(SESSION_STATE.INVOICE_ITEMS, {});
+    await say("2 waters at 1500");
+    expect(h.session.state).toBe(SESSION_STATE.INVOICE_PHONE);
+  });
+});
+
+describe("balance without bank features", () => {
+  it("shows ONE balance in the merchant's currency, with next-step buttons and no bank block", async () => {
+    h.listBalances.mockResolvedValue([{ currency: "KES", balance: 12500 }]);
+
+    const reply = await say("/balance");
+
+    expect(reply).toContain("*Your balance*");
+    expect(reply).toContain("KES 12,500");
+    expect(reply).not.toMatch(/bank|not linked|account:/i);
+    expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([
+      { id: "create_invoice", title: "New invoice" },
+      { id: "transactions", title: "Payments" },
+      { id: "set_currency", title: "Change currency" },
+    ]);
+  });
+
+  it("never lists the leftover RWF / NGN wallets", async () => {
+    h.listBalances.mockResolvedValue([
+      { currency: "NGN", balance: 0 },
+      { currency: "RWF", balance: 900 },
+      { currency: "KES", balance: 12500 },
+    ]);
+    const reply = await say("/balance");
+    expect(reply).toContain("KES 12,500");
+    expect(reply).not.toMatch(/RWF|NGN/);
+  });
+
+  it("follows the currency the merchant picked", async () => {
+    h.user.business.country = "NG";
+    try {
+      h.listBalances.mockResolvedValue([{ currency: "NGN", balance: 5000 }, { currency: "KES", balance: 1 }]);
+      const reply = await say("/balance");
+      expect(reply).toMatch(/NGN\s?5,000/);
+      expect(reply).not.toContain("KES");
+    } finally {
+      h.user.business.country = "KE";
+    }
+  });
+
+  it("says so, and points to invoicing, when nothing has been received", async () => {
+    h.listBalances.mockResolvedValue([]);
+    const reply = await say("/balance");
+    expect(reply).toContain("KES 0");
+    expect(reply).toContain("Nothing received yet");
+  });
+
+  it("reports a ledger failure instead of showing a wrong balance", async () => {
+    h.listBalances.mockRejectedValue(new Error("db down"));
+    const reply = await say("/balance");
+    expect(reply).toBe(MESSAGES.CHECK_BALANCE.ERROR);
+  });
+});
+
+describe("cash out to a bank", () => {
+  const quote = { currency: "KES", amount: 13000, usd: 100, ngn: 150000, usdc: 100, rate: 1500 };
+  beforeEach(() => {
+    h.listBanks.mockResolvedValue([{ code: "000013", name: "GTBank" }, { code: "000014", name: "Access Bank" }]);
+    h.nameEnquiry.mockResolvedValue({ accountName: "ADA OBI" });
+    h.quoteCashout.mockResolvedValue(quote);
+    h.requestCashout.mockResolvedValue({ reference: "OFR-1", status: "awaiting_signature", quote, depositAddress: "0xramp" });
+  });
+
+  it("explains the format when the command is incomplete", async () => {
+    expect(await say("/cashout")).toContain("/cashout <amount> <bank> <account number>");
+    expect(await say("/cashout 5000 gtbank 123")).toContain("/cashout <amount> <bank> <account number>");
+    expect(h.requestCashout).not.toHaveBeenCalled();
+  });
+
+  it("shows naira, the verified account name and Yes / No before sending anything", async () => {
+    const reply = await say("/cashout 13000 gtbank 0123456789");
+
+    expect(h.quoteCashout).toHaveBeenCalledWith("KES", 13000);
+    expect(reply).toContain("₦150,000");
+    expect(reply).toContain("ADA OBI");
+    expect(reply).toContain("GTBank");
+    expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([
+      { id: "cashout_yes", title: "Yes" },
+      { id: "cashout_no", title: "No" },
+    ]);
+    expect(h.requestCashout).not.toHaveBeenCalled();
+    expect(h.session.state).toBe("cashout_confirm");
+  });
+
+  it("sends the cash-out only after Yes", async () => {
+    await say("/cashout 13000 gtbank 0123456789");
+    const reply = await say("", "cashout_yes");
+
+    expect(h.requestCashout).toHaveBeenCalledWith({
+      userId: "user_1", currency: "KES", amount: 13000, bankCode: "000013",
+      accountNumber: "0123456789", accountName: "ADA OBI", bankName: "GTBank",
+    });
+    expect(reply).toContain("*Cash-out started*");
+    expect(h.session.state).toBe("idle");
+  });
+
+  it("stops on No without sending", async () => {
+    await say("/cashout 13000 gtbank 0123456789");
+    const reply = await say("", "cashout_no");
+    expect(reply).toContain("cancelled");
+    expect(h.requestCashout).not.toHaveBeenCalled();
+  });
+
+  it("does not continue when the account cannot be verified", async () => {
+    h.nameEnquiry.mockResolvedValue({});
+    const reply = await say("/cashout 13000 gtbank 0123456789");
+    expect(reply).toContain("couldn't verify that account");
+    expect(h.session.state).toBe("idle");
+  });
+
+  it("reports an unknown bank and a limit error plainly", async () => {
+    expect(await say("/cashout 13000 nosuchbank 0123456789")).toContain("couldn't find a bank");
+    h.quoteCashout.mockRejectedValue(new Error("The minimum cash-out is about $5."));
+    expect(await say("/cashout 10 gtbank 0123456789")).toBe("The minimum cash-out is about $5.");
+  });
+
+  it("is reachable from the menu row", async () => {
+    expect(await say("", "cash_out")).toContain("/cashout <amount> <bank> <account number>");
+  });
+});
+
+describe("identity check before payouts", () => {
+  const prior = { ...(config as any).toden };
+  beforeEach(() => {
+    (config as any).toden = { enabled: true };
+    h.createSession.mockResolvedValue({ sessionId: "s1", url: "https://console.toden.co/verify/abc", expiresAt: null });
+  });
+  const restore = () => { (config as any).toden = prior; h.user.kycStatus = "none"; };
+
+  it("blocks /cashout and /withdraw until verified, pointing to /verify", async () => {
+    try {
+      for (const cmd of ["/cashout 13000 gtbank 0123456789", "/withdraw 10 usdc base 0x1234"]) {
+        expect(await say(cmd)).toContain("/verify");
+      }
+      expect(h.requestCashout).not.toHaveBeenCalled();
+      expect(h.quoteCashout).not.toHaveBeenCalled();
+    } finally { restore(); }
+  });
+
+  it("/verify sends the hosted link and marks the merchant pending", async () => {
+    try {
+      const reply = await say("/verify");
+      expect(h.createSession).toHaveBeenCalledWith({ externalUserId: "user_1" });
+      expect(reply).toContain("https://console.toden.co/verify/abc");
+    } finally { restore(); }
+  });
+
+  it("lets a verified merchant straight through", async () => {
+    h.user.kycStatus = "verified";
+    h.listBanks.mockResolvedValue([{ code: "000013", name: "GTBank" }]);
+    h.nameEnquiry.mockResolvedValue({ accountName: "ADA OBI" });
+    h.quoteCashout.mockResolvedValue({ currency: "KES", amount: 13000, usd: 100, ngn: 150000, usdc: 100, rate: 1500 });
+    try {
+      expect(await say("/cashout 13000 gtbank 0123456789")).toContain("Confirm cash-out");
+      expect(await say("/verify")).toContain("already verified");
+    } finally { restore(); }
+  });
+
+  it("does nothing special when identity checks are not configured", async () => {
+    (config as any).toden = { enabled: false };
+    h.quoteCashout.mockResolvedValue({ currency: "KES", amount: 1, usd: 1, ngn: 1500, usdc: 1, rate: 1500 });
+    try {
+      expect(await say("/cashout")).toContain("/cashout <amount>");
+    } finally { restore(); }
+  });
+});
+
+describe("currency menu", () => {
+  it("offers Kenya, Tanzania and Nigeria as buttons from /currency and the menu row", async () => {
+    for (const send of [() => say("/currency"), () => say("", "set_currency")]) {
+      const reply = await send();
+      expect(reply).toContain("*KES*");
+      expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([
+        { id: "currency_KES", title: "Kenya (KES)" },
+        { id: "currency_TZS", title: "Tanzania (TZS)" },
+        { id: "currency_NGN", title: "Nigeria (NGN)" },
+      ]);
+    }
+  });
+
+  it("saves the choice on the business and confirms it", async () => {
+    const reply = await say("", "currency_TZS");
+    expect(h.businessUpdate).toHaveBeenCalledWith({ where: { userId: "user_1" }, data: { country: "TZ" } });
+    expect(reply).toContain("*TZS*");
+  });
+
+  it("ignores a currency we do not offer", async () => {
+    await say("", "currency_RWF");
+    expect(h.businessUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("payments screen", () => {
+  const paid = (over: Record<string, unknown> = {}) => ({
+    id: "i1", amount: 3000, currency: "RWF", paidAt: new Date("2026-11-12T10:00:00Z"),
+    items: [{ name: "waters", qty: 2, unitPrice: 1500 }], ...over,
+  });
+
+  it("lists recent paid invoices with a total, instead of a bank-account dead end", async () => {
+    h.listPaidInvoices.mockResolvedValue([paid(), paid({ id: "i2", amount: 2000, items: [{ name: "soda", qty: 1, unitPrice: 2000 }] })]);
+
+    const reply = await say("/transactions");
+
+    expect(reply).toContain("*Recent payments*");
+    expect(reply).toContain("1. RWF 3,000 - 2 x waters");
+    expect(reply).toContain("2. RWF 2,000 - 1 x soda");
+    expect(reply).toContain("Total received: RWF 5,000");
+    expect(reply).not.toMatch(/create wallet|verify/i);
+  });
+
+  it("works from the /payments command and the menu row too", async () => {
+    h.listPaidInvoices.mockResolvedValue([paid()]);
+    expect(await say("/payments")).toContain("*Recent payments*");
+    expect(await say("", "transactions")).toContain("*Recent payments*");
+  });
+
+  it("has a friendly empty state", async () => {
+    h.listPaidInvoices.mockResolvedValue([]);
+    expect(await say("/payments")).toBe(MESSAGES.PAYMENTS.EMPTY);
+  });
+
+  it("totals each currency separately", async () => {
+    h.listPaidInvoices.mockResolvedValue([paid(), paid({ id: "i2", amount: 20000, currency: "NGN" })]);
+    const reply = await say("/payments");
+    expect(reply).toContain("RWF 3,000");
+    expect(reply).toMatch(/NGN\s?20,000/);
+  });
+});
+
+describe("main menu", () => {
+  it("is personalised with the shop name and has no bank rows", async () => {
+    await say("/menu");
+
+    const call = vi.mocked(whatsapp.sendListMessage).mock.calls.at(-1)!;
+    expect(call[1]).toContain("Test Shop");
+    const rows = (call[3] as any[]).flatMap((s) => s.rows.map((r: any) => r.id));
+    expect(rows).toEqual(expect.arrayContaining(["create_invoice", "invoices", "create_product", "business_profile", "check_balance", "transactions"]));
+    expect(rows).not.toContain("send_money");
+  });
+
+  it("sends a brand-new merchant to shop setup instead of a menu that goes nowhere", async () => {
+    h.user.business = null;
+    try {
+      const reply = await say("/menu");
+      expect(reply).toContain("Let's set up your shop");
+      expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([{ id: "business_profile", title: "Set up my shop" }]);
+      expect(vi.mocked(whatsapp.sendListMessage)).not.toHaveBeenCalled();
+    } finally {
+      h.user.business = { id: "biz_1", userId: "user_1", name: "Test Shop", email: "shop@test.example", phone: "0788000111", country: "KE", registrationNumber: null };
+    }
   });
 });

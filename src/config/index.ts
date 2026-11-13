@@ -125,6 +125,7 @@ export const config = {
       RWF: 1450,
       NGN: 1550,
       KES: 129,
+      TZS: 2600,
       GHS: 15,
       ...(JSON.parse(process.env.NEAR_INTENTS_FX_RATES || "{}") as Record<string, number>),
     } as Record<string, number>,
@@ -167,6 +168,22 @@ export const config = {
     currency: process.env.APP_CURRENCY || "NGN",
     merchantEmail: process.env.MERCHANT_EMAIL || "",
     merchantName: process.env.MERCHANT_NAME || "",
+  },
+
+  /**
+   * Toden identity verification (basic KYC): a hosted link the merchant opens
+   * on their phone (ID document + selfie + liveness). Set TODEN_SECRET_KEY and
+   * TODEN_WORKFLOW_ID to turn it on; payouts then require a verified merchant.
+   * Use https://sandbox-api.toden.co with sandbox keys while testing.
+   */
+  toden: {
+    baseUrl: (process.env.TODEN_API_URL || "https://api.toden.co").replace(/\/$/, ""),
+    secretKey: process.env.TODEN_SECRET_KEY || "",
+    workflowId: process.env.TODEN_WORKFLOW_ID || "",
+    webhookSecret: process.env.TODEN_WEBHOOK_SECRET || "",
+    /** Previous webhook secret, accepted during a rotation. */
+    webhookSecretPrevious: process.env.TODEN_WEBHOOK_SECRET_PREVIOUS || "",
+    enabled: !!(process.env.TODEN_SECRET_KEY && process.env.TODEN_WORKFLOW_ID),
   },
 
   features: {

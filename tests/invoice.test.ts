@@ -831,3 +831,65 @@ describe("renderPaidInvoiceMessage (crypto payments)", () => {
     expect(msg).not.toContain("Transaction:");
   });
 });
+
+
+describe("invoices without a buyer phone (crypto)", () => {
+  it("createDraftInvoice accepts no phone and stores an empty one", async () => {
+    const { createDraftInvoice } = await import("@/services/invoice");
+    const inv: any = await createDraftInvoice({
+      merchantId: "merch_1",
+      items: [{ name: "waters", qty: 2, unitPrice: 1500 }],
+    });
+    expect(inv.buyerPhone).toBe("");
+    expect(inv.amount).toBe(3000);
+  });
+
+  it("still rejects a phone that IS given but is not a Rwanda mobile", async () => {
+    const { createDraftInvoice } = await import("@/services/invoice");
+    await expect(
+      createDraftInvoice({ merchantId: "merch_1", buyerPhone: "12345", items: [{ name: "x", qty: 1, unitPrice: 100 }] })
+    ).rejects.toThrow(/Rwanda mobile number/);
+  });
+
+  it("mobile money refuses an invoice that has no phone", async () => {
+    seedInvoice({ buyerPhone: "", status: "sent" });
+    await expect(chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" })).rejects.toThrow(/phone number/);
+    expect(charge).not.toHaveBeenCalled();
+  });
+});
+
+describe("renderInvoiceSummary for the merchant", () => {
+  const base = { reference: "R", amount: 3000, currency: "RWF", items: [{ name: "waters", qty: 2, unitPrice: 1500 }], buyerPhone: "" };
+
+  it("omits the buyer line when there is no buyer phone, and shows a plain status", async () => {
+    const { renderInvoiceSummary } = await import("@/services/invoice");
+    const text = renderInvoiceSummary({ ...base, status: "sent" });
+    expect(text).not.toContain("Buyer:");
+    expect(text).toContain("Status: Awaiting payment");
+    expect(text).not.toContain("pending_payment");
+  });
+
+  it("labels paid and expired plainly", async () => {
+    const { renderInvoiceSummary } = await import("@/services/invoice");
+    expect(renderInvoiceSummary({ ...base, status: "paid" })).toContain("Status: Paid");
+    expect(renderInvoiceSummary({ ...base, status: "expired" })).toContain("Status: Expired");
+  });
+
+  it("includes the payment link to re-share when one is given", async () => {
+    const { renderInvoiceSummary } = await import("@/services/invoice");
+    const text = renderInvoiceSummary({ ...base, status: "sent" }, { payUrl: "https://pay.3rike.com/pay/R" });
+    expect(text).toContain("Payment link (send this to your customer):");
+    expect(text).toContain("https://pay.3rike.com/pay/R");
+  });
+});
+
+describe("listPaidInvoices", () => {
+  it("returns the merchant's paid invoices, newest first, with a capped page size", async () => {
+    const { listPaidInvoices } = await import("@/services/invoice");
+    await listPaidInvoices("merch_1", 10);
+    await listPaidInvoices("merch_1", 500);
+    const calls = vi.mocked(prisma.invoice.findMany).mock.calls;
+    expect(calls.at(-2)![0]).toMatchObject({ where: { merchantId: "merch_1", status: "paid" }, orderBy: { paidAt: "desc" }, take: 10 });
+    expect(calls.at(-1)![0]).toMatchObject({ take: 25 });
+  });
+});

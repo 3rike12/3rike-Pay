@@ -53,42 +53,53 @@
         "rows": [
           {
             "id": "create_invoice",
-            "title": "New Invoice",
-            "description": "Request payment from a customer"
+            "title": "New invoice",
+            "description": "Get paid by a customer"
           },
           {
             "id": "invoices",
             "title": "Invoices",
-            "description": "See your recent invoices"
+            "description": "See what's paid and unpaid"
           },
           {
             "id": "create_product",
-            "title": "Add Product",
-            "description": "Add an item to your catalogue"
+            "title": "Add a product",
+            "description": "Save items and prices"
           },
           {
             "id": "business_profile",
-            "title": "Business Profile",
-            "description": "Set up your shop details"
+            "title": "Business profile",
+            "description": "Your shop details"
+          },
+          {
+            "id": "set_currency",
+            "title": "Currency",
+            "description": "KES, TZS or NGN"
           }
         ]
       },
       {
-        "title": "Account",
+        "title": "Your money",
         "rows": [
           {
             "id": "check_balance",
-            "title": "Check Balance",
-            "description": "View your balance"
+            "title": "Balance",
+            "description": "What you've earned"
           },
           {
             "id": "transactions",
-            "title": "Transactions",
-            "description": "View recent transactions"
+            "title": "Payments",
+            "description": "Money you've received"
+          },
+          {
+            "id": "cash_out",
+            "title": "Cash out",
+            "description": "Send your balance to a bank"
           }
         ]
       }
-    ]
+    ],
+    "TEXT_NAMED": "*{{shop}}*\n\nWhat would you like to do?"
   },
   "SEND_MONEY": {
     "PROMPT_AMOUNT": "Enter the amount to send (e.g. 5000):",
@@ -115,7 +126,9 @@
   "CHECK_BALANCE": {
     "TEXT": "*Your Balance*\n\n*Wallet*\n{{wallet}}\n\n*Bank Account*\nBank: {{bank}}\nAccount: {{account}}\nBalance: {{balance}}",
     "NO_BALANCE": "*Your Account*\n\nBank: {{bank}}\nAccount: {{account}}\n\nYour balance isn't available right now. Please try again in a moment.",
-    "ERROR": "Could not fetch balance. Please try again later."
+    "ERROR": "Could not fetch balance. Please try again later.",
+    "WALLET_TEXT": "*Your balance*\n\n{{wallet}}\n\nThis is what you've received from paid invoices, after fees.",
+    "WALLET_EMPTY": "*Your balance*\n\n{{wallet}}\n\nNothing received yet. Create an invoice to get paid."
   },
   "TRANSACTIONS": {
     "TEXT": "*Your Transactions*\n\n{{list}}\n\nType /start for menu.",
@@ -123,7 +136,7 @@
     "ERROR": "Could not load transactions. Please try again later."
   },
   "HELP": {
-    "TEXT": "*3rike Pay Commands*\n\n• /invoice - Request payment from a customer\n• /invoices - Your recent invoices\n• /product - Add a product to your catalogue\n• /products - Your product catalogue\n• /business - Set up your business profile\n• /balance - Check your balance\n• /transactions - View transactions\n• /help - Show this help\n• /cancel - Cancel current action\n\nType /cancel at any point to get out of a flow.\n\n*How it works:*\nCreate an invoice and send your customer the pay link. They pay from any chain or token, and you're credited in your own currency.",
+    "TEXT": "*3rike Pay Commands*\n\n• /invoice - Request payment from a customer\n• /invoices - Your recent invoices\n• /product - Add a product to your catalogue\n• /products - Your product catalogue\n• /business - Set up your business profile\n• /balance - Check your balance\n• /currency - Change your currency (KES, TZS, NGN)\n• /payments - Payments you've received\n• /cashout - Send your balance to a Nigerian bank\n• /verify - Verify your identity (needed to cash out)\n• /help - Show this help\n• /cancel - Cancel current action\n\nType /cancel at any point to get out of a flow.\n\n*How it works:*\nCreate an invoice and send your customer the pay link. They pay from any chain or token, and you're credited in your own currency.",
     "UNKNOWN_TEXT": "I didn't catch that.\n\nTry:\n• /invoice - request payment from a customer\n• /product - add an item to your catalogue\n• /menu - main menu\n• /help - all commands"
   },
   "CANCEL": "Session cancelled. Send /start to begin again.",
@@ -290,7 +303,9 @@
       "CONFIRM_HINT": "\n\nTap *Yes* to send the payment request, or *No* to stop.",
       "ISSUED": "Share the payment link with your customer so they can approve it.",
       "ISSUED_PUSH": "I've sent the payment request to the customer. Their phone is showing a payment prompt to approve.",
-      "ERROR": "Could not start the payment: {{reason}}\n\nYour invoice is saved.\n\nReply *yes* to send the payment request, or *cancel* to stop."
+      "ERROR": "Could not start the payment: {{reason}}\n\nYour invoice is saved.\n\nReply *yes* to send the payment request, or *cancel* to stop.",
+      "PROMPT_ITEMS_LINK": "What should the customer pay for?\n\nExample:\n*3 batteries and 2 water*\n\nI'll use the prices from your catalogue, or ask you for any I don't know.",
+      "CONFIRM_HINT_LINK": "\n\nTap *Yes* to create the payment link, or *No* to stop."
     },
     "INVOICES": {
       "LIST_HEADER": "*Your invoices*",
@@ -312,5 +327,10 @@
       "FAILED": "I couldn't open the business form. Please try again in a moment.",
       "SAVED": "Your business profile is saved.\n\n{{details}}\n\nType /invoice to request payment."
     }
+  },
+  "PAYMENTS": {
+    "TEXT": "*Recent payments*\n\n{{list}}\n\n*Total received: {{total}}*",
+    "EMPTY": "You haven't received any payments yet.\n\nCreate your first invoice with /invoice.",
+    "ERROR": "I couldn't load your payments. Please try again."
   }
 }
