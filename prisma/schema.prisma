@@ -16,6 +16,7 @@ model User {
   name      String?
   kycStatus String   @default("none") // none | pending | verified
   status    String   @default("active") // active | flagged | blocked
+  currency  String?  // balance currency the user picked: KES | TZS | NGN (null = default)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
