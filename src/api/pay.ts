@@ -39,6 +39,13 @@ const limiter = rateLimit({
 export const payPageRouter = Router();
 export const payApiRouter = Router();
 
+// Where the page should call the API. The backend serves its own pay page from
+// the same origin, so this is empty; a separately hosted copy (Vercel) generates
+// its own file at build time.
+payPageRouter.get("/config.js", (_req: Request, res: Response) => {
+  res.type("application/javascript").set("Cache-Control", "no-cache").send("window.PAY_CONFIG = window.PAY_CONFIG || {};\n");
+});
+
 // Brand favicon. Declared before "/:reference" so it is not read as an invoice.
 payPageRouter.get("/favicon.png", (_req: Request, res: Response) => {
   res.set("Cache-Control", "public, max-age=86400").sendFile(path.join(__dirname, "../../public/favicon.png"));

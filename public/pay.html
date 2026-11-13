@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
 <link rel="icon" type="image/png" href="/pay/favicon.png">
 <link rel="apple-touch-icon" href="/pay/favicon.png">
 <title>Pay invoice · 3rike Pay</title>
@@ -104,6 +105,9 @@
   #error { color: var(--warn); font-size: 13px; margin-top: 4px; }
   footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 22px; }
 
+  .notfound { text-align: center; padding: 36px 20px; }
+  .nf-code { font-size: 56px; font-weight: 800; letter-spacing: -2px; color: var(--muted); line-height: 1; }
+  .notfound h2 { margin: 10px 0 6px; font-size: 20px; }
   .pill.urgent { color: var(--warn); border-color: var(--warn); }
 
   /* receipt */
@@ -207,16 +211,26 @@
     </details>
   </section>
 
+  <section class="card notfound hidden" id="notFound">
+    <div class="nf-code">404</div>
+    <h2>Invoice not found</h2>
+    <p class="muted">This link doesn't match any invoice. Check the link, or ask the merchant to send it again.</p>
+  </section>
+
   <div id="error" role="alert"></div>
   <footer>Payments routed by NEAR Intents · 3rike Pay</footer>
 </main>
 
 <div class="backdrop hidden" id="backdrop"><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div></div>
 
+<!-- Where the API lives. Served by the backend itself (same origin, empty), or
+     generated at build time when this page is hosted separately (Vercel). -->
+<script src="/pay/config.js"></script>
 <script>
 (function () {
   var ref = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
-  var API = "/api/pay/" + encodeURIComponent(ref);
+  var API_BASE = ((window.PAY_CONFIG && window.PAY_CONFIG.apiBase) || "").replace(/\/+$/, "");
+  var API = API_BASE + "/api/pay/" + encodeURIComponent(ref);
   var $ = function (id) { return document.getElementById(id); };
 
   var inv = null, TOKENS = [], quote = null, finished = false, locked = false, sending = false, quoting = false;
@@ -622,7 +636,8 @@
 
   // ---------- boot ----------
   fetch(API).then(function (r) {
-    if (!r.ok) throw new Error("This invoice was not found.");
+    if (r.status === 404) { var nf = new Error("not found"); nf.notFound = true; throw nf; }
+    if (!r.ok) throw new Error("We couldn't load this invoice. Please try again.");
     return r.json();
   }).then(function (d) {
     inv = d; wcProjectId = d.walletConnectProjectId || null;
@@ -662,7 +677,15 @@
     show("payCard", true); renderPayWith();
     tickTimer = setInterval(tick, 1000); tick();
     if (inv.quote && inv.quote.depositAddress) applyQuote(inv.quote); else { quoting = true; skeleton(); updateUi(); requestQuote(); }
-  }).catch(function (e) { $("merchant").textContent = "Invoice"; err(e.message); });
+  }).catch(function (e) {
+    if (e && e.notFound) {
+      document.title = "Not found \u00B7 3rike Pay";
+      document.querySelector(".hero").classList.add("hidden");
+      show("notFound", true);
+      return;
+    }
+    $("merchant").textContent = "Invoice"; err(e.message);
+  });
 
   $("copy").addEventListener("click", function () {
     var t = $("addr").textContent, b = $("copy");

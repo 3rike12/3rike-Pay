@@ -54,3 +54,6 @@ demo/assets/img/
 /demo
 .env.prod
 
+
+# Generated at build time for the separately hosted pay page (Vercel)
+public/config.js

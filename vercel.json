@@ -1,0 +1,23 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": null,
+  "buildCommand": "node scripts/vercel-build.js",
+  "outputDirectory": "public",
+  "rewrites": [
+    { "source": "/pay/favicon.png", "destination": "/favicon.png" },
+    { "source": "/pay/config.js", "destination": "/config.js" },
+    { "source": "/pay/:ref", "destination": "/pay.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Robots-Tag", "value": "noindex" }
+      ]
+    },
+    { "source": "/config.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+  ]
+}
