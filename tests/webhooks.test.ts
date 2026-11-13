@@ -206,7 +206,7 @@ describe("AutoRamp webhook", () => {
         expect(updateTxn).toHaveBeenCalledWith(
           expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) })
         );
-        expect(sendTemplate).toHaveBeenCalled();
+        expect(sendText).toHaveBeenCalled();
       });
     });
 
@@ -230,7 +230,7 @@ describe("AutoRamp webhook", () => {
         expect(updateTxn).toHaveBeenCalledWith(
           expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) })
         );
-        expect(sendTemplate).toHaveBeenCalled();
+        expect(sendText).toHaveBeenCalled();
       });
     });
 
@@ -356,7 +356,7 @@ describe("AutoRamp webhook", () => {
         expect(updateTxn).toHaveBeenCalledWith(
           expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) })
         );
-        expect(sendTemplate).toHaveBeenCalled();
+        expect(sendText).toHaveBeenCalled();
       });
     });
 
