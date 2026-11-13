@@ -56,6 +56,14 @@ Other checks:
 - Other currencies: `npm run demo:invoice -- NGN 20000`.
 - There is **no testnet** for NEAR Intents, so step 6 uses mainnet with a small amount.
 
+### Add money (top-up)
+
+`/topup 13000` (or the "Add money" menu row) creates a pay link for the merchant
+themselves. They pay from any wallet on any chain, NEAR Intents settles it to
+USDC in the treasury, and their balance is credited when it lands. A top-up is
+an invoice paid by its own merchant, so it reuses the pay page, the payment
+tracking and the settle path, minus the platform fee.
+
 ### Cash out to a Nigerian bank (AutoRamp off-ramp)
 
 `/cashout 13000 gtbank 0123456789` converts the merchant's balance (in their one
