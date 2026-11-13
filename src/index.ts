@@ -2,6 +2,8 @@ import { payPageRouter, payApiRouter } from "@/api/pay";
 import { startCryptoSweeper } from "@/services/cryptoSweep";
 import { startCryptoQueue, stopCryptoQueue } from "@/services/cryptoQueue";
 import { nearIntents } from "@/services/nearIntents";
+import { setTreasurySigner } from "@/services/withdrawal";
+import { createPrivySigner } from "@/services/privySigner";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -121,6 +123,15 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 // ============================================
 async function main() {
   logger.info(`Starting ${config.app.name}...`);
+
+  // Treasury payouts: Privy server wallet when configured, otherwise manual
+  // (`npm run cashout:pending`).
+  if (config.privy.enabled) {
+    setTreasurySigner(createPrivySigner());
+    logger.info("Treasury signer: Privy server wallet");
+  } else {
+    logger.info("Treasury signer: none (payouts are parked for manual funding)");
+  }
 
   app.listen(config.port, () => {
     logger.info(`${config.app.name} running on port ${config.port}`);

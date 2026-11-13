@@ -29,7 +29,14 @@ const logger = createLogger("withdrawal");
  * are parked as `awaiting_signature` for an operator to fund by hand.
  */
 export interface TreasurySigner {
-  send(params: { to: string; amountUnits: string; asset: string }): Promise<{ txHash: string }>;
+  send(params: {
+    to: string;
+    amountUnits: string;
+    /** Token to send: an ERC-20 contract address (anything else means the treasury token). */
+    asset: string;
+    /** Our payout reference: makes a retry safe (the same reference is never sent twice). */
+    reference?: string;
+  }): Promise<{ txHash: string }>;
 }
 
 let signer: TreasurySigner | null = null;
@@ -158,7 +165,8 @@ export async function requestWithdrawal(params: {
     const { txHash } = await signer.send({
       to: quote.depositAddress,
       amountUnits: quote.amountIn,
-      asset: config.nearIntents.originAsset,
+      asset: config.treasury.tokenContract,
+      reference,
     });
     return { ...base, status: "processing", txHash };
   } catch (error: any) {

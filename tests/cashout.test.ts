@@ -110,7 +110,7 @@ describe("requestCashout", () => {
     const send = vi.fn().mockResolvedValue({ txHash: "0xtx" });
     setTreasurySigner({ send });
     const r = await requestCashout({ userId: "u1", currency: "KES", amount: 13000, ...bank });
-    expect(send).toHaveBeenCalledWith({ to: "0xramp", amountUnits: "100000000", asset: "0xusdc" });
+    expect(send).toHaveBeenCalledWith({ to: "0xramp", amountUnits: "100000000", asset: "0xusdc", reference: "OFR-1" });
     expect(r).toMatchObject({ status: "processing", txHash: "0xtx" });
   });
 

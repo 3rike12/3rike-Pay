@@ -4,7 +4,7 @@ vi.mock("@/config", () => ({
   config: {
     logLevel: "debug",
     redis: {},
-    treasury: { address: "0xtreasury", tokenDecimals: 6, minWithdrawUsd: 5, maxWithdrawUsd: 2000 },
+    treasury: { address: "0xtreasury", tokenContract: "0xusdc", tokenDecimals: 6, minWithdrawUsd: 5, maxWithdrawUsd: 2000 },
     nearIntents: {
       originAsset: "nep141:usdc-base",
       fxRates: { USD: 1, RWF: 1450 },
@@ -80,7 +80,7 @@ describe("requestWithdrawal", () => {
     const r = await requestWithdrawal(base);
     expect(r.status).toBe("processing");
     expect(r.txHash).toBe("0xhash");
-    expect(send).toHaveBeenCalledWith({ to: "0xdep", amountUnits: "10000000", asset: "nep141:usdc-base" });
+    expect(send).toHaveBeenCalledWith({ to: "0xdep", amountUnits: "10000000", asset: "0xusdc", reference: expect.any(String) });
   });
 
   it("restores the balance if the quote fails", async () => {

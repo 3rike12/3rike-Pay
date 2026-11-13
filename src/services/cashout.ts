@@ -186,6 +186,7 @@ export async function requestCashout(params: {
       to: depositAddress,
       amountUnits: BigInt(Math.round(quote.usdc * 10 ** config.treasury.tokenDecimals)).toString(),
       asset: config.treasury.tokenContract,
+      reference,
     });
     await prisma.transaction.updateMany({
       where: { reference },

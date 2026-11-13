@@ -171,6 +171,29 @@ export const config = {
   },
 
   /**
+   * Privy server wallet that signs treasury payouts (USDC on Base). Privy
+   * holds the key; this server only holds an authorization key that lets it
+   * ask Privy to send. All of PRIVY_APP_ID, PRIVY_APP_SECRET,
+   * PRIVY_AUTHORIZATION_KEY and PRIVY_TREASURY_WALLET_ID turn it on; without
+   * them payouts stay manual (`npm run cashout:pending`).
+   */
+  privy: {
+    appId: process.env.PRIVY_APP_ID || "",
+    appSecret: process.env.PRIVY_APP_SECRET || "",
+    /** The authorization key's private key (the `wallet-auth:...` value). */
+    authorizationKey: process.env.PRIVY_AUTHORIZATION_KEY || "",
+    walletId: process.env.PRIVY_TREASURY_WALLET_ID || "",
+    /** Let Privy pay gas (needs app-pays sponsorship + credits in the dashboard). */
+    sponsorGas: process.env.PRIVY_SPONSOR_GAS === "true",
+    enabled: !!(
+      process.env.PRIVY_APP_ID &&
+      process.env.PRIVY_APP_SECRET &&
+      process.env.PRIVY_AUTHORIZATION_KEY &&
+      process.env.PRIVY_TREASURY_WALLET_ID
+    ),
+  },
+
+  /**
    * Toden identity verification (basic KYC): a hosted link the merchant opens
    * on their phone (ID document + selfie + liveness). Set TODEN_SECRET_KEY and
    * TODEN_WORKFLOW_ID to turn it on; payouts then require a verified merchant.
