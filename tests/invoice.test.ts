@@ -406,6 +406,36 @@ describe("settleInvoicePayment", () => {
     });
   });
 
+  it("settles a wallet top-up with no platform fee and its own message", async () => {
+    seedInvoice({
+      status: "pending_payment",
+      buyerPhone: "",
+      items: [{ name: "Wallet top-up", qty: 1, unitPrice: 3000 }],
+    });
+
+    const result = await settleInvoicePayment("3RIKE-20260930-ABC123", {
+      provider: "near-intents",
+      crypto: { paidWith: "USDC on Base", txUrl: "https://basescan.org/tx/0x1" },
+    });
+
+    expect(result.settled).toBe(true);
+    // Only the credit: no fee debit, no platform credit.
+    expect(credit).toHaveBeenCalledTimes(1);
+    expect(credit).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "merch_1", amount: 3000, idempotencyKey: "fw-charge-credit:3RIKE-20260930-ABC123" })
+    );
+    expect(debit).not.toHaveBeenCalled();
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    const text = notify.mock.calls[0][1] as string;
+    expect(text).toContain("*Top-up received*");
+    expect(text).toContain("+RWF 3,000");
+    expect(text).toContain("Paid with: USDC on Base");
+    expect(text).toContain("New balance:");
+    expect(text).not.toContain("Payment Received");
+    expect(text).not.toContain("*Fees*");
+  });
+
   it("returns settled=false for an unknown reference", async () => {
     invoiceRow = null;
     const result = await settleInvoicePayment("does-not-exist");

@@ -488,6 +488,31 @@ const PLATFORM_PHONE = "system:platform";
  * Split a collected amount into the merchant share and the platform fee.
  * The two parts always add back to the gross amount (no rounding leak).
  */
+/**
+ * A wallet top-up is an invoice the merchant pays themselves (so it rides the
+ * same pay page, NEAR Intents quote and settle path). It is recognised by its
+ * single item; no schema change is needed.
+ */
+export const TOPUP_ITEM_NAME = "Wallet top-up";
+export function isTopUpInvoice(items: unknown): boolean {
+  const list = Array.isArray(items) ? (items as InvoiceItem[]) : [];
+  return list.length === 1 && list[0]?.name === TOPUP_ITEM_NAME;
+}
+
+/** Merchant message when a top-up lands. */
+export function renderTopUpMessage(
+  invoice: { amount: number; currency: string },
+  newBalance: { currency: string; amount: number },
+  crypto?: { paidWith?: string | null; txUrl?: string | null } | null
+): string {
+  return (
+    `*Top-up received*\n\n+${formatCurrency(invoice.amount, invoice.currency)}\n` +
+    (crypto?.paidWith ? `Paid with: ${crypto.paidWith}\n` : "") +
+    (crypto?.txUrl ? `Transaction: ${crypto.txUrl}\n` : "") +
+    `\n*New balance: ${formatCurrency(newBalance.amount, newBalance.currency)}*`
+  );
+}
+
 export function splitCollection(amount: number): {
   merchantShare: number;
   platformFee: number;
@@ -749,7 +774,11 @@ export async function settleInvoicePayment(
       },
     });
 
-    const { merchantShare, platformFee } = splitCollection(invoice.amount);
+    // Moving your own money in is not a sale: no platform fee.
+    const topUp = isTopUpInvoice(invoice.items);
+    const { merchantShare, platformFee } = topUp
+      ? { merchantShare: invoice.amount, platformFee: 0 }
+      : splitCollection(invoice.amount);
     const split = {
       gross: invoice.amount,
       merchantShare,
@@ -899,12 +928,14 @@ export async function settleInvoicePayment(
       try {
         await whatsapp.sendTextMessage(
           invoice.merchant.phone,
-          renderPaidInvoiceMessage(
-            invoice,
-            newBalance,
-            { platform: bookedPlatformFee, flutterwave: bookedFlutterwaveFee },
-            (metadata as any).crypto ?? null
-          )
+          topUp
+            ? renderTopUpMessage(invoice, newBalance, (metadata as any).crypto ?? null)
+            : renderPaidInvoiceMessage(
+                invoice,
+                newBalance,
+                { platform: bookedPlatformFee, flutterwave: bookedFlutterwaveFee },
+                (metadata as any).crypto ?? null
+              )
         );
         logger.info("Paid-invoice notification sent", {
           reference,
