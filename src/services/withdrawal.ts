@@ -37,6 +37,10 @@ export function setTreasurySigner(s: TreasurySigner | null) {
   signer = s;
 }
 
+export function getTreasurySigner(): TreasurySigner | null {
+  return signer;
+}
+
 export const EVM_ADDRESS = /^0x[a-fA-F0-9]{40}$/;
 
 export interface WithdrawalResult {
