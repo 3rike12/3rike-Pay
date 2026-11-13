@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/config", () => ({
   config: {
@@ -45,6 +45,10 @@ const h = vi.hoisted(() => {
     listBalances: vi.fn(),
     businessUpdate: vi.fn(async () => ({})),
     createSession: vi.fn(),
+    issueInvoice: vi.fn(),
+    createDefaultCryptoPayment: vi.fn(),
+    scheduleCryptoVerification: vi.fn(),
+    nearEnabled: false,
     listBanks: vi.fn(),
     nameEnquiry: vi.fn(),
     quoteCashout: vi.fn(),
@@ -73,6 +77,20 @@ vi.mock("@/services/autoramp", () => ({
     listBanks: (...args: any[]) => h.listBanks(...args),
     nameEnquiry: (...args: any[]) => h.nameEnquiry(...args),
   },
+}));
+
+vi.mock("@/services/nearIntents", () => ({
+  nearIntents: { isNearIntentsEnabled: () => h.nearEnabled, resolveOriginAsset: vi.fn() },
+}));
+
+vi.mock("@/services/cryptoInvoice", () => ({
+  createCryptoPayment: vi.fn(),
+  createDefaultCryptoPayment: (...args: any[]) => h.createDefaultCryptoPayment(...args),
+  scheduleCryptoVerification: (...args: any[]) => h.scheduleCryptoVerification(...args),
+}));
+
+vi.mock("@/services/treasury", () => ({
+  toUsd: (amount: number, currency: string) => amount / ({ KES: 130, NGN: 1500, TZS: 2600 } as Record<string, number>)[currency],
 }));
 
 vi.mock("@/services/toden", () => ({
@@ -108,6 +126,8 @@ vi.mock("@/services/invoice", () => ({
   createProduct: (...args: any[]) => h.createProduct(...args),
   listProducts: (...args: any[]) => h.listProducts(...args),
   createDraftInvoice: (...args: any[]) => h.createDraftInvoice(...args),
+  issueInvoice: (...args: any[]) => h.issueInvoice(...args),
+  TOPUP_ITEM_NAME: "Wallet top-up",
   chargeInvoice: (...args: any[]) => h.chargeInvoice(...args),
   renderInvoiceSummary: (...args: any[]) => h.renderInvoiceSummary(...args),
   scheduleInvoiceVerification: (...args: any[]) => h.scheduleInvoiceVerification(...args),
@@ -670,9 +690,9 @@ describe("balance without bank features", () => {
     expect(reply).toContain("KES 12,500");
     expect(reply).not.toMatch(/bank|not linked|account:/i);
     expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([
+      { id: "top_up", title: "Add money" },
       { id: "create_invoice", title: "New invoice" },
-      { id: "transactions", title: "Payments" },
-      { id: "set_currency", title: "Change currency" },
+      { id: "cash_out", title: "Cash out" },
     ]);
   });
 
@@ -823,6 +843,70 @@ describe("identity check before payouts", () => {
     try {
       expect(await say("/cashout")).toContain("/cashout <amount>");
     } finally { restore(); }
+  });
+});
+
+describe("add money (top-up)", () => {
+  const lastText = () => String(h.sendTextMessage.mock.calls.at(-1)?.[1] ?? "");
+
+  beforeEach(() => {
+    (config as any).app = { baseUrl: "https://pay.example" };
+    (config as any).treasury = { maxWithdrawUsd: 2000 };
+    h.nearEnabled = true;
+    h.createDraftInvoice.mockResolvedValue({ id: "inv_top" });
+    h.issueInvoice.mockResolvedValue({ id: "inv_top", reference: "3RIKE-TOP-1" });
+    h.createDefaultCryptoPayment.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    delete (config as any).app;
+    delete (config as any).treasury;
+    h.nearEnabled = false;
+  });
+
+  it("asks for an amount from the menu row and /topup", async () => {
+    for (const send of [() => say("", "top_up"), () => say("/topup")]) {
+      const reply = await send();
+      expect(reply).toContain("How much do you want to add?");
+      expect(h.session.state).toBe("topup_amount");
+    }
+  });
+
+  it("turns an amount into a pay link, tracks it, and credits no fee path of its own", async () => {
+    await say("/topup");
+    await say("13000");
+    const reply = lastText();
+
+    expect(h.createDraftInvoice).toHaveBeenCalledWith({
+      merchantId: "user_1",
+      currency: "KES",
+      items: [{ name: "Wallet top-up", qty: 1, unitPrice: 13000 }],
+    });
+    expect(h.issueInvoice).toHaveBeenCalledWith("inv_top", "user_1");
+    expect(h.createDefaultCryptoPayment).toHaveBeenCalledWith("user_1", "inv_top");
+    expect(h.scheduleCryptoVerification).toHaveBeenCalledWith("3RIKE-TOP-1");
+    expect(reply).toContain("KES 13,000");
+    expect(reply).toContain("https://pay.example/pay/3RIKE-TOP-1");
+    expect(h.session.state).toBe("idle");
+  });
+
+  it("takes the amount inline: /topup 13000", async () => {
+    await say("/topup 13000");
+    expect(lastText()).toContain("https://pay.example/pay/3RIKE-TOP-1");
+  });
+
+  it("rejects amounts that are too small, too large, or not numbers", async () => {
+    expect(await say("/topup 100")).toContain("minimum top-up");
+    expect(await say("/topup 99999999")).toContain("maximum top-up");
+    await say("/topup");
+    expect(await say("lots")).toContain("doesn't look like an amount");
+    expect(h.createDraftInvoice).not.toHaveBeenCalled();
+  });
+
+  it("says so, instead of starting, when crypto payments are not configured", async () => {
+    h.nearEnabled = false;
+    expect(await say("/topup 13000")).toContain("isn't available right now");
+    expect(h.createDraftInvoice).not.toHaveBeenCalled();
   });
 });
 

@@ -17,6 +17,7 @@ import {
   createDraftInvoice,
   createProduct,
   expireStaleInvoices,
+  TOPUP_ITEM_NAME,
   issueInvoice,
   humanizeChargeError,
   listInvoices,
@@ -25,6 +26,7 @@ import {
   renderInvoiceSummary,
   scheduleInvoiceVerification,
 } from "@/services/invoice";
+import { toUsd } from "@/services/treasury";
 import { createCryptoPayment, createDefaultCryptoPayment, scheduleCryptoVerification } from "@/services/cryptoInvoice";
 import { nearIntents } from "@/services/nearIntents";
 import { quoteCashout, requestCashout } from "@/services/cashout";
@@ -763,6 +765,84 @@ async function handleWithdrawCommand(phone: string, user: any, args = "") {
 
 
 // ============================================
+// Add money (top-up): an invoice you pay yourself, from any chain
+// ============================================
+
+const TOPUP_PROMPT =
+  "*Add money*\n\nHow much do you want to add? Reply with an amount in your balance currency, e.g. *5000*.\n\n" +
+  "You'll get a payment link: pay it from any wallet on any chain and your balance is credited when it lands.";
+
+async function askTopUpAmount(phone: string, user: any) {
+  if (!nearIntents.isNearIntentsEnabled() || !config.app.baseUrl) {
+    return whatsapp.sendTextMessage(phone, "Adding money isn't available right now. Please try again later.");
+  }
+  await updateSession(user.id, SESSION_STATE.TOPUP_AMOUNT, {});
+  return whatsapp.sendTextMessage(phone, TOPUP_PROMPT);
+}
+
+async function handleTopUpAmount(phone: string, user: any, text: string) {
+  const amount = Number(String(text).replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return whatsapp.sendTextMessage(phone, "That doesn't look like an amount. Reply with a number, e.g. *5000*, or /cancel.");
+  }
+  return issueTopUp(phone, user, amount);
+}
+
+async function issueTopUp(phone: string, user: any, amount: number) {
+  const currency = merchantCurrency(user);
+  try {
+    const usd = toUsd(amount, currency);
+    if (usd < 5) return whatsapp.sendTextMessage(phone, "The minimum top-up is about $5. Reply with a larger amount.");
+    if (usd > config.treasury.maxWithdrawUsd) {
+      return whatsapp.sendTextMessage(phone, `The maximum top-up is about $${config.treasury.maxWithdrawUsd}. Reply with a smaller amount.`);
+    }
+    if (!nearIntents.isNearIntentsEnabled() || !config.app.baseUrl) {
+      return whatsapp.sendTextMessage(phone, "Adding money isn't available right now. Please try again later.");
+    }
+
+    const draft = await createDraftInvoice({
+      merchantId: user.id,
+      currency,
+      items: [{ name: TOPUP_ITEM_NAME, qty: 1, unitPrice: amount }],
+    });
+    const issued = await issueInvoice(draft.id, user.id);
+    if (!issued) throw new Error("Could not create the top-up.");
+    await resetSession(user.id);
+
+    try {
+      await createDefaultCryptoPayment(user.id, draft.id);
+      scheduleCryptoVerification(issued.reference);
+    } catch (error: any) {
+      logger.warn("Could not pre-create the default top-up payment", { reference: issued.reference, error: error?.message });
+    }
+
+    const payUrl = `${config.app.baseUrl}/pay/${issued.reference}`;
+    const sent = await whatsapp.sendTextMessage(
+      phone,
+      `*Add ${formatCurrency(amount, currency)}*\n\nOpen this link and pay from any wallet, on any chain:\n${payUrl}\n\n` +
+        `The link expires soon. We'll message you the moment your balance is credited.`
+    );
+    try {
+      const png = await paymentQrPng(payUrl);
+      const mediaId = await whatsapp.uploadMedia(png, "image/png", `topup-${issued.reference}.png`);
+      await whatsapp.sendImageMessage(phone, mediaId, "Scan to add money");
+    } catch (error: any) {
+      logger.warn("Could not send the top-up QR", { reference: issued.reference, error: error?.message });
+    }
+    return sent;
+  } catch (error: any) {
+    logger.error("Top-up failed to start", { userId: user.id, error: error?.message });
+    return whatsapp.sendTextMessage(phone, "I couldn't start that top-up. Please try again in a moment.");
+  }
+}
+
+async function handleTopUpCommand(phone: string, user: any, args = "") {
+  const amount = Number(args.replace(/[^0-9.]/g, ""));
+  if (args.trim() && Number.isFinite(amount) && amount > 0) return issueTopUp(phone, user, amount);
+  return askTopUpAmount(phone, user);
+}
+
+// ============================================
 // Cash out to a Naira bank account (AutoRamp off-ramp)
 // ============================================
 
@@ -865,6 +945,9 @@ async function handleCashoutConfirm(phone: string, user: any, flowData: FlowData
 
 const SLASH_COMMANDS: Record<string, SlashHandler> = {
   withdraw: (phone, user, args) => handleWithdrawCommand(phone, user, args || ""),
+  topup: (phone, user, args) => handleTopUpCommand(phone, user, args || ""),
+  addmoney: (phone, user, args) => handleTopUpCommand(phone, user, args || ""),
+  deposit: (phone, user, args) => handleTopUpCommand(phone, user, args || ""),
   cashout: (phone, user, args) => handleCashoutCommand(phone, user, args || ""),
   tobank: (phone, user, args) => handleCashoutCommand(phone, user, args || ""),
   balance: handleCheckBalance,
@@ -1149,6 +1232,8 @@ export async function handleMessage(
         return await handleInvoicePhone(phone, user, flowData, messageText);
       case SESSION_STATE.INVOICE_CONFIRM:
         return await handleInvoiceConfirm(phone, user, flowData, action, messageText);
+      case SESSION_STATE.TOPUP_AMOUNT:
+        return await handleTopUpAmount(phone, user, messageText);
       case SESSION_STATE.CASHOUT_CONFIRM:
         return await handleCashoutConfirm(phone, user, flowData, action, messageText);
       case SESSION_STATE.KYC_FLOW:
@@ -1236,6 +1321,9 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
   }
 
+  if (action === "top_up") {
+    return askTopUpAmount(phone, user);
+  }
   if (action === "cash_out") {
     return whatsapp.sendTextMessage(phone, CASHOUT_USAGE);
   }
@@ -1793,9 +1881,9 @@ async function sendWalletBalance(phone: string, user: any) {
     phone,
     amount > 0 ? MESSAGES.CHECK_BALANCE.WALLET_TEXT(wallet) : MESSAGES.CHECK_BALANCE.WALLET_EMPTY(wallet),
     [
+      { id: "top_up", title: "Add money" },
       { id: "create_invoice", title: "New invoice" },
-      { id: "transactions", title: "Payments" },
-      { id: "set_currency", title: "Change currency" },
+      { id: "cash_out", title: "Cash out" },
     ]
   );
 }

@@ -46,6 +46,8 @@ export const SESSION_STATE = {
   INVOICE_CONFIRM: "invoice_confirm",
   // Cash out to a Naira bank account
   CASHOUT_CONFIRM: "cashout_confirm",
+  // Add money to the balance
+  TOPUP_AMOUNT: "topup_amount",
 } as const;
 
 export type SessionState = (typeof SESSION_STATE)[keyof typeof SESSION_STATE];
