@@ -823,7 +823,9 @@ async function issueTopUp(phone: string, user: any, amount: number, symbol?: str
         `The minimum top-up is ${formatUsdThreshold(config.treasury.minTopUpUsd, currency)}. Reply with a larger amount.`
       );
     }
-    if (usd > config.treasury.maxWithdrawUsd) {
+    // Tidepool is the demo network: don't apply the production withdrawal cap
+    // to testnet top-ups. Keep the configured cap on live networks.
+    if (config.nearIntents.network !== "tidepool" && usd > config.treasury.maxWithdrawUsd) {
       return whatsapp.sendTextMessage(
         phone,
         `The maximum top-up is ${formatUsdThreshold(config.treasury.maxWithdrawUsd, currency)}. Reply with a smaller amount.`
