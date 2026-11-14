@@ -46,7 +46,7 @@ The pay page is one static file (`public/pay.html`), so it can live on its own d
 1. Import the repo into Vercel. `vercel.json` sets everything: no framework, no install, output directory `public`.
 2. Add one environment variable in the Vercel project: `PAY_API_URL=https://<your backend's public URL>`. The build (`scripts/vercel-build.js`) writes it into `public/config.js`; no URL is committed.
 3. Add `pay.3rike.com` as the project's domain, and set `PUBLIC_BASE_URL=https://pay.3rike.com` on the backend so WhatsApp links point there.
-4. Routes: `/pay/<reference>` is the page, `/pay/favicon.png` is the icon, and **everything else, including `/`, is a 404**. An unknown reference shows an "Invoice not found" screen.
+4. Routes: `/pay/<reference>` is the invoice page, `/pay` is a small holder page where someone can enter a reference or paste a link, `/pay/favicon.png` is the icon, and **everything else, including `/`, is a 404**. An unknown reference shows an "Invoice not found" screen.
 
 Tested with a simulated static host plus a stand-in API on a different origin, not on Vercel itself.
 

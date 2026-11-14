@@ -48,6 +48,17 @@ describe("pay page QR", () => {
     expect(res.text).not.toContain("apiBase");
   });
 
+  it("serves a small holder page at /pay (no reference), separate from the invoice page", async () => {
+    const app = express();
+    app.use("/pay", payPageRouter);
+    const res = await request(app).get("/pay");
+    expect(res.status).toBe(200);
+    expect(res.type).toMatch(/html/);
+    expect(res.text).toContain("Pay an invoice");
+    expect(res.text).toContain("/pay/"); // sends the person on to /pay/<reference>
+    expect(res.text).not.toContain("PAY_CONFIG"); // no API calls: it is a static holder
+  });
+
   it("serves the favicon as a PNG, not as an invoice reference", async () => {
     const app = express();
     app.use("/pay", payPageRouter);

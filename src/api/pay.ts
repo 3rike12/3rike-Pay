@@ -46,6 +46,12 @@ payPageRouter.get("/config.js", (_req: Request, res: Response) => {
   res.type("application/javascript").set("Cache-Control", "no-cache").send("window.PAY_CONFIG = window.PAY_CONFIG || {};\n");
 });
 
+// /pay with no reference: a small holder page where a person can enter the
+// reference from their link. Static; it only redirects to /pay/<reference>.
+payPageRouter.get("/", (_req: Request, res: Response) => {
+  res.sendFile(path.join(__dirname, "../../public/pay-home.html"));
+});
+
 // Brand favicon. Declared before "/:reference" so it is not read as an invoice.
 payPageRouter.get("/favicon.png", (_req: Request, res: Response) => {
   res.set("Cache-Control", "public, max-age=86400").sendFile(path.join(__dirname, "../../public/favicon.png"));
