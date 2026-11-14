@@ -14,6 +14,13 @@ const todenWorkflowId = /sandbox/i.test(process.env.TODEN_API_URL || "")
   ? todenJson.sandboxWorkflowId
   : todenJson.workflowId;
 
+/**
+ * Where customers' payments land. NEAR_INTENTS_RECIPIENT wins; otherwise the
+ * treasury address is used, so setting TREASURY_ADDRESS alone is enough to
+ * turn crypto payments on (the treasury is the recipient).
+ */
+const nearRecipient = process.env.NEAR_INTENTS_RECIPIENT || process.env.TREASURY_ADDRESS || "";
+
 export const config = {
   port: parseInt(process.env.PORT || "3000", 10),
   nodeEnv: process.env.NODE_ENV || "development",
@@ -97,7 +104,7 @@ export const config = {
     baseUrl: process.env.NEAR_INTENTS_BASE_URL || "https://1click.chaindefuser.com",
     apiKey: process.env.NEAR_INTENTS_API_KEY || "",
     /** Platform-controlled address that receives the swapped funds. */
-    recipient: process.env.NEAR_INTENTS_RECIPIENT || "",
+    recipient: nearRecipient,
     /**
      * How `recipient` is interpreted. INTENTS = an account inside NEAR
      * Intents (e.g. treasury.near) - cheapest, no withdrawal fee, and it makes
@@ -106,11 +113,11 @@ export const config = {
      * Defaults to INTENTS for NEAR-style accounts, DESTINATION_CHAIN for 0x.
      */
     recipientType: (process.env.NEAR_INTENTS_RECIPIENT_TYPE ||
-      (/^0x/i.test(process.env.NEAR_INTENTS_RECIPIENT || "") || !process.env.NEAR_INTENTS_RECIPIENT
+      (/^0x/i.test(nearRecipient) || !nearRecipient
         ? "DESTINATION_CHAIN"
         : "INTENTS")) as "INTENTS" | "DESTINATION_CHAIN",
     /** Where refunds go if a swap fails (defaults to the recipient). */
-    refundTo: process.env.NEAR_INTENTS_REFUND_TO || process.env.NEAR_INTENTS_RECIPIENT || "",
+    refundTo: process.env.NEAR_INTENTS_REFUND_TO || nearRecipient,
     /** Default asset the buyer pays with (USDC on Base). */
     originAsset:
       process.env.NEAR_INTENTS_ORIGIN_ASSET ||
