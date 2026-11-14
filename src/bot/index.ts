@@ -447,14 +447,22 @@ type InvoiceDraft = {
 async function lookupProductPrice(merchantId: string, name: string): Promise<number | null> {
   try {
     const products = await listProducts(merchantId);
-    const needle = name.toLowerCase().trim();
-    const exact = products.find((p) => p.name.toLowerCase() === needle);
+    const normalize = (value: string) => value
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+    const needle = normalize(name);
+    const exact = products.find((product) => normalize(product.name) === needle);
     if (exact) return exact.price;
-    const partial = products.find((p) => {
-      const hay = p.name.toLowerCase();
-      return hay.includes(needle) || needle.includes(hay);
+
+    // Allow simple variants such as "waters" for a catalog item named
+    // "water", but only use a partial match when it identifies one product.
+    const matches = products.filter((product) => {
+      const candidate = normalize(product.name);
+      return candidate.includes(needle) || needle.includes(candidate);
     });
-    return partial ? partial.price : null;
+    return matches.length === 1 ? matches[0].price : null;
   } catch {
     return null;
   }
