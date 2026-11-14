@@ -383,6 +383,15 @@
       .then(function (j) { if (mine === seq) applyQuote(j.quote); })
       .catch(function (e) {
         if (mine !== seq) return;
+        // Older cached pay pages may not receive the network field from the
+        // invoice view. The server's Tidepool-only wallet error identifies
+        // demo mode, so switch to the wallet-first flow instead of retrying
+        // quotes without a refund address.
+        if (/connect your base sepolia wallet/i.test(e.message || "")) {
+          inv.network = "tidepool";
+          scheduleQuote();
+          return;
+        }
         quoting = false; quote = null; var s = $("summary"); s.innerHTML = "";
         s.appendChild(el("div", "lbl", "We couldn't prepare this payment."));
         var retry = el("button", "small-btn", "Try again"); retry.type = "button"; retry.addEventListener("click", scheduleQuote);
@@ -532,7 +541,8 @@
       cta.onclick = openWalletSheet;
       return;
     }
-    if (quoting || !quote) { cta.disabled = true; cta.textContent = "Preparing your payment…"; return; }
+    if (quoting) { cta.disabled = true; cta.textContent = "Preparing your payment…"; return; }
+    if (!quote) { cta.disabled = false; cta.textContent = "Try again"; cta.onclick = scheduleQuote; return; }
     cta.disabled = false;
     if (!wallet.account) { cta.textContent = "Connect wallet"; cta.onclick = openWalletSheet; return; }
     cta.textContent = "Pay " + amountLabel(quote); cta.onclick = pay;

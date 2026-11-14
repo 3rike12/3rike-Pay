@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # 3rike Pay API
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -6,7 +7,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY prisma ./prisma
 RUN npx prisma generate
@@ -14,6 +15,10 @@ RUN npx prisma generate
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
+
+# Keep the runtime image production-only without downloading the dependency
+# tree a second time.
+RUN npm prune --omit=dev
 
 # ---- runtime ----
 FROM node:20-alpine AS runner
@@ -23,7 +28,7 @@ ENV NODE_ENV=production
 RUN apk add --no-cache openssl libc6-compat
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=builder /app/node_modules ./node_modules
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
