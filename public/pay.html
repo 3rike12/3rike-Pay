@@ -366,7 +366,7 @@
     if (inv && inv.network === "tidepool" && !wallet.account) {
       quoting = false; quote = null;
       $("summary").innerHTML = "";
-      $("summary").appendChild(el("div", "lbl", "Connect your Base Sepolia wallet to prepare a demo payment."));
+      $("summary").appendChild(el("div", "lbl", "Connect your wallet to prepare this payment."));
       show("progress", false);
       updateUi();
       return;
@@ -387,7 +387,7 @@
         // invoice view. The server's Tidepool-only wallet error identifies
         // demo mode, so switch to the wallet-first flow instead of retrying
         // quotes without a refund address.
-        if (/connect your base sepolia wallet/i.test(e.message || "")) {
+        if (/connect your .*wallet/i.test(e.message || "")) {
           inv.network = "tidepool";
           scheduleQuote();
           return;
@@ -525,7 +525,7 @@
     var tidepoolNeedsWallet = !!(inv && inv.network === "tidepool" && !wallet.account);
     show("noWallet", noWallet && !finished && (!!quote || tidepoolNeedsWallet));
     if (tidepoolNeedsWallet) {
-      $("noWallet").textContent = "A Base Sepolia wallet is required for Tidepool demo payments.";
+      $("noWallet").textContent = "Connect your wallet to prepare this payment.";
       $("manual").open = false;
     } else {
       $("manual").open = noWallet || $("manual").open;
@@ -679,9 +679,9 @@
     if (Array.isArray(d.walletChainIds) && d.walletChainIds.length) walletChains = d.walletChainIds;
     if (d.network === "tidepool") {
       CHAIN_IDS = { eth: 11155111, base: 84532, arb: 421614, bsc: 97, aurora: 1313161555 };
-      CHAINS.base.name = "Base Sepolia";
-      CHAINS.arb.name = "Arbitrum Sepolia";
-      CHAINS.eth.name = "Ethereum Sepolia";
+      CHAINS.base.name = "Base";
+      CHAINS.arb.name = "Arbitrum";
+      CHAINS.eth.name = "Ethereum";
     }
     document.title = "Pay " + inv.merchant + " \u00B7 3rike Pay";
     $("merchant").textContent = inv.merchant;
@@ -711,8 +711,7 @@
     TOKENS = inv.tokens || [];
     if (!TOKENS.length) { err("Payment options are unavailable right now. Please try again shortly."); return; }
 
-    // Tidepool's destination is Base Sepolia USDC, so default to Base Sepolia
-    // USDT as the input. Tidepool rejects a swap from an asset to itself.
+    // The demo destination uses USDC, so default to USDT as the input.
     var o = inv.quote && inv.quote.origin, fromQuote = o && valid(o.chain, o.symbol);
     var defaultBaseAsset = "USDT";
     sel.asset = fromQuote ? o.symbol : (valid("base", defaultBaseAsset) ? defaultBaseAsset : TOKENS[0].symbol);

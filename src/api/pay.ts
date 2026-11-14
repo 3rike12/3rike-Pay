@@ -173,7 +173,7 @@ payApiRouter.post("/:reference/quote", limiter, async (req: Request, res: Respon
     // A failed swap refunds here, so it must be the buyer's own address.
     const refundTo = req.body?.refundTo ? String(req.body.refundTo).trim() : undefined;
     if (config.nearIntents.network === "tidepool" && !refundTo) {
-      return res.status(400).json({ error: "Connect your Base Sepolia wallet before preparing a demo payment." });
+      return res.status(400).json({ error: "Connect your wallet before preparing this payment." });
     }
     if (refundTo && !EVM_ADDRESS_RE.test(refundTo)) {
       return res.status(400).json({ error: "That refund address isn't a valid 0x address." });
