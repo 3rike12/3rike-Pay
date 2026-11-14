@@ -17,6 +17,10 @@ import { failInvoicePayment, getInvoiceByReference, settleInvoicePayment } from 
 import { MESSAGES, KYC_STATUS } from "@/config/constants";
 
 const router = Router();
+// The database guard below handles retries after the first delivery finishes.
+// Claim the message id synchronously as well, so simultaneous Meta retries
+// cannot both pass the read-before-insert check and run the bot flow.
+const inFlightWhatsAppMessages = new Set<string>();
 
 // ============================================
 // WhatsApp Webhook - Verification (GET)
@@ -59,6 +63,14 @@ router.post("/whatsapp", async (req: Request, res: Response) => {
             const phone = cleanPhone(msg.from);
             const contact = value.contacts?.[0];
             const name = contact?.profile?.name || "";
+
+            if (msg.id && inFlightWhatsAppMessages.has(msg.id)) {
+              logger.info("Skipping concurrent duplicate WhatsApp delivery", { messageId: msg.id });
+              continue;
+            }
+            if (msg.id) inFlightWhatsAppMessages.add(msg.id);
+
+            try {
 
             // Check for button/list replies
             const buttonReply = msg.interactive?.button_reply;
@@ -112,6 +124,9 @@ router.post("/whatsapp", async (req: Request, res: Response) => {
               buttonReply ? { id: buttonReply.id, title: buttonReply.title } : undefined,
               listReply ? { id: listReply.id, title: listReply.title, description: listReply.description } : undefined
             );
+            } finally {
+              if (msg.id) inFlightWhatsAppMessages.delete(msg.id);
+            }
           }
         }
 

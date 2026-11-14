@@ -1316,6 +1316,13 @@ export async function handleMessage(
 async function handleIdle(phone: string, user: any, action?: string, text?: string) {
   const t = (text || "").toLowerCase();
 
+  // A retried confirmation tap can arrive after the invoice flow completed and
+  // its session was cleared. Ignore that stale tap instead of opening the menu.
+  if (["confirm_invoice", "confirm_invoice_crypto", "cancel_invoice"].includes(action || "")) {
+    logger.info("Ignoring stale invoice confirmation tap", { userId: user.id, action });
+    return true;
+  }
+
   // No cron in this repo: sweep expired invoices whenever the merchant
   // next talks to us.
   await expireStaleInvoices(user.id).catch(() => {});
