@@ -1,0 +1,5 @@
+{
+  "_note": "Workflow ids are not secrets. Production uses workflowId; while TODEN_API_URL points at the sandbox, sandboxWorkflowId is used instead.",
+  "workflowId": "wf_CLxwZH0eMBaM",
+  "sandboxWorkflowId": ""
+}

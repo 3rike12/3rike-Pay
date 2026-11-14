@@ -7,6 +7,13 @@ dotenv.config();
  */
 const isFlutterwaveProduction = process.env.FLUTTERWAVE_PRODUCTION === "true";
 
+import todenJson from "./toden.json";
+
+/** Sandbox keys need the sandbox workflow; everything else uses the production one. */
+const todenWorkflowId = /sandbox/i.test(process.env.TODEN_API_URL || "")
+  ? todenJson.sandboxWorkflowId
+  : todenJson.workflowId;
+
 export const config = {
   port: parseInt(process.env.PORT || "3000", 10),
   nodeEnv: process.env.NODE_ENV || "development",
@@ -195,18 +202,19 @@ export const config = {
 
   /**
    * Toden identity verification (basic KYC): a hosted link the merchant opens
-   * on their phone (ID document + selfie + liveness). Set TODEN_SECRET_KEY and
-   * TODEN_WORKFLOW_ID to turn it on; payouts then require a verified merchant.
+   * on their phone (ID document + selfie + liveness). Set TODEN_SECRET_KEY to
+   * turn it on; payouts then require a verified merchant. The workflow id
+   * lives in toden.json (it is not a secret).
    * Use https://sandbox-api.toden.co with sandbox keys while testing.
    */
   toden: {
     baseUrl: (process.env.TODEN_API_URL || "https://api.toden.co").replace(/\/$/, ""),
     secretKey: process.env.TODEN_SECRET_KEY || "",
-    workflowId: process.env.TODEN_WORKFLOW_ID || "",
+    workflowId: todenWorkflowId,
     webhookSecret: process.env.TODEN_WEBHOOK_SECRET || "",
     /** Previous webhook secret, accepted during a rotation. */
     webhookSecretPrevious: process.env.TODEN_WEBHOOK_SECRET_PREVIOUS || "",
-    enabled: !!(process.env.TODEN_SECRET_KEY && process.env.TODEN_WORKFLOW_ID),
+    enabled: !!(process.env.TODEN_SECRET_KEY && todenWorkflowId),
   },
 
   features: {

@@ -79,7 +79,7 @@ and address for an operator to fund by hand. Register a `TreasurySigner`
 
 ### Basic KYC (Toden)
 
-Set `TODEN_SECRET_KEY` and `TODEN_WORKFLOW_ID` and payouts (`/cashout`,
+Set `TODEN_SECRET_KEY` (the workflow id is in `src/config/toden.json`) and payouts (`/cashout`,
 `/withdraw`) require a verified merchant. `/verify` sends a hosted link
 (ID document + selfie + liveness); Toden's signed webhook
 (`POST /webhook/toden`, `X-Myaza-Signature-V2`, secret `TODEN_WEBHOOK_SECRET`)
