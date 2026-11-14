@@ -171,6 +171,7 @@ function setSession(state: string, flowData: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete h.user.currency;
 
   h.session = { state: "idle", flowData: {} };
   h.sendTextMessage.mockResolvedValue(true);
@@ -320,6 +321,23 @@ describe("invoice triggers", () => {
 });
 
 describe("invoice conversation", () => {
+  it("shows the merchant's selected currency on every confirmation line", async () => {
+    h.user.currency = "NGN";
+    setSession(SESSION_STATE.INVOICE_PHONE, {
+      items: [
+        { name: "3 batteries", qty: 1, unitPrice: 10000 },
+        { name: "water", qty: 2, unitPrice: 20000 },
+      ],
+    });
+
+    const reply = await say("0781234567");
+
+    expect(reply).toContain("- 1 x 3 batteries: NGN 10,000");
+    expect(reply).toContain("- 2 x water: NGN 40,000");
+    expect(reply).toContain("*Total: NGN 50,000*");
+    expect(reply).not.toContain("RWF");
+  });
+
   it("goes straight to confirmation when items, price and phone are all present", async () => {
     setSession(SESSION_STATE.INVOICE_ITEMS, {});
 
@@ -331,7 +349,7 @@ describe("invoice conversation", () => {
     ]);
     expect(h.session.flowData.buyerPhone).toBe("0781234567");
     expect(reply).toContain("*Confirm invoice*");
-    expect(reply).toContain("Total: RWF 3,000");
+    expect(reply).toContain("Total: KES 3,000");
     expect(reply).toContain("Buyer: 0781234567");
     // Confirmation arrives as buttons, not as "type yes".
     expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([
@@ -351,7 +369,7 @@ describe("invoice conversation", () => {
 
     const confirm = await say("0781234567");
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_CONFIRM);
-    expect(confirm).toContain("Total: RWF 3,000");
+    expect(confirm).toContain("Total: KES 3,000");
   });
 
   it("asks for a price when an item has none and nothing matches the catalogue", async () => {
@@ -370,7 +388,7 @@ describe("invoice conversation", () => {
 
     const confirm = await say("0781234567");
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_CONFIRM);
-    expect(confirm).toContain("Total: RWF 1,400");
+    expect(confirm).toContain("Total: KES 1,400");
   });
 
   it("re-asks for a non-Rwanda number instead of scolding", async () => {
@@ -397,7 +415,7 @@ describe("invoice conversation", () => {
 
     expect(h.session.state).toBe(SESSION_STATE.INVOICE_CONFIRM);
     expect(h.session.flowData.buyerPhone).toBe("0782348251");
-    expect(reply).toContain("Total: RWF 3,000");
+    expect(reply).toContain("Total: KES 3,000");
     expect(reply).toContain("Buyer: 0782348251");
   });
 
@@ -763,12 +781,18 @@ describe("cash out to a bank", () => {
     expect(h.session.state).toBe("cashout_confirm");
   });
 
-  it("uses the NIP bank code from the provider directory for Kuda cash-outs", async () => {
-    h.listBanks.mockResolvedValue([{ name: "Kuda Microfinance Bank", nipCode: "090267", code: "kuda" }]);
+  it.each([
+    { query: "kuda", name: "Kuda Microfinance Bank", codeField: "nipCode", code: "090267" },
+    { query: "gtbank", name: "GTBank", codeField: "code", code: "000013" },
+    { query: "access", name: "Access Bank", codeField: "bankCode", code: "000014" },
+    { query: "opay", name: "OPay Digital Services", codeField: "nip_code", code: "999992" },
+    { query: "moniepoint", name: "Moniepoint MFB", codeField: "code", code: "50515" },
+  ])("resolves $query to its provider bank code for cash-out name enquiry", async ({ query, name, codeField, code }) => {
+    h.listBanks.mockResolvedValue([{ name, [codeField]: code }]);
 
-    await say("/cashout 10000 kuda 2270121368");
+    await say(`/cashout 10000 ${query} 2270121368`);
 
-    expect(h.nameEnquiry).toHaveBeenCalledWith("090267", "2270121368");
+    expect(h.nameEnquiry).toHaveBeenCalledWith(code, "2270121368");
   });
 
   it("sends the cash-out only after Yes", async () => {

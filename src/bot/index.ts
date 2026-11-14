@@ -491,8 +491,9 @@ async function advanceInvoice(phone: string, user: any, draft: InvoiceDraft) {
 
 async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft) {
   const total = draft.items.reduce((sum, item) => sum + item.qty * (item.unitPrice || 0), 0);
+  const currency = merchantCurrency(user);
   const lines = draft.items
-    .map((item) => `- ${item.qty} x ${item.name}: ${formatCurrency(item.qty * (item.unitPrice || 0))}`)
+    .map((item) => `- ${item.qty} x ${item.name}: ${formatCurrency(item.qty * (item.unitPrice || 0), currency)}`)
     .join("\n");
 
   await updateSession(user.id, SESSION_STATE.INVOICE_CONFIRM, draft);
@@ -500,7 +501,7 @@ async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft)
   // type it. Typed "yes"/"cancel" still works in handleInvoiceConfirm.
   return whatsapp.sendButtonsMessage(
     phone,
-    `*Confirm invoice*\n\n${lines}\n\n*Total: ${formatCurrency(total)}*` +
+    `*Confirm invoice*\n\n${lines}\n\n*Total: ${formatCurrency(total, currency)}*` +
       (draft.buyerPhone ? `\nBuyer: ${draft.buyerPhone}` : "") +
       (config.features.mobileMoneyEnabled
         ? MESSAGES.BUSINESS.INVOICE.CONFIRM_HINT
