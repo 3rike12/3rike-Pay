@@ -69,7 +69,7 @@ payPageRouter.get("/:reference/qr.png", limiter, async (req: Request, res: Respo
 });
 
 payPageRouter.get("/:reference", limiter, (_req: Request, res: Response) => {
-  res.sendFile(path.join(__dirname, "../../public/pay.html"));
+  res.set("Cache-Control", "no-store").sendFile(path.join(__dirname, "../../public/pay.html"));
 });
 
 async function publicView(reference: string) {

@@ -253,6 +253,20 @@
     gnosis: { name: "Gnosis",    color: "#04795B", mark: "G" }
   };
   var CHAIN_IDS = { eth: 1, base: 8453, arb: 42161, op: 10, pol: 137, avax: 43114, gnosis: 100 };
+  var EVM_NETWORKS = {
+    1: { chainName: "Ethereum", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://cloudflare-eth.com"], blockExplorerUrls: ["https://etherscan.io"] },
+    10: { chainName: "Optimism", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.optimism.io"], blockExplorerUrls: ["https://optimistic.etherscan.io"] },
+    97: { chainName: "BNB Smart Chain Testnet", nativeCurrency: { name: "Test BNB", symbol: "tBNB", decimals: 18 }, rpcUrls: ["https://bsc-testnet-dataseed.bnbchain.org"], blockExplorerUrls: ["https://testnet.bscscan.com"] },
+    100: { chainName: "Gnosis", nativeCurrency: { name: "xDAI", symbol: "xDAI", decimals: 18 }, rpcUrls: ["https://rpc.gnosischain.com"], blockExplorerUrls: ["https://gnosisscan.io"] },
+    137: { chainName: "Polygon", nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 }, rpcUrls: ["https://polygon-rpc.com"], blockExplorerUrls: ["https://polygonscan.com"] },
+    8453: { chainName: "Base", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] },
+    84532: { chainName: "Base Sepolia", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://sepolia.base.org"], blockExplorerUrls: ["https://sepolia.basescan.org"] },
+    42161: { chainName: "Arbitrum One", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://arb1.arbitrum.io/rpc"], blockExplorerUrls: ["https://arbiscan.io"] },
+    421614: { chainName: "Arbitrum Sepolia", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://sepolia-rollup.arbitrum.io/rpc"], blockExplorerUrls: ["https://sepolia.arbiscan.io"] },
+    43114: { chainName: "Avalanche", nativeCurrency: { name: "Avalanche", symbol: "AVAX", decimals: 18 }, rpcUrls: ["https://api.avax.network/ext/bc/C/rpc"], blockExplorerUrls: ["https://snowtrace.io"] },
+    11155111: { chainName: "Sepolia", nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://ethereum-sepolia-rpc.publicnode.com"], blockExplorerUrls: ["https://sepolia.etherscan.io"] },
+    1313161555: { chainName: "Aurora Testnet", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://testnet.aurora.dev"], blockExplorerUrls: ["https://explorer.testnet.aurora.dev"] }
+  };
   var TOKEN_NAMES = { USDC: "USD Coin", USDT: "Tether USD", ETH: "Ether" };
   var PREFER_CHAIN = ["base", "arb", "op", "eth", "pol", "avax", "gnosis"];
   var PREFER_ASSET = ["USDC", "USDT", "ETH"];
@@ -480,7 +494,12 @@
     }).catch(function (e) {
       var m = (e && e.message) || "";
       if (!$("backdrop").classList.contains("hidden")) { label.textContent = old; btn.disabled = false; }
-      if (!/reject|closed|cancel|denied/i.test(m)) wmsg("Could not open WalletConnect. " + m, true);
+      if (!/reject|closed|cancel|denied/i.test(m)) {
+        var hint = /websocket|relay/i.test(m)
+          ? " Check that this site's domain is allowed for the WalletConnect project, then retry on a network that permits secure WebSocket connections."
+          : "";
+        wmsg("Could not open WalletConnect. " + m + hint, true);
+      }
     });
   }
   function connectInjected(w) {
@@ -555,9 +574,7 @@
     var q = quote, o = q && q.origin, p = wallet.provider;
     if (!p || !wallet.account || !o) return;
     sending = true; wmsg(""); updateUi();
-    var chainHex = "0x" + Number(o.chainId || CHAIN_IDS[o.chain]).toString(16);
-
-    p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] }).then(function () {
+    switchOrAddChain(p, Number(o.chainId || CHAIN_IDS[o.chain])).then(function () {
       var amount = BigInt(q.amountIn);
       var tx = o.tokenAddress
         ? { from: wallet.account, to: o.tokenAddress, value: "0x0", data: "0xa9059cbb" + pad32(q.depositAddress) + pad32(amount.toString(16)) }
@@ -571,9 +588,23 @@
     }).catch(function (e) {
       sending = false;
       var m = e && e.code === 4001 ? "You cancelled the payment in your wallet."
-        : e && e.code === 4902 ? "Add the " + cname(o.chain) + " network to your wallet, then try again."
+        : e && e.code === 4902 ? "Your wallet couldn't add the selected network. Add it in your wallet settings, then retry."
         : (e && e.message) || "The wallet could not send the payment.";
       wmsg(m, true); updateUi();
+    });
+  }
+
+  function switchOrAddChain(provider, chainId) {
+    var chainHex = "0x" + Number(chainId).toString(16);
+    return provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] }).catch(function (error) {
+      var network = EVM_NETWORKS[chainId];
+      if (!error || error.code !== 4902 || !network) throw error;
+      return provider.request({
+        method: "wallet_addEthereumChain",
+        params: [Object.assign({ chainId: chainHex }, network)]
+      }).then(function () {
+        return provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] });
+      });
     });
   }
 
