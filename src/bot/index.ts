@@ -772,10 +772,9 @@ async function handleWithdrawCommand(phone: string, user: any, args = "") {
 // user's Privy EVM wallet. The user receives the deposit instructions in chat.
 // ============================================
 
-const topUpDefaultNetwork = config.nearIntents.network === "tidepool" ? "Base Sepolia" : "Base";
 const TOPUP_PROMPT =
   "*Add money to your crypto wallet*\n\nHow much do you want to add? Reply with an amount in your balance currency, e.g. *5000*. " +
-  `By default, we'll use USDT on ${topUpDefaultNetwork}. To choose another supported token and source chain, send \`/topup 5000 USDC arb\`.\n\n` +
+  "By default, we'll use USDT. To choose another supported token and source chain, send `/topup 5000 USDC arb`.\n\n" +
   "NEAR Intents will route it to your wallet. We'll send the deposit address here; no payment page is needed.";
 
 async function askTopUpAmount(phone: string, user: any) {
