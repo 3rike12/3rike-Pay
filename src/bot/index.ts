@@ -807,7 +807,7 @@ function parseTopUpInput(text: string): { amount: number; symbol?: string; chain
 
 function topUpChainName(chain: string): string {
   const names = config.nearIntents.network === "tidepool"
-    ? { base: "Base Sepolia", arb: "Arbitrum Sepolia", eth: "Ethereum Sepolia" }
+    ? { base: "Base", arb: "Arbitrum", eth: "Ethereum" }
     : { base: "Base", arb: "Arbitrum", eth: "Ethereum", pol: "Polygon" };
   return (names as Record<string, string>)[chain] || chain;
 }
@@ -847,7 +847,7 @@ async function issueTopUp(phone: string, user: any, amount: number, symbol?: str
       `*Top up your wallet · ${formatCurrency(amount, currency)}*\n\n` +
         `Send exactly *${topUp.quote.amountInFormatted || topUp.quote.amountIn} ${topUp.origin.symbol}* on *${topUpChainName(topUp.origin.blockchain)}* to:\n` +
         `\`${topUp.quote.depositAddress}\`\n\n` +
-        `NEAR Intents will deliver USDC on ${config.nearIntents.network === "tidepool" ? "Base Sepolia" : "Base"} to your wallet:\n\`${topUp.walletAddress}\`\n\n` +
+        `NEAR Intents will deliver USDC to your wallet:\n\`${topUp.walletAddress}\`\n\n` +
         `This deposit quote expires in 30 minutes. We'll message you when it arrives.`
     );
     try {
