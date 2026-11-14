@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/index.ts",
     "dev:web": "npm --prefix web run dev",
-    "build": "tsc && tsc-alias",
+    "build": "node scripts/build.js && tsc-alias",
     "build:web": "npm --prefix web ci && npm --prefix web run build",
     "build:all": "npm run build && npm run build:web",
     "start": "node dist/index.js",
@@ -41,12 +41,6 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "@privy-io/node": "^0.39.0",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
-    "@types/ioredis": "^4.28.10",
-    "@types/morgan": "^1.9.9",
-    "@types/node": "^20.11.0",
-    "@types/qrcode": "^1.5.6",
     "axios": "^1.7.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^6.7.5",
@@ -60,15 +54,22 @@
     "morgan": "^1.10.0",
     "prisma": "^6.19.3",
     "qrcode": "^1.5.4",
-    "tsc-alias": "^1.9.1",
-    "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.3.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/ioredis": "^4.28.10",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^20.11.0",
+    "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.2.1",
+    "esbuild": "^0.28.2",
     "supertest": "^7.3.0",
+    "tsc-alias": "^1.9.1",
+    "tsconfig-paths": "^4.2.0",
     "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.0",
     "vitest": "^3.2.7"
   }
 }

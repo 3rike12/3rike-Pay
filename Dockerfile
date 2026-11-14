@@ -7,7 +7,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
 
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 
 COPY prisma ./prisma
 RUN npx prisma generate
@@ -18,7 +18,7 @@ RUN npm run build
 
 # Keep the runtime image production-only without downloading the dependency
 # tree a second time.
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev --no-audit --no-fund
 
 # ---- runtime ----
 FROM node:20-alpine AS runner
