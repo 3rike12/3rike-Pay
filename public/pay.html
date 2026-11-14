@@ -458,6 +458,9 @@
       var EP = m.EthereumProvider || (m.default && m.default.EthereumProvider);
       return EP.init({
         projectId: wcProjectId,
+        // WalletConnect's current Cloud relay hostname; the provider version's
+        // bundled default still points at relay.walletconnect.org.
+        relayUrl: "wss://relay.walletconnect.com",
         chains: [walletChains[0]],
         optionalChains: walletChains.slice(1),
         showQrModal: true,
