@@ -7,9 +7,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
 
 COPY package.json package-lock.json ./
-# The build runs TypeScript, which needs devDependencies (typescript and
-# @types/*). Explicitly include them even if Coolify sets NODE_ENV=production.
-RUN --mount=type=cache,target=/root/.npm npm ci --include=dev --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY prisma ./prisma
 RUN npx prisma generate
@@ -20,7 +18,7 @@ RUN npm run build
 
 # Keep the runtime image production-only without downloading the dependency
 # tree a second time.
-RUN npm prune --omit=dev --no-audit --no-fund
+RUN npm prune --omit=dev
 
 # ---- runtime ----
 FROM node:20-alpine AS runner
