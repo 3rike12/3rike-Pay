@@ -46,7 +46,7 @@ export interface NearIntentsStatusResponse {
 
 export function isNearIntentsEnabled(): boolean {
   // The API key is optional: unauthenticated requests work but pay an extra
-  // 0.25% fee. Only the recipient is required.
+  // fee (about 0.2%). Only the recipient is required.
   return Boolean(config.nearIntents?.recipient);
 }
 

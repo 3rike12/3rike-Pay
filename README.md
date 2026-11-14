@@ -2,11 +2,11 @@
 
 > **NEAR Hackathon submission, track: Real-World Money (`realworld`).**
 
-**What it is.** A merchant creates an invoice (from WhatsApp, or the demo script below). Their customer opens a pay link and pays from **any supported chain and token**. The merchant is credited in their **local currency** (RWF, NGN, KES, GHS, USD) and the money lands as **USDC**, routed by **NEAR Intents**.
+**What it is.** A WhatsApp wallet for people and small merchants in Africa. Anyone can **add money from any chain and token**, **request a payment** with a link or QR code, hold **one balance in their own currency (KES, TZS or NGN)**, and **cash out to a Nigerian bank account**. Every incoming payment lands as **USDC** in a treasury, routed by **NEAR Intents**, so nobody has to run a wallet, bridge or reconciliation per chain. (A merchant can also issue invoices; a top-up is just an invoice you pay yourself.)
 
 **Problem.** Small merchants in Africa get paid by people who hold money on different chains and in different tokens. Supporting each chain means a wallet, a bridge and a reconciliation process per chain.
 
-**How NEAR is used.**
+**How NEAR is used.** Every payment, invoice or top-up, goes through NEAR Intents:
 - **1Click API (NEAR Intents)** turns "customer holds token X on chain Y" into "merchant receives USDC", with one quote and one deposit address per invoice. (`src/services/nearIntents.ts`)
 - The quote is `EXACT_OUTPUT`: the merchant receives exactly the invoice value, and the customer's input absorbs slippage.
 - Settlement is by polling 1Click `/v0/status`; `SUCCESS` credits the merchant ledger, `REFUNDED` and `FAILED` are shown to the customer. (`src/services/cryptoInvoice.ts`)
@@ -51,7 +51,7 @@ The pay page is one static file (`public/pay.html`), so it can live on its own d
 Tested with a simulated static host plus a stand-in API on a different origin, not on Vercel itself.
 
 Other checks:
-- `npm test` : unit tests (3 tests in `tests/webhooks.test.ts` fail on a clean checkout and are unrelated to this work).
+- `npm test` : the unit tests (the 6 that need a local Redis skip themselves when none is running).
 - `npm run demo:probe` : prints the live token list and a live quote from the 1Click API, no server needed.
 - Other currencies: `npm run demo:invoice -- NGN 20000`.
 - There is **no testnet** for NEAR Intents, so step 6 uses mainnet with a small amount.
@@ -72,10 +72,11 @@ The ledger is debited first; AutoRamp's `offramp.completed` / `offramp.failed`
 webhook settles it, and a failure credits the balance back.
 
 The treasury must send the USDC (Base) to the deposit address AutoRamp returns.
-No signer ships with the repo: without one, cash-outs are parked as
-`awaiting_signature`, and `npm run cashout:pending` lists the exact USDC amount
-and address for an operator to fund by hand. Register a `TreasurySigner`
-(`setTreasurySigner`) to automate it.
+With the `PRIVY_*` variables set, a Privy server wallet signs and sends it
+(`src/services/privySigner.ts`; pair it with a Privy policy that allows only the
+USDC contract and a per-transaction cap). Without them, cash-outs are parked as
+`awaiting_signature` and `npm run cashout:pending` lists the exact USDC amount
+and address for an operator to fund by hand.
 
 ### Basic KYC (Toden)
 
@@ -93,14 +94,21 @@ marks the merchant verified or tells them why not. Unset, KYC is skipped.
 - `src/services/nearIntents.ts` : 1Click client (quotes, status, token list, fiat pricing, token resolution)
 - `src/services/cryptoInvoice.ts` : create a crypto payment for an invoice, poll and settle it
 - `src/api/pay.ts` + `public/pay.html` : the public customer pay page and its API
-- `src/services/treasury.ts`, `src/services/withdrawal.ts` : treasury accounting and withdrawals (experimental; payouts need a signer and are **not** enabled)
-- `scripts/demo-invoice.ts`, `scripts/probe-near-intents.js`, `scripts/treasury-report.ts`
-- `tests/nearIntents.test.ts`, `tests/withdrawal.test.ts`
-- Bot: invoice "Yes" now issues a crypto pay link when `PUBLIC_BASE_URL` is set; mobile money is switched off by default (`MOBILE_MONEY_ENABLED`).
+- `src/services/treasury.ts`, `src/services/withdrawal.ts` : treasury accounting and crypto withdrawals
+- `src/services/privySigner.ts` : Privy server wallet that signs treasury payouts (USDC on Base)
+- `src/services/cashout.ts` : cash out the balance to a Nigerian bank through AutoRamp, ledger-first and reversible
+- `src/services/kyc.ts`, `src/services/toden.ts` : basic identity check (Toden hosted link), idempotent webhook handling
+- `/topup` (add money from any chain), one balance currency per person, a consumer path that needs no shop
+- `src/cli/demoInvoice.ts`, `scripts/probe-near-intents.js`, `scripts/treasury-report.ts`, `scripts/pending-cashouts.ts`
+- `vercel.json`, `scripts/vercel-build.js` : the pay page hosted on its own domain
+- Tests: `tests/nearIntents`, `withdrawal`, `cashout`, `kyc`, `toden`, `privySigner`, `cryptoInvoice`, `cryptoQueue`, `cryptoSweep`, `payPage`, `configRecipient` and the bot flow tests
+- Bot: invoices issue a crypto pay link when `PUBLIC_BASE_URL` is set; mobile money and the legacy Nigerian banking features are off by default (`MOBILE_MONEY_ENABLED`, `LEGACY_BANKING_ENABLED`).
 
 **How a payment is detected.** NEAR Intents has no webhooks, so we poll its status endpoint. With `REDIS_URL` set, a BullMQ queue (`src/services/cryptoQueue.ts`) owns this: one self-rescheduling job per invoice, retries with back-off, a rate limiter, and a repeating sweep that re-adds any invoice that lost its job. Without Redis the same tracking runs in-process (`src/services/cryptoSweep.ts`), so no Redis is needed to try the project. Late payments on an already-expired invoice are still detected and settled.
 
-**Known limits.** Prices use a static FX table (`NEAR_INTENTS_FX_RATES`); origin chains are EVM only (the refund address must be valid on the customer's chain); withdrawals are not production-ready.
+**Known limits.** Prices use a static FX table (`NEAR_INTENTS_FX_RATES`); origin chains are EVM only (the refund address must be valid on the customer's chain); every top-up gets its own deposit address (a permanent per-user address needs a 1Click partner key or Privy per-user wallets, which are not built); the payout flow has been tested with mocks, not yet with real money end to end.
+
+**Libraries, templates and AI assistance.** Third-party: Express, Prisma, BullMQ, ioredis, axios, `@privy-io/node`, WalletConnect's Ethereum provider (loaded by the pay page), the 1Click API, AutoRamp, Toden and the WhatsApp Cloud API. The pre-hackathon code (commit `28cf5b5`, tag `pre-hackathon`) is baseline. Much of the hackathon code was written with Claude Code (AI assistance) and reviewed by the team.
 
 ---
 
