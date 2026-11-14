@@ -19,6 +19,14 @@
 #   #          COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
 #   docker compose --profile local-db up --build
 #
+# Redis is part of this stack (the `redis` service below, with persistence on and
+# eviction off). The app is wired to it by REDIS_URL, set in this file, so you
+# never set it yourself.
+#
+# Variables to set in Coolify: section 1 of .env.example is the minimum
+# (DATABASE_URL, PUBLIC_BASE_URL, the WHATSAPP_* values, NEAR_INTENTS_RECIPIENT,
+# TREASURY_ADDRESS); later sections switch on payouts, the Privy signer and KYC.
+#
 # On boot the app runs `prisma db push`, so DATABASE_URL must point at a
 # database you intend it to change.
 
