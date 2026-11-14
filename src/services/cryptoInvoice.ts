@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
-import { nearIntents, EVM_CHAIN_IDS, prettyOrigin, type PayableToken } from "@/services/nearIntents";
+import { nearIntents, evmChainIdFor, prettyOrigin, type PayableToken } from "@/services/nearIntents";
 import {
   INVOICE_STATUS,
   INVOICE_TTL_MINUTES,
@@ -28,7 +28,7 @@ export function originMetaFor(token: PayableToken) {
   return {
     symbol: token.symbol,
     chain: token.blockchain,
-    chainId: EVM_CHAIN_IDS[token.blockchain] ?? null,
+    chainId: evmChainIdFor(token.blockchain),
     tokenAddress: token.contractAddress ?? null,
     decimals: token.decimals,
   };
@@ -36,6 +36,11 @@ export function originMetaFor(token: PayableToken) {
 
 /** Default payment (USDC on Base) so a customer opening the link finds it ready. */
 export async function createDefaultCryptoPayment(merchantId: string, invoiceId: string) {
+  if (config.nearIntents.network === "tidepool") {
+    // A Tidepool quote needs the payer's wallet as refundTo. The pay page
+    // creates it after the buyer connects, rather than pre-quoting here.
+    throw new Error("Tidepool quotes are created after the buyer connects a wallet.");
+  }
   const token = await nearIntents.resolveOriginAsset("USDC", "base");
   if (!token) throw new Error("The default payment token is unavailable.");
   return createCryptoPayment({

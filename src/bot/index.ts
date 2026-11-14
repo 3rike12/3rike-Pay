@@ -26,7 +26,7 @@ import {
   renderInvoiceSummary,
   scheduleInvoiceVerification,
 } from "@/services/invoice";
-import { toUsd } from "@/services/treasury";
+import { formatUsdThreshold, toUsd } from "@/services/treasury";
 import { createCryptoPayment, createDefaultCryptoPayment, scheduleCryptoVerification } from "@/services/cryptoInvoice";
 import { nearIntents } from "@/services/nearIntents";
 import { quoteCashout, requestCashout } from "@/services/cashout";
@@ -143,8 +143,11 @@ async function searchBanks(
   const banks = await autoramp.listBanks();
   const source = banks.length
     ? banks.map((b: any) => ({
-        code: String(b.code || b.bankCode || ""),
-        name: String(b.name || b.bankName || b.code || ""),
+        // Provider bank directories vary in which field carries the NIP code.
+        // Prefer explicit NIP fields when present; SafeHaven name enquiry
+        // needs the NIP institution code (for Kuda, 090267).
+        code: String(b.nipCode || b.nip_code || b.code || b.bankCode || ""),
+        name: String(b.name || b.bankName || b.code || b.bankCode || ""),
       }))
     : MESSAGES.BANKS.FALLBACK.map((b) => ({ code: b.code, name: b.title }));
 
@@ -792,9 +795,17 @@ async function issueTopUp(phone: string, user: any, amount: number) {
   const currency = merchantCurrency(user);
   try {
     const usd = toUsd(amount, currency);
-    if (usd < 5) return whatsapp.sendTextMessage(phone, "The minimum top-up is about $5. Reply with a larger amount.");
+    if (usd < config.treasury.minTopUpUsd) {
+      return whatsapp.sendTextMessage(
+        phone,
+        `The minimum top-up is ${formatUsdThreshold(config.treasury.minTopUpUsd, currency)}. Reply with a larger amount.`
+      );
+    }
     if (usd > config.treasury.maxWithdrawUsd) {
-      return whatsapp.sendTextMessage(phone, `The maximum top-up is about $${config.treasury.maxWithdrawUsd}. Reply with a smaller amount.`);
+      return whatsapp.sendTextMessage(
+        phone,
+        `The maximum top-up is ${formatUsdThreshold(config.treasury.maxWithdrawUsd, currency)}. Reply with a smaller amount.`
+      );
     }
     if (!nearIntents.isNearIntentsEnabled() || !config.app.baseUrl) {
       return whatsapp.sendTextMessage(phone, "Adding money isn't available right now. Please try again later.");

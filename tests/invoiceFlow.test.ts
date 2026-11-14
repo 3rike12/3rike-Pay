@@ -763,6 +763,14 @@ describe("cash out to a bank", () => {
     expect(h.session.state).toBe("cashout_confirm");
   });
 
+  it("uses the NIP bank code from the provider directory for Kuda cash-outs", async () => {
+    h.listBanks.mockResolvedValue([{ name: "Kuda Microfinance Bank", nipCode: "090267", code: "kuda" }]);
+
+    await say("/cashout 10000 kuda 2270121368");
+
+    expect(h.nameEnquiry).toHaveBeenCalledWith("090267", "2270121368");
+  });
+
   it("sends the cash-out only after Yes", async () => {
     await say("/cashout 13000 gtbank 0123456789");
     const reply = await say("", "cashout_yes");

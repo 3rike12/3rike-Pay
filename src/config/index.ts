@@ -20,6 +20,16 @@ const todenWorkflowId = /sandbox/i.test(process.env.TODEN_API_URL || "")
  * turn crypto payments on (the treasury is the recipient).
  */
 const nearRecipient = process.env.NEAR_INTENTS_RECIPIENT || process.env.TREASURY_ADDRESS || "";
+const requestedNearIntentsNetwork = (process.env.NEAR_INTENTS_NETWORK || "mainnet").toLowerCase();
+const nearIntentsNetwork = requestedNearIntentsNetwork === "near" ? "mainnet" : requestedNearIntentsNetwork;
+const tidepool = nearIntentsNetwork === "tidepool";
+if (!["mainnet", "tidepool"].includes(nearIntentsNetwork)) {
+  throw new Error('NEAR_INTENTS_NETWORK must be "near", "mainnet", or "tidepool".');
+}
+const tidepoolRecipient = process.env.TREASURY_ADDRESS || process.env.NEAR_INTENTS_RECIPIENT || "";
+const nearIntentsBaseUrl = tidepool
+  ? "https://www.usetidepool.tech"
+  : (process.env.NEAR_INTENTS_BASE_URL || "https://1click.chaindefuser.com").replace(/\/$/, "");
 
 export const config = {
   port: parseInt(process.env.PORT || "3000", 10),
@@ -101,10 +111,12 @@ export const config = {
    * Enabled only when apiKey and recipient are both set.
    */
   nearIntents: {
-    baseUrl: process.env.NEAR_INTENTS_BASE_URL || "https://1click.chaindefuser.com",
-    apiKey: process.env.NEAR_INTENTS_API_KEY || "",
+    network: nearIntentsNetwork,
+    baseUrl: nearIntentsBaseUrl,
+    // Never send a production 1Click API key to the community Tidepool sandbox.
+    apiKey: tidepool ? "" : process.env.NEAR_INTENTS_API_KEY || "",
     /** Platform-controlled address that receives the swapped funds. */
-    recipient: nearRecipient,
+    recipient: tidepool ? tidepoolRecipient : nearRecipient,
     /**
      * How `recipient` is interpreted. INTENTS = an account inside NEAR
      * Intents (e.g. treasury.near) - cheapest, no withdrawal fee, and it makes
@@ -112,22 +124,28 @@ export const config = {
      * destination asset's own chain (e.g. an EVM address on Base).
      * Defaults to INTENTS for NEAR-style accounts, DESTINATION_CHAIN for 0x.
      */
-    recipientType: (process.env.NEAR_INTENTS_RECIPIENT_TYPE ||
+    recipientType: (tidepool
+      ? (/^0x/i.test(tidepoolRecipient) ? "DESTINATION_CHAIN" : "INTENTS")
+      : process.env.NEAR_INTENTS_RECIPIENT_TYPE ||
       (/^0x/i.test(nearRecipient) || !nearRecipient
         ? "DESTINATION_CHAIN"
         : "INTENTS")) as "INTENTS" | "DESTINATION_CHAIN",
     /** Where refunds go if a swap fails (defaults to the recipient). */
-    refundTo: process.env.NEAR_INTENTS_REFUND_TO || nearRecipient,
+    // Testnet quotes are requested only after the buyer connects their wallet;
+    // the page supplies that wallet as refundTo for each quote.
+    refundTo: tidepool ? "" : process.env.NEAR_INTENTS_REFUND_TO || nearRecipient,
     /** Default asset the buyer pays with (USDC on Base). */
     originAsset:
-      process.env.NEAR_INTENTS_ORIGIN_ASSET ||
-      "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near",
+      (tidepool
+        ? "nep141:base-0x38d81431b9f76d9699af7517040d5221d9dea252.tp-omft.testnet"
+        : process.env.NEAR_INTENTS_ORIGIN_ASSET || "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near"),
     /** Asset the platform receives (USDC on Base). */
     destinationAsset:
-      process.env.NEAR_INTENTS_DESTINATION_ASSET ||
-      "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near",
+      (tidepool
+        ? "nep141:base-0x38d81431b9f76d9699af7517040d5221d9dea252.tp-omft.testnet"
+        : process.env.NEAR_INTENTS_DESTINATION_ASSET || "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near"),
     /** Decimals of destinationAsset (USDC = 6). */
-    destinationDecimals: parseInt(process.env.NEAR_INTENTS_DESTINATION_DECIMALS || "6", 10),
+    destinationDecimals: tidepool ? 6 : parseInt(process.env.NEAR_INTENTS_DESTINATION_DECIMALS || "6", 10),
     /**
      * Static FX: units of each currency per 1 USD, used to price fiat
      * invoices in the (USD-pegged) destination asset. Override the whole
@@ -171,6 +189,7 @@ export const config = {
     tokenContract:
       process.env.TREASURY_TOKEN_CONTRACT || "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
     tokenDecimals: parseInt(process.env.TREASURY_TOKEN_DECIMALS || "6", 10),
+    minTopUpUsd: Number(process.env.TOPUP_MIN_USD || 5),
     minWithdrawUsd: Number(process.env.WITHDRAW_MIN_USD || 5),
     maxWithdrawUsd: Number(process.env.WITHDRAW_MAX_USD || 2000),
   },
@@ -199,7 +218,7 @@ export const config = {
     walletId: process.env.PRIVY_TREASURY_WALLET_ID || "",
     /** Let Privy pay gas (needs app-pays sponsorship + credits in the dashboard). */
     sponsorGas: process.env.PRIVY_SPONSOR_GAS === "true",
-    enabled: !!(
+    enabled: !tidepool && !!(
       process.env.PRIVY_APP_ID &&
       process.env.PRIVY_APP_SECRET &&
       process.env.PRIVY_AUTHORIZATION_KEY &&

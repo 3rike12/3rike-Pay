@@ -1,6 +1,7 @@
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
 import { createLogger } from "@/utils/logger";
+import { formatCurrency } from "@/utils/helpers";
 
 const logger = createLogger("treasury");
 
@@ -26,6 +27,16 @@ export function fromUsd(usd: number, currency: string): number {
   const rate = config.nearIntents.fxRates?.[currency.toUpperCase()];
   if (!rate || rate <= 0) throw new Error(`No FX rate for ${currency}`);
   return usd * rate;
+}
+
+/** Show a USD-denominated limit in the user's balance currency at our configured FX rate. */
+export function formatUsdThreshold(usd: number, currency: string): string {
+  const cur = currency.toUpperCase();
+  const rate = config.nearIntents.fxRates?.[cur];
+  const localAmount = Math.ceil(fromUsd(usd, cur));
+  const usdLabel = Number.isInteger(usd) ? String(usd) : usd.toFixed(2);
+  const rateLabel = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(rate);
+  return `${formatCurrency(localAmount, cur)} (about $${usdLabel} USD at ${cur} ${rateLabel}/USD)`;
 }
 
 /** ERC-20 balanceOf(treasury) over plain JSON-RPC - no signing library needed. */

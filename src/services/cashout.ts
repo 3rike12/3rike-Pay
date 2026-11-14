@@ -4,7 +4,7 @@ import { prisma } from "@/db/prisma";
 import { autoramp } from "@/services/autoramp";
 import { ledger } from "@/services/ledger";
 import { getTreasurySigner } from "@/services/withdrawal";
-import { onChainBalanceUsd, liabilities, toUsd } from "@/services/treasury";
+import { formatUsdThreshold, onChainBalanceUsd, liabilities, toUsd } from "@/services/treasury";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("cashout");
@@ -58,13 +58,16 @@ async function usdNgnRate(): Promise<number> {
 
 /** What a cash-out of `amount` (in the merchant's currency) would pay out. Throws on bad limits. */
 export async function quoteCashout(currency: string, amount: number): Promise<CashoutQuote> {
+  if (config.nearIntents.network === "tidepool") {
+    throw new Error("Bank cash-outs are disabled in Tidepool demo mode.");
+  }
   const cur = currency.toUpperCase();
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid amount.");
 
   const usd = toUsd(amount, cur);
   const { minWithdrawUsd, maxWithdrawUsd } = config.treasury;
-  if (usd < minWithdrawUsd) throw new Error(`The minimum cash-out is about $${minWithdrawUsd}.`);
-  if (usd > maxWithdrawUsd) throw new Error(`The maximum cash-out is about $${maxWithdrawUsd}.`);
+  if (usd < minWithdrawUsd) throw new Error(`The minimum cash-out is ${formatUsdThreshold(minWithdrawUsd, cur)}.`);
+  if (usd > maxWithdrawUsd) throw new Error(`The maximum cash-out is ${formatUsdThreshold(maxWithdrawUsd, cur)}.`);
 
   const rate = await usdNgnRate();
   const ngn = Math.floor(usd * rate);
@@ -92,6 +95,9 @@ export async function requestCashout(params: {
   accountName?: string;
   bankName?: string;
 }): Promise<CashoutResult> {
+  if (config.nearIntents.network === "tidepool") {
+    throw new Error("Bank cash-outs are disabled in Tidepool demo mode.");
+  }
   if (!/^\d{10}$/.test(params.accountNumber)) {
     throw new Error("A Nigerian account number is exactly 10 digits.");
   }

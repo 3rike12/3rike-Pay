@@ -110,6 +110,24 @@ export const EVM_CHAIN_IDS: Record<string, number> = {
   gnosis: 100,
 };
 
+/** Testnet EVM ids used by Tidepool. Its blockchain labels stay `base`, `arb`, and `eth`. */
+export const TIDEPOOL_EVM_CHAIN_IDS: Record<string, number> = {
+  eth: 11155111,
+  base: 84532,
+  arb: 421614,
+  bsc: 97,
+  aurora: 1313161555,
+};
+
+export function evmChainIdFor(blockchain: string): number | null {
+  const ids = config.nearIntents.network === "tidepool" ? TIDEPOOL_EVM_CHAIN_IDS : EVM_CHAIN_IDS;
+  return ids[blockchain] ?? null;
+}
+
+export function walletChainIds(): number[] {
+  return config.nearIntents.network === "tidepool" ? [84532, 421614, 11155111, 97] : [8453, 1, 10, 137, 42161, 43114, 100];
+}
+
 export const CHAIN_NAMES: Record<string, string> = {
   eth: "Ethereum",
   base: "Base",

@@ -3,7 +3,7 @@ import { config } from "@/config";
 import { prisma } from "@/db/prisma";
 import { ledger } from "@/services/ledger";
 import { nearIntents } from "@/services/nearIntents";
-import { onChainBalanceUsd, liabilities, toUsd } from "@/services/treasury";
+import { formatUsdThreshold, onChainBalanceUsd, liabilities, toUsd } from "@/services/treasury";
 import { generateTransactionReference } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
 
@@ -68,6 +68,9 @@ export async function requestWithdrawal(params: {
   chain?: string;
   address: string;
 }): Promise<WithdrawalResult> {
+  if (config.nearIntents.network === "tidepool") {
+    throw new Error("Treasury withdrawals are disabled in Tidepool demo mode.");
+  }
   const currency = params.currency.toUpperCase();
   const amount = Number(params.amount);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid amount.");
@@ -77,8 +80,8 @@ export async function requestWithdrawal(params: {
 
   const usd = toUsd(amount, currency);
   const { minWithdrawUsd, maxWithdrawUsd } = config.treasury;
-  if (usd < minWithdrawUsd) throw new Error(`Minimum withdrawal is about $${minWithdrawUsd}.`);
-  if (usd > maxWithdrawUsd) throw new Error(`Maximum withdrawal is about $${maxWithdrawUsd}.`);
+  if (usd < minWithdrawUsd) throw new Error(`Minimum withdrawal is ${formatUsdThreshold(minWithdrawUsd, currency)}.`);
+  if (usd > maxWithdrawUsd) throw new Error(`Maximum withdrawal is ${formatUsdThreshold(maxWithdrawUsd, currency)}.`);
 
   const token = await nearIntents.resolveOriginAsset(params.symbol, params.chain);
   if (!token) throw new Error(`I can't pay out ${params.symbol.toUpperCase()}${params.chain ? ` on ${params.chain}` : ""}.`);

@@ -3,7 +3,7 @@ import { Router, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import { prisma } from "@/db/prisma";
 import { config } from "@/config";
-import { nearIntents, EVM_ADDRESS_RE } from "@/services/nearIntents";
+import { nearIntents, EVM_ADDRESS_RE, walletChainIds } from "@/services/nearIntents";
 import {
   createCryptoPayment,
   originMetaFor,
@@ -147,6 +147,8 @@ payApiRouter.get("/:reference", limiter, async (req: Request, res: Response) => 
       ...view,
       tokens,
       enabled: nearIntents.isNearIntentsEnabled(),
+      network: config.nearIntents.network,
+      walletChainIds: walletChainIds(),
       walletConnectProjectId: config.walletConnect.projectId || null,
     });
   } catch (error: any) {
@@ -170,6 +172,9 @@ payApiRouter.post("/:reference/quote", limiter, async (req: Request, res: Respon
 
     // A failed swap refunds here, so it must be the buyer's own address.
     const refundTo = req.body?.refundTo ? String(req.body.refundTo).trim() : undefined;
+    if (config.nearIntents.network === "tidepool" && !refundTo) {
+      return res.status(400).json({ error: "Connect your Base Sepolia wallet before preparing a demo payment." });
+    }
     if (refundTo && !EVM_ADDRESS_RE.test(refundTo)) {
       return res.status(400).json({ error: "That refund address isn't a valid 0x address." });
     }

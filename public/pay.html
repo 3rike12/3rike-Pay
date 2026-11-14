@@ -237,6 +237,7 @@
   var sel = { chain: null, asset: null };
   var seq = 0, quoteTimer = null, pollTimer = null, tickTimer = null;
   var wcProjectId = null;
+  var walletChains = [8453, 1, 10, 137, 42161, 43114, 100];
 
   // connected wallet
   var wallet = { provider: null, account: null, name: "" };
@@ -361,7 +362,16 @@
     s.appendChild(el("div", "skeleton w1")); s.appendChild(el("div", "skeleton w2")); s.appendChild(el("div", "skeleton w3"));
   }
   function scheduleQuote() {
-    clearTimeout(quoteTimer); quoting = true; quote = null; skeleton(); updateUi();
+    clearTimeout(quoteTimer);
+    if (inv && inv.network === "tidepool" && !wallet.account) {
+      quoting = false; quote = null;
+      $("summary").innerHTML = "";
+      $("summary").appendChild(el("div", "lbl", "Connect your Base Sepolia wallet to prepare a demo payment."));
+      show("progress", false);
+      updateUi();
+      return;
+    }
+    quoting = true; quote = null; skeleton(); updateUi();
     quoteTimer = setTimeout(requestQuote, 350);
   }
   function requestQuote() {
@@ -422,7 +432,10 @@
         if (!wallet.account) wallet = { provider: null, account: null, name: "" };
         updateUi(); if (!finished && !locked) scheduleQuote();
       });
-      provider.on("disconnect", function () { wallet = { provider: null, account: null, name: "" }; updateUi(); });
+      provider.on("disconnect", function () {
+        wallet = { provider: null, account: null, name: "" };
+        updateUi(); if (!finished && !locked) scheduleQuote();
+      });
     }
     closeSheet(); updateUi();
     // The refund address is part of the quote: quote again with this wallet.
@@ -436,8 +449,8 @@
       var EP = m.EthereumProvider || (m.default && m.default.EthereumProvider);
       return EP.init({
         projectId: wcProjectId,
-        chains: [8453],
-        optionalChains: [1, 10, 137, 42161, 43114, 100],
+        chains: [walletChains[0]],
+        optionalChains: walletChains.slice(1),
         showQrModal: true,
         metadata: { name: "3rike Pay", description: "Pay an invoice", url: location.origin, icons: [] }
       });
@@ -500,13 +513,25 @@
     if (wallet.account) $("walletName").textContent = wallet.name + " · " + short(wallet.account);
 
     var noWallet = !canConnect();
-    show("noWallet", noWallet && !finished && !!quote);
-    $("manual").open = noWallet || $("manual").open;
+    var tidepoolNeedsWallet = !!(inv && inv.network === "tidepool" && !wallet.account);
+    show("noWallet", noWallet && !finished && (!!quote || tidepoolNeedsWallet));
+    if (tidepoolNeedsWallet) {
+      $("noWallet").textContent = "A Base Sepolia wallet is required for Tidepool demo payments.";
+      $("manual").open = false;
+    } else {
+      $("manual").open = noWallet || $("manual").open;
+    }
 
     if (finished || locked) { show("cta", false); return; }
     show("cta", !noWallet);
     cta.onclick = null;
     if (sending) { cta.disabled = true; cta.textContent = "Confirm in your wallet…"; return; }
+    if (tidepoolNeedsWallet) {
+      cta.disabled = false;
+      cta.textContent = "Connect wallet";
+      cta.onclick = openWalletSheet;
+      return;
+    }
     if (quoting || !quote) { cta.disabled = true; cta.textContent = "Preparing your payment…"; return; }
     cta.disabled = false;
     if (!wallet.account) { cta.textContent = "Connect wallet"; cta.onclick = openWalletSheet; return; }
@@ -641,6 +666,17 @@
     return r.json();
   }).then(function (d) {
     inv = d; wcProjectId = d.walletConnectProjectId || null;
+    if (Array.isArray(d.walletChainIds) && d.walletChainIds.length) walletChains = d.walletChainIds;
+    if (d.network === "tidepool") {
+      CHAIN_IDS = { eth: 11155111, base: 84532, arb: 421614, bsc: 97, aurora: 1313161555 };
+      CHAINS.base.name = "Base Sepolia";
+      CHAINS.arb.name = "Arbitrum Sepolia";
+      CHAINS.eth.name = "Ethereum Sepolia";
+      var testNotice = document.createElement("div");
+      testNotice.className = "banner ok";
+      testNotice.textContent = "DEMO MODE · Demo tokens only. No real funds.";
+      document.querySelector("main").insertBefore(testNotice, document.querySelector("main").firstChild);
+    }
     document.title = "Pay " + inv.merchant + " \u00B7 3rike Pay";
     $("merchant").textContent = inv.merchant;
     $("avatar").textContent = (inv.merchant || "?").trim().charAt(0).toUpperCase();
@@ -676,7 +712,9 @@
 
     show("payCard", true); renderPayWith();
     tickTimer = setInterval(tick, 1000); tick();
-    if (inv.quote && inv.quote.depositAddress) applyQuote(inv.quote); else { quoting = true; skeleton(); updateUi(); requestQuote(); }
+    if (inv.network === "tidepool") scheduleQuote();
+    else if (inv.quote && inv.quote.depositAddress) applyQuote(inv.quote);
+    else { quoting = true; skeleton(); updateUi(); requestQuote(); }
   }).catch(function (e) {
     if (e && e.notFound) {
       document.title = "Not found \u00B7 3rike Pay";
