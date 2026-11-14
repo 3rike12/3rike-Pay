@@ -59,14 +59,19 @@ export async function listTrackableReferences(includeExpired = false): Promise<s
     select: { reference: true },
     take: MAX_PER_SWEEP,
   });
-  if (invoices.length === 0) return [];
-
   // Only invoices that actually have a crypto payment in flight.
-  const live = await prisma.transaction.findMany({
-    where: { reference: { in: invoices.map((i) => i.reference) }, status: "processing" },
+  const liveInvoices = invoices.length
+    ? await prisma.transaction.findMany({
+        where: { reference: { in: invoices.map((i) => i.reference) }, status: "processing" },
+        select: { reference: true },
+      })
+    : [];
+  const walletTopUps = await prisma.transaction.findMany({
+    where: { type: "wallet_topup", status: "processing" },
     select: { reference: true },
+    take: MAX_PER_SWEEP,
   });
-  return live.map((t) => t.reference);
+  return [...new Set([...liveInvoices, ...walletTopUps].map((t) => t.reference))].slice(0, MAX_PER_SWEEP);
 }
 
 /** One in-process pass. Returns how many invoices were checked. */

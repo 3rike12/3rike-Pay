@@ -16,7 +16,10 @@ model User {
   name      String?
   kycStatus String   @default("none") // none | pending | verified
   status    String   @default("active") // active | flagged | blocked
-  currency  String?  // balance currency the user picked: KES | TZS | NGN (null = default)
+  currency           String?  // balance currency the user picked: KES | TZS | NGN (null = default)
+  privyUserId        String?  @unique
+  privyWalletId      String?  @unique
+  privyWalletAddress String?  @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -102,7 +105,7 @@ model Transaction {
   userId          String
   user            User     @relation(fields: [userId], references: [id])
   reference       String   @unique
-  type            String                     // transfer | onramp | offramp | swap | invoice
+  type            String                     // transfer | onramp | offramp | swap | invoice | wallet_topup
   amount          Float
   currency        String   @default("NGN")
   status          String   @default("pending") // pending | processing | completed | failed

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
 import { nearIntents, evmChainIdFor, prettyOrigin, type PayableToken } from "@/services/nearIntents";
+import { whatsapp } from "@/services/whatsapp";
 import {
   INVOICE_STATUS,
   INVOICE_TTL_MINUTES,
@@ -34,14 +35,14 @@ export function originMetaFor(token: PayableToken) {
   };
 }
 
-/** Default payment (USDC on Base) so a customer opening the link finds it ready. */
+/** Default payment (USDT on Base) differs from the configured USDC destination asset. */
 export async function createDefaultCryptoPayment(merchantId: string, invoiceId: string) {
   if (config.nearIntents.network === "tidepool") {
     // A Tidepool quote needs the payer's wallet as refundTo. The pay page
     // creates it after the buyer connects, rather than pre-quoting here.
     throw new Error("Tidepool quotes are created after the buyer connects a wallet.");
   }
-  const token = await nearIntents.resolveOriginAsset("USDC", "base");
+  const token = await nearIntents.resolveOriginAsset("USDT", "base");
   if (!token) throw new Error("The default payment token is unavailable.");
   return createCryptoPayment({
     merchantId,
@@ -216,7 +217,14 @@ export async function getCryptoPaymentState(
   reference: string
 ): Promise<{ state: CryptoPayState; nearStatus?: string }> {
   const invoice = await getInvoiceByReference(reference);
-  if (!invoice) return { state: "unknown" };
+  if (!invoice) {
+    const walletTopUp = await prisma.transaction.findUnique({
+      where: { reference },
+      include: { user: { select: { phone: true } } },
+    });
+    if (walletTopUp?.type === "wallet_topup") return getWalletTopUpState(walletTopUp);
+    return { state: "unknown" };
+  }
   if (invoice.status === INVOICE_STATUS.PAID) return { state: "paid" };
   // An expired invoice is NOT final: money may still arrive for a deposit
   // address minted before it expired, and that is a real payment. Fall through
@@ -292,6 +300,51 @@ export async function getCryptoPaymentState(
   }
 
   return { state: "awaiting_payment", nearStatus: answered[answered.length - 1]?.status };
+}
+
+async function getWalletTopUpState(transaction: any): Promise<{ state: CryptoPayState; nearStatus?: string }> {
+  const meta = (transaction.metadata as any) || {};
+  const quote = meta.nearIntents;
+  if (transaction.status === "completed") return { state: "paid", nearStatus: meta.nearStatus };
+  if (transaction.status === "failed") {
+    return { state: meta.nearStatus === "REFUNDED" ? "refunded" : "failed", nearStatus: meta.nearStatus };
+  }
+  if (!quote?.depositAddress) return { state: "unknown" };
+
+  const result = await nearIntents.getStatus(quote.depositAddress, quote.depositMemo ?? undefined);
+  const nearStatus = result.status;
+  if (nearStatus === "SUCCESS" || nearStatus === "FAILED" || nearStatus === "REFUNDED") {
+    const status = nearStatus === "SUCCESS" ? "completed" : "failed";
+    const changed = await prisma.transaction.updateMany({
+      where: { id: transaction.id, status: "processing" },
+      data: { status, metadata: { ...meta, nearStatus, nearResult: result } as Prisma.InputJsonValue },
+    });
+    if (changed.count > 0) {
+      const originTx = (result.swapDetails as any)?.originChainTxHashes?.[0];
+      const txUrl = typeof originTx?.explorerUrl === "string" && originTx.explorerUrl.startsWith("https://")
+        ? `\nTransaction: ${originTx.explorerUrl}`
+        : "";
+      const received = quote.amountOut
+        ? `${(Number(quote.amountOut) / 10 ** config.nearIntents.destinationDecimals).toFixed(2)} USDC`
+        : "your funds";
+      const message = nearStatus === "SUCCESS"
+        ? `*Top-up complete*\n\n${received} (about ${transaction.amount} ${transaction.currency}) was routed to your Privy wallet:\n\`${meta.walletAddress}\`${txUrl}`
+        : nearStatus === "REFUNDED"
+          ? `Your top-up was refunded to your Privy wallet:\n\`${meta.walletAddress}\``
+          : "Your NEAR Intents top-up failed. No funds were delivered; contact support if you sent tokens.";
+      await whatsapp.sendTextMessage(transaction.user.phone, message);
+    }
+    return { state: nearStatus === "SUCCESS" ? "paid" : nearStatus === "REFUNDED" ? "refunded" : "failed", nearStatus };
+  }
+
+  if (nearStatus === "PROCESSING" || nearStatus === "KNOWN_DEPOSIT_TX") {
+    await prisma.transaction.updateMany({
+      where: { id: transaction.id, status: "processing" },
+      data: { metadata: { ...meta, nearStatus } as Prisma.InputJsonValue },
+    });
+    return { state: "processing", nearStatus };
+  }
+  return { state: "awaiting_payment", nearStatus };
 }
 
 /** Poll 1Click once and settle/fail the invoice. */

@@ -715,9 +715,11 @@
     TOKENS = inv.tokens || [];
     if (!TOKENS.length) { err("Payment options are unavailable right now. Please try again shortly."); return; }
 
-    // Start from the payment already initiated for this invoice, else USDC on Base.
+    // Tidepool's destination is Base Sepolia USDC, so default to Base Sepolia
+    // USDT as the input. Tidepool rejects a swap from an asset to itself.
     var o = inv.quote && inv.quote.origin, fromQuote = o && valid(o.chain, o.symbol);
-    sel.asset = fromQuote ? o.symbol : (valid("base", "USDC") ? "USDC" : TOKENS[0].symbol);
+    var defaultBaseAsset = "USDT";
+    sel.asset = fromQuote ? o.symbol : (valid("base", defaultBaseAsset) ? defaultBaseAsset : TOKENS[0].symbol);
     sel.chain = fromQuote ? o.chain : (valid("base", sel.asset) ? "base" : chainsFor(sel.asset)[0]);
 
     show("payCard", true); renderPayWith();

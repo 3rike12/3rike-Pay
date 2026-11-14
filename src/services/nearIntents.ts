@@ -166,7 +166,12 @@ export async function listPayableTokens(): Promise<PayableToken[]> {
   if (!res.ok) throw new Error(`NEAR Intents tokens failed (${res.status})`);
   const all = (await res.json()) as PayableToken[];
   const tokens = all.filter(
-    (t) => EVM_ORIGIN_CHAINS.includes(t.blockchain) && PAYABLE_SYMBOLS.includes(t.symbol.toUpperCase())
+    (t) =>
+      EVM_ORIGIN_CHAINS.includes(t.blockchain) &&
+      PAYABLE_SYMBOLS.includes(t.symbol.toUpperCase()) &&
+      // NEAR Intents rejects same-asset swaps. Don't offer an input token
+      // that is also configured as the destination asset.
+      t.assetId !== config.nearIntents.destinationAsset
   );
   tokenCache = { at: Date.now(), tokens };
   return tokens;
