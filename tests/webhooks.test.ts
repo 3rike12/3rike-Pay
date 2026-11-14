@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
+import { createHmac } from "node:crypto";
 import express from "express";
 
 vi.mock("@/config", () => ({
   config: {
     whatsapp: { verifyToken: "test-verify-token" },
     webhook: { secret: "" },
+    toden: { webhookSecret: "whsec_test", webhookSecretPrevious: "" },
     logLevel: "debug",
   },
 }));
@@ -60,6 +62,9 @@ vi.mock("@/services/flutterwave", () => ({
   },
 }));
 
+const processTodenEvent = vi.fn();
+vi.mock("@/services/kyc", () => ({ processTodenEvent: (...a: any[]) => processTodenEvent(...a) }));
+
 vi.mock("@/services/ledger", () => ({
   ledger: { credit: vi.fn(), debit: vi.fn(), transfer: vi.fn(), getBalance: vi.fn(), listBalances: vi.fn() },
 }));
@@ -105,6 +110,7 @@ function buildApp() {
   const app = express();
   app.use("/webhook/autoramp", express.raw({ type: "application/json" }));
   app.use("/webhook/flutterwave", express.raw({ type: "application/json" }));
+  app.use("/webhook/toden", express.raw({ type: "application/json" }));
   app.use(express.json());
   app.use("/webhook", webhooksRouter);
   return app;
@@ -678,5 +684,65 @@ describe("Flutterwave webhook", () => {
     expect(res.status).toBe(200);
     expect(failInvoice).toHaveBeenCalledWith("3RIKE-INV-1", "failed");
     expect(settleInvoice).not.toHaveBeenCalled();
+  });
+});
+
+describe("Toden webhook", () => {
+  const body = JSON.stringify({ id: "evt_1", event: "verification.completed", data: { externalUserId: "u1", status: "approved" } });
+  const sign = (payload: string, secret = "whsec_test", t = Math.floor(Date.now() / 1000)) =>
+    `t=${t},v1=${createHmac("sha256", secret).update(`${t}.`).update(Buffer.from(payload)).digest("hex")}`;
+  const post = (payload = body, signature = sign(payload)) =>
+    request(buildApp())
+      .post("/webhook/toden")
+      .set("Content-Type", "application/json")
+      .set("X-Myaza-Signature-V2", signature)
+      .send(payload);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    processTodenEvent.mockResolvedValue({ status: "processed", phone: "250788", notify: "*You're verified*" });
+    sendText.mockResolvedValue(true as any);
+  });
+
+  it("rejects a bad or stale signature without touching anything", async () => {
+    expect((await post(body, sign(body, "wrong"))).status).toBe(401);
+    expect((await post(body, sign(body, "whsec_test", Math.floor(Date.now() / 1000) - 600))).status).toBe(401);
+    expect(processTodenEvent).not.toHaveBeenCalled();
+  });
+
+  it("applies a signed event and messages the person once", async () => {
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(processTodenEvent).toHaveBeenCalledWith(expect.objectContaining({ id: "evt_1" }));
+    expect(sendText).toHaveBeenCalledTimes(1);
+    expect(sendText).toHaveBeenCalledWith("250788", "*You're verified*");
+  });
+
+  it("acknowledges a repeat of an event it already processed, with no message", async () => {
+    processTodenEvent.mockResolvedValue({ status: "duplicate" });
+    expect((await post()).status).toBe(200);
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  it("sends no message when the state did not change", async () => {
+    processTodenEvent.mockResolvedValue({ status: "processed", phone: "250788", notify: null });
+    expect((await post()).status).toBe(200);
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  it("asks Toden to retry (409) while the same event is being processed", async () => {
+    processTodenEvent.mockResolvedValue({ status: "busy" });
+    expect((await post()).status).toBe(409);
+  });
+
+  it("asks Toden to retry (500) when applying the event failed", async () => {
+    processTodenEvent.mockRejectedValue(new Error("db down"));
+    expect((await post()).status).toBe(500);
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  it("still answers 200 if the WhatsApp message cannot be sent", async () => {
+    sendText.mockRejectedValue(new Error("whatsapp down"));
+    expect((await post()).status).toBe(200);
   });
 });

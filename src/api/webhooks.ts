@@ -11,7 +11,8 @@ import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
 import { cleanPhone, formatAmount, formatCurrency, redactSensitiveText } from "@/utils/helpers";
 import { applyOfframpEvent } from "@/services/cashout";
-import { outcomeFromEvent, verifyTodenWebhook } from "@/services/toden";
+import { verifyTodenWebhook } from "@/services/toden";
+import { processTodenEvent } from "@/services/kyc";
 import { failInvoicePayment, getInvoiceByReference, settleInvoicePayment } from "@/services/invoice";
 import { MESSAGES, KYC_STATUS } from "@/config/constants";
 
@@ -215,7 +216,6 @@ router.post("/autoramp", async (req: Request, res: Response) => {
 // ============================================
 // Flutterwave Webhook (POST)
 // ============================================
-// ============================================
 // Toden identity verification result
 // ============================================
 router.post("/toden", async (req: Request, res: Response) => {
@@ -232,45 +232,18 @@ router.post("/toden", async (req: Request, res: Response) => {
     return res.status(401).send("Invalid signature");
   }
 
-  // Acknowledge first; Toden retries on anything but 2xx.
-  res.status(200).send("OK");
-
+  // Applied exactly once in effect (see services/kyc.ts). A failure answers 5xx
+  // so Toden retries; a repeat of a processed event is acknowledged and skipped.
   try {
-    // Dedupe on the event id: a retry must not message the merchant twice.
-    const seen = await prisma.webhookEvent.findFirst({ where: { source: "toden", reference: event.id } });
-    if (seen) return;
-    await logWebhookEvent("toden", String(event.type ?? event.event ?? "unknown"), { id: event.id }, event.id);
-
-    const result = outcomeFromEvent(event);
-    if (!result) return;
-
-    const user = await prisma.user.findUnique({ where: { id: result.userId } });
-    if (!user) {
-      logger.warn("Toden result for an unknown user", { eventId: event.id });
-      return;
-    }
-
-    if (result.outcome === "approved") {
-      await prisma.user.update({ where: { id: user.id }, data: { kycStatus: KYC_STATUS.VERIFIED } });
-      await whatsapp.sendTextMessage(user.phone, "*You're verified*\n\nThanks. You can now cash out your balance. Type /cashout to start.").catch(() => {});
-    } else if (result.outcome === "declined") {
-      await prisma.user.update({ where: { id: user.id }, data: { kycStatus: KYC_STATUS.REJECTED } });
-      await whatsapp
-        .sendTextMessage(
-          user.phone,
-          `*We couldn't verify you*\n\n${result.reason ? `${result.reason}\n\n` : ""}Type /verify to try again.`
-        )
-        .catch(() => {});
-    } else {
-      await whatsapp
-        .sendTextMessage(
-          user.phone,
-          `*One more step*\n\n${result.reason ? `${result.reason}\n\n` : ""}${result.resubmissionUrl ? `Please retake it here:\n${result.resubmissionUrl}` : "Type /verify to continue."}`
-        )
-        .catch(() => {});
+    const result = await processTodenEvent(event);
+    if (result.status === "busy") return res.status(409).send("Busy, retry");
+    res.status(200).send("OK");
+    if (result.status === "processed" && result.phone && result.notify) {
+      await whatsapp.sendTextMessage(result.phone, result.notify).catch(() => {});
     }
   } catch (error: any) {
     logger.error("Toden webhook handling failed", { eventId: event?.id, error: error?.message });
+    return res.status(500).send("Error");
   }
 });
 

@@ -30,7 +30,7 @@ import { toUsd } from "@/services/treasury";
 import { createCryptoPayment, createDefaultCryptoPayment, scheduleCryptoVerification } from "@/services/cryptoInvoice";
 import { nearIntents } from "@/services/nearIntents";
 import { quoteCashout, requestCashout } from "@/services/cashout";
-import { createVerificationSession } from "@/services/toden";
+import { getOrCreateVerificationSession, markKycPending } from "@/services/kyc";
 import { requestWithdrawal, scheduleWithdrawalVerification } from "@/services/withdrawal";
 import { paymentQrPng } from "@/utils/qr";
 import { createLogger } from "@/utils/logger";
@@ -2051,8 +2051,8 @@ async function startTodenKyc(phone: string, user: any) {
     return whatsapp.sendTextMessage(phone, "You're already verified. You can cash out any time with /cashout.");
   }
   try {
-    const session = await createVerificationSession({ externalUserId: user.id });
-    await prisma.user.update({ where: { id: user.id }, data: { kycStatus: KYC_STATUS.PENDING } });
+    const session = await getOrCreateVerificationSession(user.id);
+    await markKycPending(user.id);
     return whatsapp.sendTextMessage(
       phone,
       "*Verify your identity*\n\nThis takes about two minutes. Have your ID ready, then open this link on your phone:\n\n" +

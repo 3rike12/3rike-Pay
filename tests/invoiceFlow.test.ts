@@ -93,8 +93,9 @@ vi.mock("@/services/treasury", () => ({
   toUsd: (amount: number, currency: string) => amount / ({ KES: 130, NGN: 1500, TZS: 2600 } as Record<string, number>)[currency],
 }));
 
-vi.mock("@/services/toden", () => ({
-  createVerificationSession: (...args: any[]) => h.createSession(...args),
+vi.mock("@/services/kyc", () => ({
+  getOrCreateVerificationSession: (...args: any[]) => h.createSession(...args),
+  markKycPending: vi.fn(async () => {}),
 }));
 
 vi.mock("@/services/cashout", () => ({
@@ -820,7 +821,7 @@ describe("identity check before payouts", () => {
   it("/verify sends the hosted link and marks the merchant pending", async () => {
     try {
       const reply = await say("/verify");
-      expect(h.createSession).toHaveBeenCalledWith({ externalUserId: "user_1" });
+      expect(h.createSession).toHaveBeenCalledWith("user_1");
       expect(reply).toContain("https://console.toden.co/verify/abc");
     } finally { restore(); }
   });
