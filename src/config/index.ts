@@ -189,7 +189,6 @@ export const config = {
     tokenContract:
       process.env.TREASURY_TOKEN_CONTRACT || "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
     tokenDecimals: parseInt(process.env.TREASURY_TOKEN_DECIMALS || "6", 10),
-    minTopUpUsd: Number(process.env.TOPUP_MIN_USD || 5),
     minWithdrawUsd: Number(process.env.WITHDRAW_MIN_USD || 5),
     maxWithdrawUsd: Number(process.env.WITHDRAW_MAX_USD || 2000),
   },

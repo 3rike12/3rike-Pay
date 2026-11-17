@@ -825,11 +825,8 @@ async function issueTopUp(phone: string, user: any, amount: number, symbol?: str
   const currency = merchantCurrency(user);
   try {
     const usd = toUsd(amount, currency);
-    if (usd < config.treasury.minTopUpUsd) {
-      return whatsapp.sendTextMessage(
-        phone,
-        `The minimum top-up is ${formatUsdThreshold(config.treasury.minTopUpUsd, currency)}. Reply with a larger amount.`
-      );
+    if (!(usd > 0)) {
+      return whatsapp.sendTextMessage(phone, "Enter an amount greater than zero.");
     }
     // Tidepool is the demo network: don't apply the production withdrawal cap
     // to testnet top-ups. Keep the configured cap on live networks.
