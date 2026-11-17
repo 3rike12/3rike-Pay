@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 // Vercel build step for the separately hosted pay page.
 //
-// The page (public/pay.html) is static; it calls the backend for the invoice and
-// merchant details. The backend's address is NOT committed: set PAY_API_URL in
-// the Vercel project's environment variables, and this writes public/config.js
+// The React payment page calls the backend for invoice and merchant details.
+// The backend address is set in Vercel as PAY_API_URL; emit it after the Vite build.
 // from it at build time.
 //
 //   PAY_API_URL=https://api.example.com node scripts/vercel-build.js
@@ -32,8 +31,12 @@ module.exports = { buildConfig };
 
 if (require.main === module) {
   try {
-    const out = path.join(__dirname, "..", "public", "config.js");
+    const out = path.join(__dirname, "..", "web", "dist", "config.js");
+    fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, buildConfig(process.env.PAY_API_URL));
+    // This Vercel project serves only the payment flow; the marketing site is
+    // hosted separately, so keep the root path as a 404 as before.
+    fs.rmSync(path.join(path.dirname(out), "index.html"), { force: true });
     console.log(`Wrote ${path.relative(process.cwd(), out)} for ${new URL(process.env.PAY_API_URL).origin}`);
   } catch (error) {
     console.error(`vercel-build: ${error.message}`);

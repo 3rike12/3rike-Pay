@@ -41,10 +41,10 @@ The app runs `prisma db push` on boot, so `DATABASE_URL` must point at a databas
 
 ### Hosting the pay page separately (Vercel)
 
-The pay page is one static file (`public/pay.html`), so it can live on its own domain (e.g. `pay.3rike.com`) while the backend runs elsewhere. The page calls the backend directly from the browser for the invoice and merchant details; the backend already allows cross-origin requests.
+The React and Wagmi payment page can live on its own domain (e.g. `pay.3rike.com`) while the backend runs elsewhere. It calls the backend directly from the browser for invoice details; the backend already allows cross-origin requests.
 
-1. Import the repo into Vercel. `vercel.json` sets everything: no framework, no install, output directory `public`.
-2. Add one environment variable in the Vercel project: `PAY_API_URL=https://<your backend's public URL>`. The build (`scripts/vercel-build.js`) writes it into `public/config.js`; no URL is committed.
+1. Import the repo into Vercel. `vercel.json` installs the web app and builds its two React entry points into `web/dist`.
+2. Add one environment variable in the Vercel project: `PAY_API_URL=https://<your backend's public URL>`. The build (`scripts/vercel-build.js`) writes it into `web/dist/config.js`; no URL is committed.
 3. Add `pay.3rike.com` as the project's domain, and set `PUBLIC_BASE_URL=https://pay.3rike.com` on the backend so WhatsApp links point there.
 4. Routes: `/pay/<reference>` is the invoice page, `/pay` is a small holder page where someone can enter a reference or paste a link, `/pay/favicon.png` is the icon, and **everything else, including `/`, is a 404**. An unknown reference shows an "Invoice not found" screen.
 
@@ -93,7 +93,7 @@ marks the merchant verified or tells them why not. Unset, KYC is skipped.
 **Built for the hackathon (NEAR work only):**
 - `src/services/nearIntents.ts` : 1Click client (quotes, status, token list, fiat pricing, token resolution)
 - `src/services/cryptoInvoice.ts` : create a crypto payment for an invoice, poll and settle it
-- `src/api/pay.ts` + `public/pay.html` : the public customer pay page and its API
+- `src/api/pay.ts` + `web/src/pay` : the React/Wagmi customer payment page and its API
 - `src/services/treasury.ts`, `src/services/withdrawal.ts` : treasury accounting and crypto withdrawals
 - `src/services/privySigner.ts` : Privy server wallet that signs treasury payouts (USDC on Base)
 - `src/services/cashout.ts` : cash out the balance to a Nigerian bank through AutoRamp, ledger-first and reversible

@@ -125,7 +125,7 @@ export function evmChainIdFor(blockchain: string): number | null {
 }
 
 export function walletChainIds(): number[] {
-  return config.nearIntents.network === "tidepool" ? [84532, 421614, 11155111, 97] : [8453, 1, 10, 137, 42161, 43114, 100];
+  return config.nearIntents.network === "tidepool" ? [84532, 421614, 11155111, 97, 1313161555] : [8453, 1, 10, 137, 42161, 43114, 100];
 }
 
 export const CHAIN_NAMES: Record<string, string> = {

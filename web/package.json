@@ -10,11 +10,15 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.107.1",
+    "@walletconnect/ethereum-provider": "^2.26.0",
     "lenis": "^1.1.18",
     "motion": "^11.15.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.28.0",
+    "viem": "^2.57.19",
+    "wagmi": "^3.7.11"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

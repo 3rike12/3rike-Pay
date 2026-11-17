@@ -1,13 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": null,
-  "buildCommand": "node scripts/vercel-build.js",
-  "outputDirectory": "public",
+  "installCommand": "npm --prefix web ci",
+  "buildCommand": "npm --prefix web run build && node scripts/vercel-build.js",
+  "outputDirectory": "web/dist",
   "rewrites": [
     { "source": "/pay", "destination": "/pay-home.html" },
-    { "source": "/pay/favicon.png", "destination": "/favicon.png" },
-    { "source": "/pay/config.js", "destination": "/config.js" },
+    { "source": "/pay/favicon.png", "destination": "/mark.png" },
     { "source": "/pay/:ref", "destination": "/pay.html" }
   ],
   "headers": [

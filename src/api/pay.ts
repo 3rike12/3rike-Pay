@@ -42,14 +42,14 @@ export const payApiRouter = Router();
 // Where the page should call the API. The backend serves its own pay page from
 // the same origin, so this is empty; a separately hosted copy (Vercel) generates
 // its own file at build time.
-payPageRouter.get("/config.js", (_req: Request, res: Response) => {
-  res.type("application/javascript").set("Cache-Control", "no-cache").send("window.PAY_CONFIG = window.PAY_CONFIG || {};\n");
-});
-
 // /pay with no reference: a small holder page where a person can enter the
 // reference from their link. Static; it only redirects to /pay/<reference>.
 payPageRouter.get("/", (_req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, "../../public/pay-home.html"));
+});
+
+payPageRouter.get("/config.js", (_req: Request, res: Response) => {
+  res.type("application/javascript").set("Cache-Control", "no-cache").send("window.PAY_CONFIG = window.PAY_CONFIG || {};\n");
 });
 
 // Brand favicon. Declared before "/:reference" so it is not read as an invoice.
@@ -69,7 +69,7 @@ payPageRouter.get("/:reference/qr.png", limiter, async (req: Request, res: Respo
 });
 
 payPageRouter.get("/:reference", limiter, (_req: Request, res: Response) => {
-  res.set("Cache-Control", "no-store").sendFile(path.join(__dirname, "../../public/pay.html"));
+  res.set("Cache-Control", "no-store").sendFile(path.join(__dirname, "../../web/dist/pay.html"));
 });
 
 async function publicView(reference: string) {
