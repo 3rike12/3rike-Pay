@@ -1,29 +1,38 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import express from "express";
 
 vi.mock("@/config", () => ({
-  config: { logLevel: "debug", redis: {}, app: { baseUrl: "https://pay.example.com" }, walletConnect: { projectId: "" } },
+  config: { logLevel: "debug", redis: {}, app: { baseUrl: "https://pay.example.com" }, walletConnect: { projectId: "" }, nearIntents: {} },
 }));
 const invoiceFind = vi.fn();
 const txFind = vi.fn();
 vi.mock("@/db/prisma", () => ({
   prisma: { invoice: { findUnique: (...a: any[]) => invoiceFind(...a) }, transaction: { findUnique: (...a: any[]) => txFind(...a) } },
 }));
+const resolveOriginAsset = vi.fn();
+const submitDepositTx = vi.fn();
 vi.mock("@/services/nearIntents", () => ({
   EVM_ADDRESS_RE: /^0x[a-fA-F0-9]{40}$/,
+  walletChainIds: () => [8453],
   nearIntents: {
     isNearIntentsEnabled: () => true,
-    listPayableTokens: async () => [{ symbol: "USDC", blockchain: "base" }],
+    listPayableTokens: async () => [{ symbol: "USDT", blockchain: "base" }, { symbol: "USDC", blockchain: "arb" }],
+    resolveOriginAsset: (...a: any[]) => resolveOriginAsset(...a),
+    submitDepositTx: (...a: any[]) => submitDepositTx(...a),
   },
 }));
+const createCryptoPayment = vi.fn();
 vi.mock("@/services/cryptoInvoice", () => ({
-  createCryptoPayment: vi.fn(),
+  originMetaFor: (t: any) => ({ symbol: t.symbol, chain: t.blockchain, tokenAddress: t.contractAddress ?? null, decimals: t.decimals }),
+  createCryptoPayment: (...a: any[]) => createCryptoPayment(...a),
   getCryptoPaymentState: vi.fn(),
   scheduleCryptoVerification: vi.fn(),
 }));
-vi.mock("@/services/invoice", () => ({ getInvoiceByReference: vi.fn() }));
+const getInvoiceByReference = vi.fn();
+vi.mock("@/services/invoice", () => ({ getInvoiceByReference: (...a: any[]) => getInvoiceByReference(...a), settleInvoicePayment: vi.fn() }));
 
+import { config } from "@/config";
 import { payPageRouter, payApiRouter } from "@/api/pay";
 
 describe("pay page QR", () => {
@@ -125,5 +134,84 @@ describe("pay API: cross-origin use from a separately hosted page", () => {
     expect(pre.status).toBeLessThan(300);
     expect(pre.headers["access-control-allow-origin"]).toBeTruthy();
     expect(pre.headers["access-control-allow-headers"]).toMatch(/content-type/i);
+  });
+});
+
+describe("pay API: direct USDC on Base", () => {
+  const TREASURY = "0x2527D02599Ba641c19FEa793cD0F167589a0f10D";
+  const invoice = {
+    reference: "3RIKE-TEST-1", merchantId: "m1", id: "inv1", amount: 5000, currency: "RWF", items: [], status: "pending_payment",
+    expiresAt: new Date(Date.now() + 600_000), createdAt: new Date(), paidAt: null, merchant: { name: "Shop", business: null },
+  };
+  const app = () => { const a = express(); a.use(express.json()); a.use("/api/pay", payApiRouter); return a; };
+  const enable = (on: boolean) => {
+    (config as any).directUsdc = { enabled: on };
+    (config as any).treasury = { address: TREASURY, tokenContract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", tokenDecimals: 6 };
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    invoiceFind.mockResolvedValue(invoice);
+    txFind.mockResolvedValue(null);
+    getInvoiceByReference.mockResolvedValue(invoice);
+    resolveOriginAsset.mockResolvedValue({ assetId: "nep141:usdt", symbol: "USDT", blockchain: "base" });
+    enable(true);
+  });
+  afterEach(() => {
+    delete (config as any).directUsdc;
+    delete (config as any).treasury;
+  });
+
+  it("offers USDC on Base first, which 1Click cannot, when enabled", async () => {
+    const res = await request(app()).get("/api/pay/3RIKE-TEST-1");
+    expect(res.body.tokens[0]).toEqual({ symbol: "USDC", chain: "base", label: "USDC on base" });
+    expect(res.body.tokens.map((t: any) => `${t.symbol}/${t.chain}`)).toEqual(["USDC/base", "USDT/base", "USDC/arb"]);
+  });
+
+  it("does not offer it when disabled", async () => {
+    enable(false);
+    const res = await request(app()).get("/api/pay/3RIKE-TEST-1");
+    expect(res.body.tokens.map((t: any) => `${t.symbol}/${t.chain}`)).toEqual(["USDT/base", "USDC/arb"]);
+  });
+
+  it("creates a direct payment, not a swap, when the customer picks USDC on Base", async () => {
+    const res = await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDC", chain: "base" });
+    expect(res.status).toBe(200);
+    expect(resolveOriginAsset).not.toHaveBeenCalled(); // 1Click would have refused: it is the destination asset
+    expect(createCryptoPayment).toHaveBeenCalledWith(expect.objectContaining({
+      direct: true, originAsset: "direct:usdc-base", merchantId: "m1", invoiceId: "inv1",
+      originMeta: expect.objectContaining({ symbol: "USDC", chain: "base", tokenAddress: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", decimals: 6 }),
+    }));
+  });
+
+  it("still swaps for every other token", async () => {
+    await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDT", chain: "base" });
+    expect(resolveOriginAsset).toHaveBeenCalledWith("USDT", "base");
+    expect(createCryptoPayment).toHaveBeenCalledWith(expect.not.objectContaining({ direct: true }));
+  });
+
+  it("USDC on Arbitrum is a swap, not a direct payment", async () => {
+    await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDC", chain: "arb" });
+    expect(resolveOriginAsset).toHaveBeenCalledWith("USDC", "arb");
+  });
+
+  it("with it disabled, USDC on Base goes to 1Click as before", async () => {
+    enable(false);
+    await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDC", chain: "base" });
+    expect(resolveOriginAsset).toHaveBeenCalledWith("USDC", "base");
+  });
+
+  it("does not tell 1Click about a direct payment's transaction", async () => {
+    txFind.mockResolvedValue({ metadata: { nearIntents: { depositAddress: TREASURY, provider: "direct-usdc" } } });
+    const res = await request(app()).post("/api/pay/3RIKE-TEST-1/submit").send({ txHash: "0x" + "a".repeat(64) });
+    expect(res.body).toEqual({ ok: true });
+    expect(submitDepositTx).not.toHaveBeenCalled();
+  });
+
+  it("still tells 1Click about a swap payment's transaction", async () => {
+    txFind.mockResolvedValue({ metadata: { nearIntents: { depositAddress: "0xdep" } } });
+    submitDepositTx.mockResolvedValue({});
+    await request(app()).post("/api/pay/3RIKE-TEST-1/submit").send({ txHash: "0x" + "a".repeat(64) });
+    expect(submitDepositTx).toHaveBeenCalled();
   });
 });

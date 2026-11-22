@@ -10,6 +10,13 @@ vi.mock("@/services/cryptoInvoice", () => ({
   setVerificationScheduler: vi.fn(),
 }));
 const trackable = vi.fn();
+const verifyWd = vi.fn();
+const pendingWd = vi.fn();
+vi.mock("@/services/withdrawal", () => ({
+  verifyWithdrawal: (...a: any[]) => verifyWd(...a),
+  setWithdrawalScheduler: vi.fn(),
+  listPendingWithdrawalReferences: (...a: any[]) => pendingWd(...a),
+}));
 vi.mock("@/services/cryptoSweep", () => ({ listTrackableReferences: (...a: any[]) => trackable(...a) }));
 
 import { startCryptoQueue, stopCryptoQueue, enqueueCheck, trackedReferences } from "@/services/cryptoQueue";
@@ -38,7 +45,10 @@ describe.skipIf(!up)("crypto queue (real Redis)", () => {
     if (keys.length) await probe.del(...keys);
     probe.disconnect();
   });
-  beforeEach(() => { getState.mockReset(); trackable.mockReset(); trackable.mockResolvedValue([]); });
+  beforeEach(() => {
+    getState.mockReset(); trackable.mockReset(); trackable.mockResolvedValue([]);
+    verifyWd.mockReset(); pendingWd.mockReset(); pendingWd.mockResolvedValue([]);
+  });
 
   it("keeps re-checking the SAME job until the payment is paid, then stops", async () => {
     getState.mockResolvedValueOnce({ state: "awaiting_payment" }).mockResolvedValueOnce({ state: "processing" }).mockResolvedValue({ state: "paid" });
@@ -81,5 +91,29 @@ describe.skipIf(!up)("crypto queue (real Redis)", () => {
     getState.mockResolvedValue({ state: "paid" });
     trackable.mockResolvedValue(["LOST-1"]);
     await until(() => getState.mock.calls.some((c) => c[0] === "LOST-1"));
+  });
+
+  it("keeps checking a withdrawal until the payout is final, and never asks the invoice checker", async () => {
+    verifyWd.mockResolvedValueOnce("pending").mockResolvedValueOnce("pending").mockResolvedValue("completed");
+    await enqueueCheck("WD-1", 0, "withdrawal");
+    await until(() => verifyWd.mock.calls.filter((c) => c[0] === "WD-1").length >= 3);
+    await sleep(300);
+    expect(verifyWd.mock.calls.filter((c) => c[0] === "WD-1")).toHaveLength(3); // stopped once completed
+    expect(getState).not.toHaveBeenCalled();
+  });
+
+  it("stops watching a withdrawal that failed and was credited back", async () => {
+    verifyWd.mockResolvedValue("failed");
+    await enqueueCheck("WD-2", 0, "withdrawal");
+    await until(() => verifyWd.mock.calls.some((c) => c[0] === "WD-2"));
+    await sleep(250);
+    expect(verifyWd.mock.calls.filter((c) => c[0] === "WD-2")).toHaveLength(1);
+  });
+
+  it("the sweep re-adds a withdrawal that lost its job (e.g. after a Redis flush)", async () => {
+    verifyWd.mockResolvedValue("completed");
+    pendingWd.mockResolvedValue(["WD-LOST"]);
+    await until(() => verifyWd.mock.calls.some((c) => c[0] === "WD-LOST"));
+    expect(getState).not.toHaveBeenCalled();
   });
 });

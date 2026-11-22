@@ -17,6 +17,7 @@ import {
   createDraftInvoice,
   createProduct,
   expireStaleInvoices,
+  TOPUP_ITEM_NAME,
   issueInvoice,
   humanizeChargeError,
   listInvoices,
@@ -31,7 +32,7 @@ import { nearIntents } from "@/services/nearIntents";
 import { quoteCashout, requestCashout } from "@/services/cashout";
 import { getOrCreateVerificationSession, markKycPending } from "@/services/kyc";
 import { requestWithdrawal, scheduleWithdrawalVerification } from "@/services/withdrawal";
-import { createWalletTopUp } from "@/services/walletTopUp";
+import { checkLimits } from "@/rails/limits";
 import { paymentQrPng } from "@/utils/qr";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
@@ -777,17 +778,17 @@ async function handleWithdrawCommand(phone: string, user: any, args = "") {
 
 
 // ============================================
-// Add money (top-up): NEAR Intents routes the selected source asset to the
-// user's Privy EVM wallet. The user receives the deposit instructions in chat.
+// Add money (top-up): an invoice you pay yourself, from any chain.
+// The money goes to the treasury and the ledger is credited when it lands
+// (settleInvoicePayment, no platform fee), exactly like any other payment.
 // ============================================
 
 const TOPUP_PROMPT =
-  "*Add money to your crypto wallet*\n\nHow much do you want to add? Reply with an amount in your balance currency, e.g. *5000*. " +
-  "By default, we'll use USDT. To choose another supported token and source chain, send `/topup 5000 USDC arb`.\n\n" +
-  "NEAR Intents will route it to your wallet. We'll send the deposit address here; no payment page is needed.";
+  "*Add money*\n\nHow much do you want to add? Reply with an amount in your balance currency, e.g. *5000*.\n\n" +
+  "You'll get a payment link: pay it from any wallet on any chain and your balance is credited when it lands.";
 
 async function askTopUpAmount(phone: string, user: any) {
-  if (!nearIntents.isNearIntentsEnabled() || !config.privy.appId || !config.privy.appSecret) {
+  if (!nearIntents.isNearIntentsEnabled() || !config.app.baseUrl) {
     return whatsapp.sendTextMessage(phone, "Adding money isn't available right now. Please try again later.");
   }
   await updateSession(user.id, SESSION_STATE.TOPUP_AMOUNT, {});
@@ -795,86 +796,81 @@ async function askTopUpAmount(phone: string, user: any) {
 }
 
 async function handleTopUpAmount(phone: string, user: any, text: string) {
-  const { amount, symbol, chain } = parseTopUpInput(text);
+  const amount = Number(String(text).replace(/[^0-9.]/g, ""));
   if (!Number.isFinite(amount) || amount <= 0) {
     return whatsapp.sendTextMessage(phone, "That doesn't look like an amount. Reply with a number, e.g. *5000*, or /cancel.");
   }
-  return issueTopUp(phone, user, amount, symbol, chain);
+  return issueTopUp(phone, user, amount);
 }
 
-function parseTopUpInput(text: string): { amount: number; symbol?: string; chain?: string } {
-  const parts = String(text || "").trim().split(/\s+/).filter(Boolean);
-  const amount = Number((parts.shift() || "").replace(/[^0-9.]/g, ""));
-  const symbol = parts[0]?.toUpperCase();
-  const network = (parts[1] || "").toLowerCase().replace(/[^a-z]/g, "");
-  const chain = ({
-    base: "base", basesepolia: "base", ethereum: "eth", eth: "eth", ethereumsepolia: "eth",
-    arbitrum: "arb", arbitrumsepolia: "arb", arb: "arb", polygon: "pol", pol: "pol",
-  } as Record<string, string>)[network] || (network || undefined);
-  return { amount, symbol, chain };
-}
-
-function topUpChainName(chain: string): string {
-  const names = config.nearIntents.network === "tidepool"
-    ? { base: "Base", arb: "Arbitrum", eth: "Ethereum" }
-    : { base: "Base", arb: "Arbitrum", eth: "Ethereum", pol: "Polygon" };
-  return (names as Record<string, string>)[chain] || chain;
-}
-
-async function issueTopUp(phone: string, user: any, amount: number, symbol?: string, chain?: string) {
+async function issueTopUp(phone: string, user: any, amount: number) {
   const currency = merchantCurrency(user);
   try {
     const usd = toUsd(amount, currency);
     if (!(usd > 0)) {
       return whatsapp.sendTextMessage(phone, "Enter an amount greater than zero.");
     }
-    // Tidepool is the demo network: don't apply the production withdrawal cap
-    // to testnet top-ups. Keep the configured cap on live networks.
-    if (config.nearIntents.network !== "tidepool" && usd > config.treasury.maxWithdrawUsd) {
-      return whatsapp.sendTextMessage(
-        phone,
-        `The maximum top-up is ${formatUsdThreshold(config.treasury.maxWithdrawUsd, currency)}. Reply with a smaller amount.`
-      );
+    // The rail that takes the money owns the limits: 1Click's minimum, and the
+    // cap (RAIL_1CLICK_MIN_USD / _MAX_USD; the testnet demo network has none).
+    const limits = checkLimits("in", { kind: "swap", usd });
+    if (!limits.ok) {
+      if (limits.reason === "below_min") {
+        return whatsapp.sendTextMessage(
+          phone,
+          `The minimum top-up is ${formatUsdThreshold(limits.minUsd, currency)}. Reply with a larger amount.`
+        );
+      }
+      if (limits.reason === "above_max") {
+        return whatsapp.sendTextMessage(
+          phone,
+          `The maximum top-up is ${formatUsdThreshold(limits.maxUsd, currency)}. Reply with a smaller amount.`
+        );
+      }
+      return whatsapp.sendTextMessage(phone, "Adding money isn't available right now. Please try again later.");
     }
-    if (!nearIntents.isNearIntentsEnabled() || !config.privy.appId || !config.privy.appSecret) {
+    if (!nearIntents.isNearIntentsEnabled() || !config.app.baseUrl) {
       return whatsapp.sendTextMessage(phone, "Adding money isn't available right now. Please try again later.");
     }
 
-    const topUp = await createWalletTopUp({
-      userId: user.id,
-      phone,
-      amount,
+    const draft = await createDraftInvoice({
+      merchantId: user.id,
       currency,
-      symbol,
-      chain,
+      items: [{ name: TOPUP_ITEM_NAME, qty: 1, unitPrice: amount }],
     });
+    const issued = await issueInvoice(draft.id, user.id);
+    if (!issued) throw new Error("Could not create the top-up.");
     await resetSession(user.id);
 
+    try {
+      await createDefaultCryptoPayment(user.id, draft.id);
+      scheduleCryptoVerification(issued.reference);
+    } catch (error: any) {
+      logger.warn("Could not pre-create the default top-up payment", { reference: issued.reference, error: error?.message });
+    }
+
+    const payUrl = `${config.app.baseUrl}/pay/${issued.reference}`;
     const sent = await whatsapp.sendTextMessage(
       phone,
-      `*Top up your wallet · ${formatCurrency(amount, currency)}*\n\n` +
-        `Send exactly *${topUp.quote.amountInFormatted || topUp.quote.amountIn} ${topUp.origin.symbol}* on *${topUpChainName(topUp.origin.blockchain)}* to:\n` +
-        `\`${topUp.quote.depositAddress}\`\n\n` +
-        `NEAR Intents will deliver USDC to your wallet:\n\`${topUp.walletAddress}\`\n\n` +
-        `This deposit quote expires in 30 minutes. We'll message you when it arrives.`
+      `*Add ${formatCurrency(amount, currency)}*\n\nOpen this link and pay from any wallet, on any chain:\n${payUrl}\n\n` +
+        `The link expires soon. We'll message you the moment your balance is credited.`
     );
     try {
-      const png = await paymentQrPng(topUp.quote.depositAddress);
-      const mediaId = await whatsapp.uploadMedia(png, "image/png", `topup-${topUp.reference}.png`);
-      await whatsapp.sendImageMessage(phone, mediaId, "NEAR Intents deposit address");
+      const png = await paymentQrPng(payUrl);
+      const mediaId = await whatsapp.uploadMedia(png, "image/png", `topup-${issued.reference}.png`);
+      await whatsapp.sendImageMessage(phone, mediaId, "Scan to add money");
     } catch (error: any) {
-      logger.warn("Could not send the top-up QR", { reference: topUp.reference, error: error?.message });
+      logger.warn("Could not send the top-up QR", { reference: issued.reference, error: error?.message });
     }
     return sent;
   } catch (error: any) {
     logger.error("Top-up failed to start", { userId: user.id, error: error?.message });
-    return whatsapp.sendTextMessage(phone, error?.message || "I couldn't start that top-up. Please try again in a moment.");
+    return whatsapp.sendTextMessage(phone, "I couldn't start that top-up. Please try again in a moment.");
   }
 }
 
 async function handleTopUpCommand(phone: string, user: any, args = "") {
-  const { amount, symbol, chain } = parseTopUpInput(args);
-  if (args.trim() && Number.isFinite(amount) && amount > 0) return issueTopUp(phone, user, amount, symbol, chain);
+  const amount = Number(args.replace(/[^0-9.]/g, ""));
+  if (args.trim() && Number.isFinite(amount) && amount > 0) return issueTopUp(phone, user, amount);
   return askTopUpAmount(phone, user);
 }
 
@@ -1210,7 +1206,7 @@ export async function handleMessage(
         )
       : await whatsapp.sendButtonsMessage(
           phone,
-          `Hi ${displayName}! Welcome to 3rike Pay.\n\nAdd crypto to your Privy wallet from any supported chain, request payments, and manage your 3rike balance. Your balance is in one currency: KES by default, and you can change it any time with /currency.`,
+          `Hi ${displayName}! Welcome to 3rike Pay.\n\nAdd money from any chain, request payments, and cash out to a bank. Your balance is in one currency: KES by default, and you can change it any time with /currency.`,
           [
             { id: "top_up", title: "Add money" },
             { id: "btn_menu", title: "Main Menu" },
@@ -2015,38 +2011,23 @@ async function handleCheckBalance(phone: string, user: any) {
 /** Recent payments received: the merchant's paid invoices, newest first. */
 async function handlePayments(phone: string, user: any) {
   try {
-    const [paid, topUps] = await Promise.all([
-      listPaidInvoices(user.id, 10),
-      prisma.transaction.findMany({
-        where: { userId: user.id, type: "wallet_topup" },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      }),
-    ]);
-    const activity = [
-      ...paid.map((inv) => ({
-        at: inv.paidAt || inv.createdAt,
-        text: `${formatCurrency(inv.amount, inv.currency)} · ${invoiceItemsLabel(inv.items)}\n   Credited to 3rike balance · ${inv.reference}`,
-      })),
-      ...topUps.map((tx) => {
-        const meta = tx.metadata as any;
-        const wallet = meta?.walletAddress;
-        const output = meta?.nearIntents?.amountOut;
-        const decimals = config.nearIntents.destinationDecimals;
-        const delivered = output ? `${(Number(output) / 10 ** decimals).toFixed(2)} USDC` : "USDC";
-        const originTx = meta?.nearResult?.swapDetails?.originChainTxHashes?.[0];
-        const txUrl = typeof originTx?.explorerUrl === "string" && originTx.explorerUrl.startsWith("https://")
-          ? `\n   Tx: ${originTx.explorerUrl}`
+    const paid = await listPaidInvoices(user.id, 10);
+    if (paid.length === 0) return whatsapp.sendTextMessage(phone, MESSAGES.PAYMENTS.EMPTY);
+
+    const list = paid
+      .map((inv, i) => {
+        const when = inv.paidAt
+          ? new Date(inv.paidAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
           : "";
-        return {
-          at: tx.createdAt,
-          text: `${formatCurrency(tx.amount, tx.currency)} · Privy wallet top-up (${tx.status})\n   ${delivered} to ${wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : "your wallet"} · ${tx.reference}${txUrl}`,
-        };
-      }),
-    ].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 10);
-    if (!activity.length) return whatsapp.sendTextMessage(phone, MESSAGES.PAYMENTS.EMPTY);
-    const list = activity.map((item, i) => `${i + 1}. ${item.text}`).join("\n\n");
-    return whatsapp.sendTextMessage(phone, MESSAGES.PAYMENTS.TEXT(list, ""));
+        return `${i + 1}. ${formatCurrency(inv.amount, inv.currency)} - ${invoiceItemsLabel(inv.items)}${when ? `\n   ${when}` : ""}`;
+      })
+      .join("\n\n");
+
+    const totals = new Map<string, number>();
+    for (const inv of paid) totals.set(inv.currency, (totals.get(inv.currency) || 0) + inv.amount);
+    const total = [...totals.entries()].map(([cur, amt]) => formatCurrency(amt, cur)).join(", ");
+
+    return whatsapp.sendTextMessage(phone, MESSAGES.PAYMENTS.TEXT(list, total));
   } catch (error: any) {
     logger.error("Payments list failed", { userId: user.id, error: error.message });
     return whatsapp.sendTextMessage(phone, MESSAGES.PAYMENTS.ERROR);

@@ -2,6 +2,7 @@ import { config } from "@/config";
 import { prisma } from "@/db/prisma";
 import { createLogger } from "@/utils/logger";
 import { formatCurrency } from "@/utils/helpers";
+import { walletBalance } from "@/utils/walletBalance";
 
 const logger = createLogger("treasury");
 
@@ -80,9 +81,11 @@ export async function holdingsByUser(): Promise<Holding[]> {
     orderBy: [{ userId: "asc" }, { currency: "asc" }],
   });
   return wallets.map((w) => {
+    // What we owe, read the same way the ledger reads it.
+    const balance = walletBalance(w);
     let usd = 0;
     try {
-      usd = toUsd(w.balance, w.currency);
+      usd = toUsd(balance, w.currency);
     } catch (error: any) {
       logger.warn("Wallet currency has no FX rate", { currency: w.currency });
     }
@@ -90,7 +93,7 @@ export async function holdingsByUser(): Promise<Holding[]> {
       userId: w.userId,
       phone: w.user?.phone ?? null,
       currency: w.currency,
-      balance: w.balance,
+      balance,
       usd,
     };
   });

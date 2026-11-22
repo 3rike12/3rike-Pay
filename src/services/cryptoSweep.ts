@@ -66,12 +66,7 @@ export async function listTrackableReferences(includeExpired = false): Promise<s
         select: { reference: true },
       })
     : [];
-  const walletTopUps = await prisma.transaction.findMany({
-    where: { type: "wallet_topup", status: "processing" },
-    select: { reference: true },
-    take: MAX_PER_SWEEP,
-  });
-  return [...new Set([...liveInvoices, ...walletTopUps].map((t) => t.reference))].slice(0, MAX_PER_SWEEP);
+  return [...new Set(liveInvoices.map((t) => t.reference))].slice(0, MAX_PER_SWEEP);
 }
 
 /** One in-process pass. Returns how many invoices were checked. */
@@ -105,6 +100,11 @@ export function startCryptoSweeper(intervalMs = 30_000): () => void {
     // Lock slightly shorter than the interval so leadership can move if an instance dies.
     if (!(await acquireLeader(Math.max(1, Math.floor(intervalMs / 1000) - 5)))) return;
     await sweepCryptoPayments(pass % 10 === 0);
+    // Free the tagged amounts of direct USDC payments that can no longer arrive.
+    if (pass % 10 === 0) {
+      const { releaseStaleDirectPayments } = await import("@/services/directUsdc");
+      await releaseStaleDirectPayments().catch((e: any) => logger.warn("Releasing stale direct payments failed", { error: e?.message }));
+    }
   };
   // A first full pass shortly after boot catches anything missed while down.
   const boot = setTimeout(() => sweepCryptoPayments(true).catch(() => {}), 5_000);

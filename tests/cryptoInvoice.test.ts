@@ -1,7 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/config", () => ({
-  config: { logLevel: "debug", redis: {}, nearIntents: { originAsset: "nep141:usdc-base" } },
+  config: {
+    logLevel: "debug",
+    redis: {},
+    nearIntents: { originAsset: "nep141:usdc-base" },
+    treasury: { address: "0x2527D02599Ba641c19FEa793cD0F167589a0f10D", tokenDecimals: 6 },
+  },
+}));
+
+const scanDirectUsdc = vi.fn(async () => ({ blocks: 0, transfers: 0, settled: 0, unmatched: 0 }));
+const allocateDirectPayment = vi.fn();
+vi.mock("@/services/directUsdc", () => ({
+  scanDirectUsdc: (...a: any[]) => (scanDirectUsdc as any)(...a),
+  allocateDirectPayment: (...a: any[]) => allocateDirectPayment(...a),
+  isDirectUsdcEnabled: () => true,
 }));
 
 const getStatus = vi.fn();
@@ -47,6 +60,9 @@ vi.mock("@/db/prisma", () => ({
   },
 }));
 
+const recordRailEvent = vi.fn(async () => null);
+vi.mock("@/rails/settlement", () => ({ recordRailEvent: (...a: any[]) => (recordRailEvent as any)(...a) }));
+
 import { getCryptoPaymentState, createCryptoPayment, scheduleCryptoVerification, setVerificationScheduler } from "@/services/cryptoInvoice";
 
 const openInvoice = (over: Record<string, unknown> = {}) => ({ id: "inv1", status: "pending_payment", expiresAt: new Date(Date.now() + 600_000), ...over });
@@ -56,6 +72,51 @@ beforeEach(() => {
   vi.clearAllMocks();
   getInvoiceByReference.mockResolvedValue(openInvoice());
   txFind.mockResolvedValue({ metadata: twoQuotes });
+});
+
+describe("getCryptoPaymentState records what 1Click reported", () => {
+  it("records a settled payment with the deposit tx as its dedupe key", async () => {
+    getStatus.mockResolvedValue({
+      status: "SUCCESS",
+      swapDetails: { originChainTxHashes: [{ hash: "0xabc", explorerUrl: "https://x.io/0xabc" }] },
+    });
+    txFind.mockResolvedValue({ metadata: { nearQuotes: [{ depositAddress: "0xA" }] } });
+    await getCryptoPaymentState("ref");
+    expect(recordRailEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reference: "ref",
+        kind: "invoice",
+        direction: "in",
+        rail: "1click",
+        event: expect.objectContaining({ type: "settled", providerStatus: "SUCCESS", dedupeKey: "0xabc" }),
+      })
+    );
+  });
+
+  it("records a swap in flight, and a refund", async () => {
+    getStatus.mockResolvedValue({ status: "PROCESSING" });
+    await getCryptoPaymentState("ref");
+    expect(recordRailEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ event: expect.objectContaining({ type: "processing" }) })
+    );
+    getStatus.mockResolvedValue({ status: "REFUNDED" });
+    await getCryptoPaymentState("ref");
+    expect(recordRailEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ event: { type: "refunded", providerStatus: "REFUNDED" } })
+    );
+  });
+
+  it("records nothing while it is just waiting for money", async () => {
+    getStatus.mockResolvedValue({ status: "PENDING_DEPOSIT" });
+    await getCryptoPaymentState("ref");
+    expect(recordRailEvent).not.toHaveBeenCalled();
+  });
+
+  it("a recording failure does not change the answer", async () => {
+    recordRailEvent.mockResolvedValue(null);
+    getStatus.mockResolvedValue({ status: "SUCCESS" });
+    expect((await getCryptoPaymentState("ref")).state).toBe("paid");
+  });
 });
 
 describe("getCryptoPaymentState (all quotes)", () => {
@@ -173,6 +234,70 @@ describe("createCryptoPayment quote history", () => {
     txFind.mockResolvedValue({ id: "tx1", metadata: meta(8) });
     await expect(createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" })).rejects.toThrow(/Too many/);
     expect(requestQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("direct USDC payments on an invoice", () => {
+  const direct = { depositAddress: "0xTREASURY", provider: "direct-usdc" };
+
+  it("is created through the direct rail, tagged with its provider, and never asks 1Click", async () => {
+    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 5000, currency: "RWF" });
+    txFind.mockResolvedValue({ id: "tx1", metadata: {} });
+    allocateDirectPayment.mockResolvedValue({ intentId: "i1", units: "3448290", tag: 14 });
+
+    const out = await createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "direct:usdc-base", originLabel: "USDC on base", direct: true });
+
+    expect(requestQuote).not.toHaveBeenCalled();
+    expect(allocateDirectPayment).toHaveBeenCalledWith({ invoiceReference: "ref", userId: "m1", baseUnits: "3448276" });
+    expect(out).toMatchObject({ provider: "direct-usdc", depositAddress: "0x2527D02599Ba641c19FEa793cD0F167589a0f10D", amountIn: "3448290", amountInFormatted: "3.448290" });
+    const saved = txUpdate.mock.calls[0][0].data.metadata;
+    expect(saved.nearQuotes[0]).toMatchObject({ provider: "direct-usdc" });
+    expect(saved.nearIntents.provider).toBe("direct-usdc");
+  });
+
+  it("checks the chain, not 1Click, and keeps waiting while nothing has arrived", async () => {
+    txFind.mockResolvedValue({ metadata: { nearQuotes: [direct] } });
+    const r = await getCryptoPaymentState("ref");
+    expect(r.state).toBe("awaiting_payment");
+    expect(scanDirectUsdc).toHaveBeenCalledOnce();
+    expect(getStatus).not.toHaveBeenCalled(); // the treasury address is not a 1Click deposit address
+  });
+
+  it("reports paid once the scan has settled the invoice", async () => {
+    txFind.mockResolvedValue({ metadata: { nearQuotes: [direct] } });
+    getInvoiceByReference.mockResolvedValueOnce(openInvoice()).mockResolvedValueOnce(openInvoice({ status: "paid" }));
+    expect((await getCryptoPaymentState("ref")).state).toBe("paid");
+    expect(settle).not.toHaveBeenCalled(); // the scanner settled it; this check must not settle twice
+  });
+
+  it("does not fail an invoice because its swap quote was refunded while a direct payment is still open", async () => {
+    txFind.mockResolvedValue({ metadata: { nearQuotes: [{ depositAddress: "0xA" }, direct] } });
+    getStatus.mockResolvedValue({ status: "REFUNDED" });
+    const r = await getCryptoPaymentState("ref");
+    expect(r.state).toBe("awaiting_payment");
+    expect(fail).not.toHaveBeenCalled();
+    expect(getStatus).toHaveBeenCalledTimes(1); // only the swap quote
+  });
+
+  it("still settles a swap payment when a direct option exists too", async () => {
+    txFind.mockResolvedValue({ metadata: { nearQuotes: [direct, { depositAddress: "0xA" }] } });
+    getStatus.mockResolvedValue({ status: "SUCCESS" });
+    expect((await getCryptoPaymentState("ref")).state).toBe("paid");
+    expect(settle).toHaveBeenCalledOnce();
+  });
+
+  it("a failing chain scan does not stop the check", async () => {
+    txFind.mockResolvedValue({ metadata: { nearQuotes: [{ depositAddress: "0xA" }, direct] } });
+    scanDirectUsdc.mockRejectedValueOnce(new Error("rpc down"));
+    getStatus.mockResolvedValue({ status: "SUCCESS" });
+    expect((await getCryptoPaymentState("ref")).state).toBe("paid");
+  });
+
+  it("an invoice with no direct payment never touches the chain", async () => {
+    txFind.mockResolvedValue({ metadata: { nearQuotes: [{ depositAddress: "0xA" }] } });
+    getStatus.mockResolvedValue({ status: "PENDING_DEPOSIT" });
+    await getCryptoPaymentState("ref");
+    expect(scanDirectUsdc).not.toHaveBeenCalled();
   });
 });
 

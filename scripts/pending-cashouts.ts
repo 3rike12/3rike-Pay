@@ -4,6 +4,7 @@
 //   npm run cashout:pending
 import "dotenv/config";
 import { prisma } from "@/db/prisma";
+import { listStuckCashouts } from "@/services/cashout";
 
 (async () => {
   const rows = await prisma.transaction.findMany({
@@ -20,5 +21,16 @@ import { prisma } from "@/db/prisma";
     );
   }
   console.log(`\nAfter sending, AutoRamp's offramp.completed webhook closes the cash-out.`);
+
+  // AutoRamp reports by webhook only. A missed one leaves the user debited and the payout open.
+  const stuck = await listStuckCashouts();
+  if (stuck.length) {
+    console.log(`\nSent more than an hour ago and still not closed by AutoRamp (check each in AutoRamp's dashboard):`);
+    for (const tx of stuck) {
+      const m: any = tx.metadata || {};
+      console.log(`  ${tx.reference}  ${tx.createdAt.toISOString()}  NGN ${m.ngn}  funded: ${m.fundingTx ?? "no tx recorded"}`);
+    }
+    console.log(`If AutoRamp shows it paid, resend its offramp.completed webhook; if it failed, offramp.failed credits the user back.`);
+  }
   await prisma.$disconnect();
 })();

@@ -41,24 +41,38 @@ const txCreate = vi.fn();
 const txUpdateMany = vi.fn();
 const txUpdate = vi.fn();
 const txFindFirst = vi.fn();
-vi.mock("@/db/prisma", () => ({
-  prisma: {
+const txFindMany = vi.fn();
+// The REAL rail event engine runs against in-memory tables.
+vi.mock("@/db/prisma", async () => {
+  const { makeIntentTables } = await import("./helpers/fakeIntents");
+  const tables = makeIntentTables();
+  return {
+    __tables: tables,
+    prisma: {
+      paymentIntent: tables.paymentIntent,
+      railEvent: tables.railEvent,
     transaction: {
       create: (...a: any[]) => txCreate(...a),
       updateMany: (...a: any[]) => txUpdateMany(...a),
       update: (...a: any[]) => txUpdate(...a),
       findFirst: (...a: any[]) => txFindFirst(...a),
+      findMany: (...a: any[]) => txFindMany(...a),
     },
-  },
-}));
+    },
+  };
+});
+const tables = ((await import("@/db/prisma")) as any).__tables;
 
-import { quoteCashout, requestCashout, applyOfframpEvent } from "@/services/cashout";
+import { quoteCashout, requestCashout, applyOfframpEvent, listStuckCashouts } from "@/services/cashout";
 import { setTreasurySigner } from "@/services/withdrawal";
+import { resetFxCache } from "@/services/fx";
 
 const bank = { bankCode: "000013", accountNumber: "0123456789", accountName: "A B", bankName: "GTBank" };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  tables.reset();
+  resetFxCache(); // a live rate cached by an earlier test must not answer this one
   setTreasurySigner(null);
   getUsdNgnRate.mockResolvedValue({ rate: 1500 });
   onChainBalanceUsd.mockResolvedValue(10_000);
@@ -114,6 +128,19 @@ describe("requestCashout", () => {
     expect(r).toMatchObject({ status: "processing", txHash: "0xtx" });
   });
 
+  it("records the rate it used and says AutoRamp quoted it", async () => {
+    await requestCashout({ userId: "u1", currency: "KES", amount: 13000, ...bank });
+    const metadata = txCreate.mock.calls[0][0].data.metadata;
+    expect(metadata.fx).toMatchObject({ currency: "NGN", perUsd: 1500, source: "autoramp" });
+    expect(typeof metadata.fx.asOf).toBe("string");
+  });
+
+  it("falls back to the static table when AutoRamp's rate is unavailable, and records that instead", async () => {
+    getUsdNgnRate.mockResolvedValue(null);
+    await requestCashout({ userId: "u1", currency: "KES", amount: 13000, ...bank });
+    expect(txCreate.mock.calls[0][0].data.metadata.fx).toEqual({ currency: "NGN", perUsd: 1500, source: "static", asOf: null });
+  });
+
   it("reverses the debit if sending the USDC fails", async () => {
     setTreasurySigner({ send: vi.fn().mockRejectedValue(new Error("rpc down")) });
     await expect(requestCashout({ userId: "u1", currency: "KES", amount: 13000, ...bank })).rejects.toThrow(/balance was restored/);
@@ -158,8 +185,81 @@ describe("applyOfframpEvent", () => {
     expect(await applyOfframpEvent("offramp.failed", "OFR-1")).toBeNull();
   });
 
+  it("records every report, including the ones it refuses", async () => {
+    txFindFirst.mockResolvedValueOnce(tx("processing"));
+    await applyOfframpEvent("offramp.completed", "OFR-1");
+    const [intent] = [...tables.intents.values()];
+    expect(intent).toMatchObject({ reference: "OFR-1", kind: "cashout", rail: "autoramp", state: "settled" });
+
+    txFindFirst.mockResolvedValueOnce(tx("completed"));
+    await applyOfframpEvent("offramp.failed", "OFR-1");
+    expect(tables.events.map((e: any) => [e.type, e.applied])).toEqual([["settled", true], ["failed", false]]);
+    expect(intent.state).toBe("settled"); // the contradiction did not move it
+  });
+
+  it("posts the refund once even if the provider repeats the failure before the Transaction updates", async () => {
+    txFindFirst.mockResolvedValue(tx("processing")); // the Transaction row is stale on both deliveries
+    await applyOfframpEvent("offramp.failed", "OFR-1");
+    expect(await applyOfframpEvent("offramp.failed", "OFR-1")).toBeNull();
+    expect(credit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mark the cash-out failed when the refund could not be posted, so the webhook can be retried", async () => {
+    txFindFirst.mockResolvedValue(tx("processing"));
+    credit.mockRejectedValueOnce(new Error("ledger down"));
+    await expect(applyOfframpEvent("offramp.failed", "OFR-1")).rejects.toThrow("ledger down");
+    expect([...tables.intents.values()][0]?.state ?? "created").not.toBe("failed");
+    expect(txUpdate).not.toHaveBeenCalled();
+    expect(await applyOfframpEvent("offramp.failed", "OFR-1")).toMatchObject({ outcome: "failed" });
+  });
+
+  it("catches the Transaction up if a crash left it behind the engine", async () => {
+    txFindFirst.mockResolvedValueOnce(tx("processing"));
+    await applyOfframpEvent("offramp.completed", "OFR-1");
+    txUpdate.mockClear();
+    txFindFirst.mockResolvedValueOnce(tx("processing")); // the update was lost
+    expect(await applyOfframpEvent("offramp.completed", "OFR-1")).toBeNull(); // no second message
+    expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "completed" } }));
+  });
+
+  it("does not hand the money back after the bank already paid it", async () => {
+    txFindFirst.mockResolvedValueOnce(tx("completed"));
+    expect(await applyOfframpEvent("offramp.failed", "OFR-1")).toBeNull();
+    expect(credit).not.toHaveBeenCalled();
+    expect(txUpdate).not.toHaveBeenCalled();
+  });
+
+  it("does not mark a refunded cash-out as paid", async () => {
+    txFindFirst.mockResolvedValueOnce(tx("failed"));
+    expect(await applyOfframpEvent("offramp.completed", "OFR-1")).toBeNull();
+    expect(txUpdate).not.toHaveBeenCalled();
+  });
+
+  it("still settles a cash-out an operator funded by hand", async () => {
+    txFindFirst.mockResolvedValueOnce(tx("awaiting_signature"));
+    expect(await applyOfframpEvent("offramp.completed", "OFR-1")).toMatchObject({ outcome: "completed" });
+  });
+
+  it("ignores events that are not about a payout", async () => {
+    txFindFirst.mockResolvedValueOnce(tx("processing"));
+    expect(await applyOfframpEvent("offramp.pending", "OFR-1")).toBeNull();
+    expect(txUpdate).not.toHaveBeenCalled();
+  });
+
   it("ignores references that are not cash-outs", async () => {
     txFindFirst.mockResolvedValueOnce(null);
     expect(await applyOfframpEvent("offramp.failed", "OFR-9")).toBeNull();
+  });
+});
+
+describe("listStuckCashouts", () => {
+  it("asks for processing cash-outs older than the cutoff, oldest first", async () => {
+    txFindMany.mockResolvedValue([{ reference: "OFR-1" }]);
+    const now = Date.parse("2026-11-22T12:00:00Z");
+    expect(await listStuckCashouts(60 * 60 * 1000, now)).toEqual([{ reference: "OFR-1" }]);
+    const args = txFindMany.mock.calls.at(-1)![0];
+    expect(args.where).toMatchObject({ type: "cashout", status: "processing" });
+    expect(args.where.createdAt.lt).toEqual(new Date("2026-11-22T11:00:00Z"));
+    expect(args.orderBy).toEqual({ createdAt: "asc" });
   });
 });

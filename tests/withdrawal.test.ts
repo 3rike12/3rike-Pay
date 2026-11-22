@@ -37,15 +37,24 @@ vi.mock("@/services/treasury", async () => {
 const txCreate = vi.fn();
 const txUpdateMany = vi.fn();
 const txFind = vi.fn();
-vi.mock("@/db/prisma", () => ({
-  prisma: {
-    transaction: {
-      create: (...a: any[]) => txCreate(...a),
-      updateMany: (...a: any[]) => txUpdateMany(...a),
-      findUnique: (...a: any[]) => txFind(...a),
+// The REAL rail event engine runs against in-memory tables.
+vi.mock("@/db/prisma", async () => {
+  const { makeIntentTables } = await import("./helpers/fakeIntents");
+  const tables = makeIntentTables();
+  return {
+    __tables: tables,
+    prisma: {
+      transaction: {
+        create: (...a: any[]) => txCreate(...a),
+        updateMany: (...a: any[]) => txUpdateMany(...a),
+        findUnique: (...a: any[]) => txFind(...a),
+      },
+      paymentIntent: tables.paymentIntent,
+      railEvent: tables.railEvent,
     },
-  },
-}));
+  };
+});
+const tables = ((await import("@/db/prisma")) as any).__tables;
 
 import { requestWithdrawal, verifyWithdrawal, setTreasurySigner } from "@/services/withdrawal";
 
@@ -54,6 +63,7 @@ const base = { userId: "u1", currency: "RWF", amount: 14500, symbol: "usdc", cha
 
 beforeEach(() => {
   vi.clearAllMocks();
+  tables.reset();
   setTreasurySigner(null);
   onChainBalanceUsd.mockResolvedValue(1000);
   liabilities.mockResolvedValue({ totalUsd: 200, byCurrency: {} });
@@ -72,6 +82,16 @@ describe("requestWithdrawal", () => {
     expect(r.status).toBe("awaiting_signature");
     expect(r.usd).toBe(10);
     expect(requestQuote.mock.calls[0][0]).toMatchObject({ swapType: "EXACT_INPUT", amount: "10000000", recipient: ADDR });
+  });
+
+  it("records the rate the payout was priced at", async () => {
+    await requestWithdrawal(base);
+    expect(txCreate.mock.calls[0][0].data.metadata.fx).toEqual({ currency: "RWF", perUsd: 1450, source: "static", asOf: null });
+  });
+
+  it("refuses an amount under the payout rail's own minimum, using the rail's number", async () => {
+    await expect(requestWithdrawal({ ...base, amount: 100 })).rejects.toThrow(/Minimum withdrawal/);
+    expect(debit).not.toHaveBeenCalled();
   });
 
   it("sends via the signer when one is registered", async () => {
@@ -118,6 +138,43 @@ describe("verifyWithdrawal", () => {
     getStatus.mockResolvedValue({ status: "REFUNDED" });
     expect(await verifyWithdrawal("r1")).toBe("failed");
     expect(credit).toHaveBeenCalledWith(expect.objectContaining({ amount: 14500, idempotencyKey: "withdraw-reversal:r1" }));
+  });
+
+  it("records what the rail reported, once it is final", async () => {
+    txFind.mockResolvedValue(tx);
+    getStatus.mockResolvedValue({ status: "REFUNDED" });
+    await verifyWithdrawal("r1");
+    const [intent] = [...tables.intents.values()];
+    expect(intent).toMatchObject({ reference: "r1", kind: "withdrawal", rail: "1click-payout", state: "refunded" });
+    expect(tables.events).toEqual([expect.objectContaining({ type: "refunded", providerStatus: "REFUNDED", applied: true })]);
+  });
+
+  it("records nothing while the swap is still running", async () => {
+    txFind.mockResolvedValue(tx);
+    getStatus.mockResolvedValue({ status: "PROCESSING" });
+    expect(await verifyWithdrawal("r1")).toBe("pending");
+    expect(tables.intents.size).toBe(0);
+  });
+
+  it("refunds exactly once however many times the refund is reported", async () => {
+    txFind.mockResolvedValue(tx);
+    getStatus.mockResolvedValue({ status: "REFUNDED" });
+    expect(await verifyWithdrawal("r1")).toBe("failed");
+    expect(await verifyWithdrawal("r1")).toBe("failed"); // a poll that ran again before the status landed
+    expect(credit).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the payout open, state unmoved, when the refund cannot be posted, so the next poll retries it", async () => {
+    txFind.mockResolvedValue(tx);
+    getStatus.mockResolvedValue({ status: "REFUNDED" });
+    credit.mockRejectedValueOnce(new Error("ledger down"));
+    expect(await verifyWithdrawal("r1")).toBe("pending");
+    expect([...tables.intents.values()].map((i: any) => i.state)).toEqual(["processing"]); // not marked refunded with no refund behind it
+    expect(tables.events).toHaveLength(0);
+    expect(txUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: "failed" } }));
+    expect(await verifyWithdrawal("r1")).toBe("failed");
+    expect(credit).toHaveBeenCalledTimes(2); // the retry, with the same idempotency key
+    expect(credit.mock.calls[1][0].idempotencyKey).toBe("withdraw-reversal:r1");
   });
 
   it("stays pending while parked for signature", async () => {

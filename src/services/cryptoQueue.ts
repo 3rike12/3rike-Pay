@@ -2,6 +2,7 @@ import { DelayedError, Queue, Worker, type ConnectionOptions, type Job } from "b
 import { config } from "@/config";
 import { getCryptoPaymentState, setVerificationScheduler } from "@/services/cryptoInvoice";
 import { listTrackableReferences } from "@/services/cryptoSweep";
+import { listPendingWithdrawalReferences, setWithdrawalScheduler, verifyWithdrawal } from "@/services/withdrawal";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("crypto-queue");
@@ -40,10 +41,14 @@ export function nextDelayMs(attempt: number): number {
   return 5 * 60_000; // late-payment watch
 }
 
+/** What a check job is watching. Absent means an invoice payment, as before. */
+export type CheckKind = "invoice" | "withdrawal";
+
 export interface CheckJobData {
   reference: string;
   attempt: number;
   startedAt: number;
+  kind?: CheckKind;
 }
 
 export function connectionFromUrl(url: string): ConnectionOptions {
@@ -69,25 +74,33 @@ let queue: Queue | null = null;
 let worker: Worker | null = null;
 
 /** Add (or keep) the single check job for an invoice. No-op if one already exists. */
-export async function enqueueCheck(reference: string, delayMs = 0): Promise<void> {
+export async function enqueueCheck(reference: string, delayMs = 0, kind: CheckKind = "invoice"): Promise<void> {
   if (!queue) throw new Error("crypto queue is not running");
   await queue.add(
     "check",
-    { reference, attempt: 0, startedAt: Date.now() } satisfies CheckJobData,
+    { reference, attempt: 0, startedAt: Date.now(), kind } satisfies CheckJobData,
     { jobId: `check-${reference}`, delay: delayMs }
   );
 }
 
 async function processJob(job: Job, token?: string): Promise<unknown> {
   if (job.name === "sweep") {
-    const refs = await listTrackableReferences(true);
-    await Promise.all(refs.map((r) => enqueueCheck(r).catch(() => {})));
-    return { tracked: refs.length };
+    const [refs, withdrawals] = await Promise.all([listTrackableReferences(true), listPendingWithdrawalReferences()]);
+    await Promise.all([
+      ...refs.map((r) => enqueueCheck(r).catch(() => {})),
+      ...withdrawals.map((r) => enqueueCheck(r, 0, "withdrawal").catch(() => {})),
+    ]);
+    return { tracked: refs.length, withdrawals: withdrawals.length };
   }
 
   const data = job.data as CheckJobData;
-  const { state } = await getCryptoPaymentState(data.reference);
-  if (isFinished(state, data.startedAt)) return state;
+  if (data.kind === "withdrawal") {
+    const outcome = await verifyWithdrawal(data.reference);
+    if (outcome !== "pending" || Date.now() - data.startedAt > MAX_TRACK_MS) return outcome;
+  } else {
+    const { state } = await getCryptoPaymentState(data.reference);
+    if (isFinished(state, data.startedAt)) return state;
+  }
 
   // Not done yet: wake this same job up later instead of creating another one.
   const attempt = (data.attempt ?? 0) + 1;
@@ -148,12 +161,14 @@ export async function startCryptoQueue(options: QueueOptions = {}): Promise<bool
   await queue.upsertJobScheduler("sweep", { every: options.sweepEveryMs ?? 60_000 }, { name: "sweep", data: {} });
 
   setVerificationScheduler((reference) => enqueueCheck(reference));
+  setWithdrawalScheduler((reference) => enqueueCheck(reference, 0, "withdrawal"));
   logger.info("Durable crypto payment queue started");
   return true;
 }
 
 export async function stopCryptoQueue(): Promise<void> {
   setVerificationScheduler(null);
+  setWithdrawalScheduler(null);
   await worker?.close().catch(() => {});
   await queue?.close().catch(() => {});
   worker = null;

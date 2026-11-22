@@ -116,6 +116,7 @@ model Transaction {
   reference       String   @unique
   type            String                     // transfer | onramp | offramp | swap | invoice | wallet_topup
   amount          Float
+  amountMinor     BigInt?                    // amount in minor units; null until written or backfilled
   currency        String   @default("NGN")
   status          String   @default("pending") // pending | processing | completed | failed
   description     String?
@@ -142,6 +143,8 @@ model Wallet {
   user      User     @relation(fields: [userId], references: [id])
   currency  String   @default("RWF")
   balance   Float    @default(0)
+  // Same balance as whole minor units (cents). Dual-written; the float is still the source of truth.
+  balanceMinor BigInt @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -163,6 +166,8 @@ model LedgerEntry {
   amount         Float
   currency       String   @default("RWF")
   runningBalance Float    // balance in the wallet after this entry
+  amountMinor         BigInt @default(0) // amount in minor units (dual-written)
+  runningBalanceMinor BigInt @default(0) // runningBalance in minor units (dual-written)
   reference      String   // external tx ref (tx_ref, transfer ref, etc.)
   description    String?
   metadata       Json
@@ -270,4 +275,54 @@ model WebhookEvent {
   createdAt DateTime @default(now())
 
   @@index([source, eventType, reference])
+}
+
+// ============================================
+// Payment intents (one row per movement of money, across every rail)
+// `state` is the canonical state from src/rails/types.ts. RailEvent is the
+// append-only record of what each rail reported.
+// ============================================
+model PaymentIntent {
+  id        String   @id @default(uuid())
+  reference String   @unique
+  direction String                       // in | out
+  kind      String                       // invoice | topup | withdrawal | cashout
+  userId    String?
+  rail      String                       // 1click | autoramp | ...
+  railRef   String?
+  state     String   @default("created") // created | awaiting_funds | processing | settled | refunded | failed | expired
+  // Set while a direct USDC payment is open: the exact tagged amount that identifies it
+  // (usdc-base:<units>). Unique, so two open payments can never share an amount. Cleared when final.
+  openKey   String?  @unique
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events RailEvent[]
+
+  @@index([state])
+  @@index([userId])
+}
+
+model RailEvent {
+  id             String        @id @default(uuid())
+  intentId       String
+  intent         PaymentIntent @relation(fields: [intentId], references: [id])
+  rail           String
+  type           String                  // canonical state the rail reported
+  providerStatus String
+  dedupeKey      String        @default("")
+  applied        Boolean       @default(true) // false: refused as a conflict, kept for audit
+  detail         Json          @default("{}")
+  receivedAt     DateTime      @default(now())
+
+  @@unique([intentId, type, dedupeKey])
+  @@index([intentId])
+}
+
+// Where a rail's on-chain scanner got to, so a restart resumes instead of rescanning or skipping.
+model RailCursor {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }

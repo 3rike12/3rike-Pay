@@ -2,6 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/config", () => ({ config: { logLevel: "debug", redis: {} } }));
 vi.mock("@/services/cryptoInvoice", () => ({ getCryptoPaymentState: vi.fn(), setVerificationScheduler: vi.fn() }));
+vi.mock("@/services/withdrawal", () => ({
+  verifyWithdrawal: vi.fn(),
+  setWithdrawalScheduler: vi.fn(),
+  listPendingWithdrawalReferences: vi.fn(async () => []),
+}));
 vi.mock("@/services/cryptoSweep", () => ({ listTrackableReferences: vi.fn() }));
 
 import { nextDelayMs, isFinished, connectionFromUrl, MAX_TRACK_MS, startCryptoQueue } from "@/services/cryptoQueue";

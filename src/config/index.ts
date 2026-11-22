@@ -193,6 +193,71 @@ export const config = {
     maxWithdrawUsd: Number(process.env.WITHDRAW_MAX_USD || 2000),
   },
 
+  /**
+   * Live FX sources. Only AutoRamp has one (USD/NGN); every other currency uses
+   * the static table. FX_LIVE_SOURCES="" turns live rates off entirely.
+   *   FX_CACHE_SECONDS      reuse a live rate this long (default 300)
+   *   FX_MAX_AGE_SECONDS    never use a live rate older than this, even when the
+   *                         source is down; fall back to the static table (default 900)
+   *   FX_MAX_DEVIATION      reject a live rate this far from the static table, as a
+   *                         fraction, because it is more likely bad data than a real move (default 0.25)
+   */
+  fx: {
+    liveSources: (process.env.FX_LIVE_SOURCES ?? "autoramp").split(",").map((x) => x.trim()).filter(Boolean),
+    cacheSeconds: Number(process.env.FX_CACHE_SECONDS || 300),
+    maxAgeSeconds: Number(process.env.FX_MAX_AGE_SECONDS || 900),
+    maxDeviation: Number(process.env.FX_MAX_DEVIATION || 0.25),
+  },
+
+  /**
+   * Which column balances are read from. "float" (default) is the original
+   * column; "minor" reads whole minor units, which cannot accumulate float
+   * error. Switch to "minor" only after `npm run money:minor` shows no drift:
+   * a wallet that still disagrees is read from the float and logged.
+   */
+  money: {
+    readsFrom: process.env.MONEY_READS === "minor" ? ("minor" as const) : ("float" as const),
+  },
+
+  /**
+   * Per-rail limits, in USD. Every rail carries its own minimum and maximum
+   * (1Click has a floor below which a swap is not worth quoting; a bank
+   * partner has its own). Unset means the rail's default applies: see
+   * src/rails/limits.ts. Examples:
+   *   RAIL_1CLICK_MIN_USD=5   RAIL_AUTORAMP_MIN_USD=7   RAIL_AUTORAMP_MAX_USD=1500
+   * The id is the rail's id in upper case with `-` as `_` (1click-payout is
+   * RAIL_1CLICK_PAYOUT_MIN_USD).
+   */
+  rails: Object.fromEntries(
+    ["1click", "1click-payout", "autoramp", "direct-usdc"].map((id) => {
+      const key = `RAIL_${id.toUpperCase().replace(/-/g, "_")}`;
+      const read = (suffix: string) => {
+        const raw = process.env[`${key}_${suffix}`];
+        return raw !== undefined && raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : undefined;
+      };
+      return [id, { minUsd: read("MIN_USD"), maxUsd: read("MAX_USD") }];
+    })
+  ) as Record<string, { minUsd?: number; maxUsd?: number }>,
+
+  /**
+   * Direct USDC on Base: a customer who already holds USDC sends it straight to
+   * the treasury with no swap, so there is no 1Click fee or minimum. A payment
+   * is recognised by its exact amount (a unique tag in the last micro-USDC), so
+   * it is OFF until DIRECT_USDC_ENABLED=true and needs TREASURY_ADDRESS to be
+   * an EVM address you control.
+   */
+  directUsdc: {
+    enabled: process.env.DIRECT_USDC_ENABLED === "true",
+    /** Blocks to wait before trusting a transfer (Base blocks are about 2s). */
+    confirmations: parseInt(process.env.DIRECT_USDC_CONFIRMATIONS || "3", 10),
+    /** Blocks per eth_getLogs call; public RPCs cap the range. */
+    chunkBlocks: parseInt(process.env.DIRECT_USDC_CHUNK_BLOCKS || "2000", 10),
+    /** On first run, how far back to look (about an hour at 2s blocks). */
+    lookbackBlocks: parseInt(process.env.DIRECT_USDC_LOOKBACK_BLOCKS || "1800", 10),
+    /** Tags run 1..maxTag micro-USDC. Keep it under ~500 so a tagged amount cannot equal another invoice's untagged one. */
+    maxTag: parseInt(process.env.DIRECT_USDC_MAX_TAG || "499", 10),
+  },
+
   app: {
     name: process.env.APP_NAME || "3rike Pay",
     /** Public origin used to build buyer pay links, e.g. https://pay.example.com */

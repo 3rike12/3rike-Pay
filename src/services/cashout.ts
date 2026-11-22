@@ -4,6 +4,13 @@ import { prisma } from "@/db/prisma";
 import { autoramp } from "@/services/autoramp";
 import { ledger } from "@/services/ledger";
 import { getTreasurySigner } from "@/services/withdrawal";
+import { mapOfframpEvent } from "@/rails/autoRamp";
+import { fromTransactionStatus, isFinal } from "@/rails/state";
+import { applyRailEvent } from "@/rails/settlement";
+import { checkLimits } from "@/rails/limits";
+import { initiateOn, pickRail } from "@/rails/router";
+import { getFx, type FxRecord } from "@/services/fx";
+import { registerBuiltInFxProviders } from "@/services/fxProviders";
 import { formatUsdThreshold, onChainBalanceUsd, liabilities, toUsd } from "@/services/treasury";
 import { createLogger } from "@/utils/logger";
 
@@ -41,19 +48,22 @@ export interface CashoutQuote {
   usdc: number;
   /** USD -> NGN rate used. */
   rate: number;
+  /** Where that rate came from, and when. */
+  fx: FxRecord;
 }
 
-/** USD -> NGN: AutoRamp's live rate when reachable, else our static table. */
-async function usdNgnRate(): Promise<number> {
+/**
+ * USD -> NGN. AutoRamp's live rate (cached briefly, and never older than
+ * FX_MAX_AGE_SECONDS) when it is available and plausible, otherwise our static
+ * table. The record says which, and when.
+ */
+async function usdNgnRate(): Promise<FxRecord> {
+  registerBuiltInFxProviders();
   try {
-    const live = Number((await autoramp.getUsdNgnRate())?.rate);
-    if (Number.isFinite(live) && live > 0) return live;
+    return await getFx("NGN");
   } catch {
-    /* fall through to the table */
+    throw new Error("No NGN rate available right now.");
   }
-  const fallback = config.nearIntents.fxRates?.NGN;
-  if (!fallback) throw new Error("No NGN rate available right now.");
-  return fallback;
 }
 
 /** What a cash-out of `amount` (in the merchant's currency) would pay out. Throws on bad limits. */
@@ -65,17 +75,22 @@ export async function quoteCashout(currency: string, amount: number): Promise<Ca
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid amount.");
 
   const usd = toUsd(amount, cur);
-  const { minWithdrawUsd, maxWithdrawUsd } = config.treasury;
-  if (usd < minWithdrawUsd) throw new Error(`The minimum cash-out is ${formatUsdThreshold(minWithdrawUsd, cur)}.`);
-  if (usd > maxWithdrawUsd) throw new Error(`The maximum cash-out is ${formatUsdThreshold(maxWithdrawUsd, cur)}.`);
+  // The bank rail owns its minimum and maximum (RAIL_AUTORAMP_MIN_USD / _MAX_USD).
+  const limits = checkLimits("out", { kind: "bank_payout", currency: "NGN", usd });
+  if (!limits.ok) {
+    if (limits.reason === "below_min") throw new Error(`The minimum cash-out is ${formatUsdThreshold(limits.minUsd, cur)}.`);
+    if (limits.reason === "above_max") throw new Error(`The maximum cash-out is ${formatUsdThreshold(limits.maxUsd, cur)}.`);
+    throw new Error("Bank cash-outs aren't available right now.");
+  }
 
-  const rate = await usdNgnRate();
+  const fx = await usdNgnRate();
+  const rate = fx.perUsd;
   const ngn = Math.floor(usd * rate);
   if (ngn < MIN_PAYOUT_NGN) throw new Error(`The minimum payout is ₦${MIN_PAYOUT_NGN.toLocaleString("en-US")}.`);
 
   // Round the USDC up to the cent so the off-ramp is never short-funded.
   const usdc = Math.ceil((ngn / rate) * 100) / 100;
-  return { currency: cur, amount, usd, ngn, usdc, rate };
+  return { currency: cur, amount, usd, ngn, usdc, rate, fx };
 }
 
 export interface CashoutResult {
@@ -110,13 +125,14 @@ export async function requestCashout(params: {
     throw new Error("Cash-outs are temporarily unavailable. Please try again shortly.");
   }
 
-  // AutoRamp is asked first (nothing is spent yet), so a rejected request
+  // The bank rail is asked first (nothing is spent yet), so a rejected request
   // never touches the merchant's balance.
-  let ramp: any;
+  let instruction;
   try {
-    ramp = await autoramp.initializeOffRamp({
+    instruction = await initiateOn(pickRail("out", { kind: "bank_payout", currency: "NGN", usd: quote.usd }), {
+      kind: "bank_payout",
       network: "base",
-      amount: quote.ngn,
+      ngn: quote.ngn,
       bankCode: params.bankCode,
       accountNumber: params.accountNumber,
     });
@@ -124,13 +140,8 @@ export async function requestCashout(params: {
     logger.error("Off-ramp could not be initialised", { error: error?.response?.data || error?.message });
     throw new Error("I couldn't set up that payout. Check the bank details and try again.");
   }
-
-  const reference: string | undefined = ramp?.databaseRecord?.reference || ramp?.reference;
-  const depositAddress: string | undefined = ramp?.data?.depositAddress || ramp?.depositAddress;
-  if (!reference || !depositAddress) {
-    logger.error("Off-ramp response missing reference or deposit address", { keys: Object.keys(ramp || {}) });
-    throw new Error("I couldn't set up that payout. Please try again.");
-  }
+  const reference = instruction.railRef;
+  const depositAddress = instruction.depositAddress;
 
   await ledger.debit({
     userId: params.userId,
@@ -176,6 +187,7 @@ export async function requestCashout(params: {
           ngn: quote.ngn,
           usdc: quote.usdc,
           rate: quote.rate,
+          fx: quote.fx,
           depositAddress,
         } as Prisma.InputJsonValue,
       },
@@ -196,7 +208,7 @@ export async function requestCashout(params: {
     });
     await prisma.transaction.updateMany({
       where: { reference },
-      data: { metadata: { provider: "autoramp", usd: quote.usd, ngn: quote.ngn, usdc: quote.usdc, rate: quote.rate, depositAddress, fundingTx: txHash } },
+      data: { metadata: { provider: "autoramp", usd: quote.usd, ngn: quote.ngn, usdc: quote.usdc, rate: quote.rate, fx: quote.fx, depositAddress, fundingTx: txHash } },
     });
     return { reference, status: "processing", quote, depositAddress, txHash };
   } catch (error: any) {
@@ -204,6 +216,20 @@ export async function requestCashout(params: {
     await reverse(error?.message || "error");
     throw new Error("The cash-out failed and your balance was restored.");
   }
+}
+
+/**
+ * Cash-outs whose USDC was sent but that AutoRamp never closed. AutoRamp
+ * reports by webhook only, so a missed webhook leaves the user's balance
+ * debited and the payout open forever. Oldest first, for an operator to check
+ * against AutoRamp and settle by hand.
+ */
+export async function listStuckCashouts(olderThanMs = 60 * 60 * 1000, now = Date.now()) {
+  return prisma.transaction.findMany({
+    where: { type: "cashout", status: "processing", createdAt: { lt: new Date(now - olderThanMs) } },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+  });
 }
 
 /**
@@ -218,25 +244,53 @@ export async function applyOfframpEvent(
   if (!tx) return null;
   const ngn = Number((tx.metadata as any)?.ngn ?? 0);
 
-  if (event === "offramp.completed") {
-    if (tx.status === "completed") return null; // duplicate webhook
+  const to = mapOfframpEvent(event);
+  if (!to) return null;
+
+  // Webhooks repeat and can arrive out of order. The rail event engine decides whether this report is new. A repeat is a
+  // no-op. A contradiction (completed after we refunded, failed after the bank
+  // paid) is refused and logged for a person: acting on it would pay the user
+  // twice or take back money already delivered. A failed payout's refund is
+  // posted by the engine, once, before the state moves.
+  const before = fromTransactionStatus(tx.status);
+  const applied = await applyRailEvent({
+    reference,
+    kind: "cashout",
+    direction: "out",
+    rail: "autoramp",
+    userId: tx.userId,
+    railRef: reference,
+    initialState: before,
+    event: { type: to, providerStatus: event },
+    post:
+      to === "failed"
+        ? async () => {
+            await ledger.credit({
+              userId: tx.userId,
+              amount: tx.amount,
+              currency: tx.currency,
+              reference,
+              description: "Cash-out failed: balance restored",
+              metadata: { type: "cashout_reversal", event },
+              idempotencyKey: `cashout-reversal:${reference}`,
+            });
+          }
+        : undefined,
+  });
+  if (applied.move.kind === "conflict") return null;
+  if (applied.move.kind === "duplicate") {
+    // Already handled. If a crash left the Transaction behind the engine, catch it up quietly.
+    if (applied.state === to && !isFinal(before)) {
+      await prisma.transaction.update({ where: { id: tx.id }, data: { status: to === "settled" ? "completed" : "failed" } });
+    }
+    return null;
+  }
+
+  if (to === "settled") {
     await prisma.transaction.update({ where: { id: tx.id }, data: { status: "completed" } });
     return { outcome: "completed", userId: tx.userId, amount: tx.amount, currency: tx.currency, ngn };
   }
 
-  if (event === "offramp.failed") {
-    if (tx.status === "failed") return null; // duplicate webhook
-    await ledger.credit({
-      userId: tx.userId,
-      amount: tx.amount,
-      currency: tx.currency,
-      reference,
-      description: "Cash-out failed: balance restored",
-      metadata: { type: "cashout_reversal", event },
-      idempotencyKey: `cashout-reversal:${reference}`,
-    });
-    await prisma.transaction.update({ where: { id: tx.id }, data: { status: "failed" } });
-    return { outcome: "failed", userId: tx.userId, amount: tx.amount, currency: tx.currency, ngn };
-  }
-  return null;
+  await prisma.transaction.update({ where: { id: tx.id }, data: { status: "failed" } });
+  return { outcome: "failed", userId: tx.userId, amount: tx.amount, currency: tx.currency, ngn };
 }

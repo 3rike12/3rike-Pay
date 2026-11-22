@@ -5,6 +5,7 @@ vi.mock("@/config", () => ({
     features: { dryRun: false, mobileMoneyEnabled: true },
     logLevel: "debug",
     whatsapp: { verifyToken: "test-verify-token" },
+    nearIntents: {},
   },
 }));
 
@@ -90,6 +91,7 @@ vi.mock("@/services/cryptoInvoice", () => ({
 }));
 
 vi.mock("@/services/treasury", () => ({
+  formatUsdThreshold: (usd: number, currency: string) => `${usd} USD (${currency})`,
   toUsd: (amount: number, currency: string) => amount / ({ KES: 130, NGN: 1500, TZS: 2600 } as Record<string, number>)[currency],
 }));
 
@@ -663,7 +665,7 @@ describe("invoice without mobile money", () => {
 
       expect(h.session.state).toBe(SESSION_STATE.INVOICE_CONFIRM); // not INVOICE_PHONE
       expect(reply).toContain("*Confirm invoice*");
-      expect(reply).toContain("Total: RWF 3,000");
+      expect(reply).toContain("Total: KES 3,000"); // KES is the default balance currency
       expect(reply).not.toContain("Buyer:");
       expect(reply).toContain("create the payment link");
       expect(reply).not.toMatch(/mobile number/i);
@@ -928,7 +930,7 @@ describe("add money (top-up)", () => {
   });
 
   it("rejects amounts that are too small, too large, or not numbers", async () => {
-    expect(await say("/topup 100")).toContain("minimum top-up");
+    expect(await say("/topup 100")).toContain("minimum top-up"); // 1Click's floor, owned by the rail
     expect(await say("/topup 99999999")).toContain("maximum top-up");
     await say("/topup");
     expect(await say("lots")).toContain("doesn't look like an amount");

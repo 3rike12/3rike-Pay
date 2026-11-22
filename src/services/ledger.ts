@@ -1,6 +1,8 @@
 import { prisma } from "@/db/prisma";
 import { withIdempotencyKey, acquireLock } from "@/utils/idempotency";
 import { createLogger } from "@/utils/logger";
+import { fromMinor, toMinor } from "@/utils/money";
+import { useMinor, walletBalance } from "@/utils/walletBalance";
 
 const logger = createLogger("ledger");
 
@@ -46,6 +48,34 @@ export class LedgerService {
   }
 
   /**
+   * Move a wallet by `delta` (negative for a debit) and report the running
+   * balance. The representation is decided from the row as it was BEFORE the
+   * move: with MONEY_READS=minor and a clean wallet, both columns move together
+   * atomically and the integer one is exact; otherwise the float is the source
+   * of truth and the integer column is derived from it. Either way both columns
+   * are written, so switching the flag never needs a backfill to be re-run.
+   */
+  private async move(
+    tx: any,
+    wallet: { id: string; currency: string; balance: number; balanceMinor: bigint },
+    delta: number,
+    currency: string
+  ) {
+    const exact = useMinor(wallet);
+    const updated = await tx.wallet.update({
+      where: { id: wallet.id },
+      data: exact
+        ? { balance: { increment: delta }, balanceMinor: { increment: toMinor(delta, currency) } }
+        : { balance: { increment: delta }, balanceMinor: toMinor(wallet.balance + delta, currency) },
+    });
+    return {
+      updated,
+      runningBalance: exact ? fromMinor(updated.balanceMinor, currency) : (updated.balance as number),
+      runningBalanceMinor: updated.balanceMinor as bigint,
+    };
+  }
+
+  /**
    * Get or create a wallet for a user in a given currency.
    */
   async getOrCreateWallet(userId: string, currency = "RWF") {
@@ -68,7 +98,7 @@ export class LedgerService {
    */
   async getBalance(userId: string, currency = "RWF") {
     const wallet = await this.getOrCreateWallet(userId, currency);
-    return wallet.balance;
+    return walletBalance(wallet);
   }
 
   /**
@@ -83,10 +113,12 @@ export class LedgerService {
     const wallets = await prisma.wallet.findMany({
       where: { userId },
       orderBy: { currency: "asc" },
-      select: { currency: true, balance: true },
+      select: { currency: true, balance: true, balanceMinor: true },
     });
 
-    return wallets.length > 0 ? wallets : [{ currency: "RWF", balance: 0 }];
+    return wallets.length > 0
+      ? wallets.map((w) => ({ currency: w.currency, balance: walletBalance(w) }))
+      : [{ currency: "RWF", balance: 0 }];
   }
 
   /**
@@ -112,19 +144,24 @@ export class LedgerService {
 
       try {
         return await prisma.$transaction(async (tx) => {
-          let wallet = (await tx.wallet.findUnique({
+          const existing = (await tx.wallet.findUnique({
             where: { userId_currency: { userId, currency } },
-          })) as { id: string; balance: number } | null;
+          })) as { id: string; currency: string; balance: number; balanceMinor: bigint } | null;
 
-          if (!wallet) {
+          let wallet: any;
+          let runningBalance: number;
+          let runningBalanceMinor: bigint;
+          if (!existing) {
             wallet = await tx.wallet.create({
-              data: { userId, currency, balance: amount },
+              data: { userId, currency, balance: amount, balanceMinor: toMinor(amount, currency) },
             });
+            runningBalance = wallet.balance;
+            runningBalanceMinor = wallet.balanceMinor;
           } else {
-            wallet = await tx.wallet.update({
-              where: { id: wallet.id },
-              data: { balance: { increment: amount } },
-            });
+            const moved = await this.move(tx, existing, amount, currency);
+            wallet = moved.updated;
+            runningBalance = moved.runningBalance;
+            runningBalanceMinor = moved.runningBalanceMinor;
           }
 
           const entry = await tx.ledgerEntry.create({
@@ -132,8 +169,10 @@ export class LedgerService {
               walletId: wallet.id,
               direction: "credit",
               amount,
+              amountMinor: toMinor(amount, currency),
               currency,
-              runningBalance: wallet.balance,
+              runningBalance,
+              runningBalanceMinor,
               reference,
               description,
               metadata: (metadata ?? {}) as any,
@@ -146,7 +185,7 @@ export class LedgerService {
             amount,
             currency,
             reference,
-            runningBalance: wallet.balance,
+            runningBalance,
           });
 
           return { wallet, entry };
@@ -197,25 +236,29 @@ export class LedgerService {
           throw new Error(`Insufficient balance: no ${currency} wallet for user ${userId}`);
         }
 
-        if (!allowNegative && wallet.balance < amount) {
+        // In minor mode the check is an exact integer comparison.
+        const insufficient = useMinor(wallet as any)
+          ? wallet.balanceMinor < toMinor(amount, currency)
+          : wallet.balance < amount;
+        if (!allowNegative && insufficient) {
           throw new Error(
-            `Insufficient balance: ${wallet.balance} ${currency} available, ${amount} ${currency} requested`
+            `Insufficient balance: ${walletBalance(wallet as any)} ${currency} available, ${amount} ${currency} requested`
           );
         }
 
         return prisma.$transaction(async (tx) => {
-          const updatedWallet = await tx.wallet.update({
-            where: { id: wallet.id },
-            data: { balance: { decrement: amount } },
-          });
+          const moved = await this.move(tx, wallet as any, -amount, currency);
+          const updatedWallet = moved.updated;
 
           const entry = await tx.ledgerEntry.create({
             data: {
               walletId: updatedWallet.id,
               direction: "debit",
               amount,
+              amountMinor: toMinor(amount, currency),
               currency,
-              runningBalance: updatedWallet.balance,
+              runningBalance: moved.runningBalance,
+              runningBalanceMinor: moved.runningBalanceMinor,
               reference,
               description,
               metadata: (metadata ?? {}) as any,
@@ -228,7 +271,7 @@ export class LedgerService {
             amount,
             currency,
             reference,
-            runningBalance: updatedWallet.balance,
+            runningBalance: moved.runningBalance,
           });
 
           return { wallet: updatedWallet, entry };
@@ -282,44 +325,54 @@ export class LedgerService {
           where: { userId_currency: { userId: fromUserId, currency } },
         });
 
-        if (!fromWallet || fromWallet.balance < amount) {
+        const insufficient = !fromWallet
+          ? true
+          : useMinor(fromWallet as any)
+            ? fromWallet.balanceMinor < toMinor(amount, currency)
+            : fromWallet.balance < amount;
+        if (!fromWallet || insufficient) {
           throw new Error(
-            `Insufficient balance: ${fromWallet?.balance ?? 0} ${currency} available, ${amount} ${currency} requested`
+            `Insufficient balance: ${fromWallet ? walletBalance(fromWallet as any) : 0} ${currency} available, ${amount} ${currency} requested`
           );
         }
 
         return await prisma.$transaction(async (tx) => {
-          const debitWallet = await tx.wallet.update({
-            where: { id: fromWallet.id },
-            data: { balance: { decrement: amount } },
-          });
+          const debited = await this.move(tx, fromWallet as any, -amount, currency);
+          const debitWallet = debited.updated;
 
           const debitEntry = await tx.ledgerEntry.create({
             data: {
               walletId: debitWallet.id,
               direction: "debit",
               amount,
+              amountMinor: toMinor(amount, currency),
               currency,
-              runningBalance: debitWallet.balance,
+              runningBalance: debited.runningBalance,
+              runningBalanceMinor: debited.runningBalanceMinor,
               reference,
               description: description || `Transfer to ${toUserId}`,
               metadata: { toUserId } as any,
             },
           });
 
-          let creditWallet = await tx.wallet.findUnique({
+          const existingCredit = await tx.wallet.findUnique({
             where: { userId_currency: { userId: toUserId, currency } },
           });
 
-          if (!creditWallet) {
+          let creditWallet: any;
+          let creditRunning: number;
+          let creditRunningMinor: bigint;
+          if (!existingCredit) {
             creditWallet = await tx.wallet.create({
-              data: { userId: toUserId, currency, balance: amount },
+              data: { userId: toUserId, currency, balance: amount, balanceMinor: toMinor(amount, currency) },
             });
+            creditRunning = creditWallet.balance;
+            creditRunningMinor = creditWallet.balanceMinor;
           } else {
-            creditWallet = await tx.wallet.update({
-              where: { id: creditWallet.id },
-              data: { balance: { increment: amount } },
-            });
+            const credited = await this.move(tx, existingCredit as any, amount, currency);
+            creditWallet = credited.updated;
+            creditRunning = credited.runningBalance;
+            creditRunningMinor = credited.runningBalanceMinor;
           }
 
           const creditEntry = await tx.ledgerEntry.create({
@@ -327,8 +380,10 @@ export class LedgerService {
               walletId: creditWallet.id,
               direction: "credit",
               amount,
+              amountMinor: toMinor(amount, currency),
               currency,
-              runningBalance: creditWallet.balance,
+              runningBalance: creditRunning,
+              runningBalanceMinor: creditRunningMinor,
               reference,
               description: description || `Transfer from ${fromUserId}`,
               metadata: { fromUserId } as any,

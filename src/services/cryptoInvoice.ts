@@ -2,7 +2,12 @@ import { Prisma } from "@prisma/client";
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
 import { nearIntents, evmChainIdFor, prettyOrigin, type PayableToken } from "@/services/nearIntents";
-import { whatsapp } from "@/services/whatsapp";
+import { oneClickEvent, summariseQuoteStatuses } from "@/rails/oneClick";
+import { initiateOn, pickRail } from "@/rails/router";
+import { staticFx } from "@/services/fx";
+import { scanDirectUsdc } from "@/services/directUsdc";
+import { recordRailEvent } from "@/rails/settlement";
+import type { RailEventInput } from "@/rails/types";
 import {
   INVOICE_STATUS,
   INVOICE_TTL_MINUTES,
@@ -23,6 +28,15 @@ const logger = createLogger("crypto-invoice");
  * caps how many one invoice may mint (also stops quote-spam).
  */
 const MAX_QUOTES_PER_INVOICE = 8;
+
+/** The rate for a currency, or null if none can be recorded (pricing has already succeeded by then, so never fail a payment over bookkeeping). */
+function fxOrNull(currency: string) {
+  try {
+    return staticFx(currency);
+  } catch {
+    return null;
+  }
+}
 
 /** What a wallet needs to build the transfer for a token. */
 export function originMetaFor(token: PayableToken) {
@@ -72,6 +86,8 @@ export async function createCryptoPayment(params: {
   refundTo?: string;
   /** Token/chain details a wallet needs to build the transfer. */
   originMeta?: Record<string, unknown>;
+  /** Pay with USDC straight to the treasury (no swap) instead of through 1Click. */
+  direct?: boolean;
 }) {
   if (!nearIntents.isNearIntentsEnabled()) {
     throw new Error("Crypto payments are not enabled yet.");
@@ -126,27 +142,38 @@ export async function createCryptoPayment(params: {
 
   const deadline = new Date(Date.now() + INVOICE_TTL_MINUTES * 60 * 1000);
   const amountOut = nearIntents.fiatToDestinationUnits(invoice.amount, invoice.currency);
-  const { quote } = await nearIntents.requestQuote({
-    amountOut,
-    originAsset: params.originAsset,
-    refundTo: params.refundTo,
-    deadline,
-  });
-
-  if (!quote.depositAddress) throw new Error("NEAR Intents returned no deposit address.");
+  // The rail mints the deposit address; this flow does not know which provider it is.
+  const instruction = params.direct
+    ? await initiateOn(pickRail("in", { kind: "direct_transfer" }), {
+        kind: "direct_transfer",
+        reference: invoice.reference,
+        userId: invoice.merchantId,
+        baseUnits: amountOut,
+      })
+    : await initiateOn(pickRail("in", { kind: "swap" }), {
+        kind: "swap",
+        swapType: "EXACT_OUTPUT",
+        amount: amountOut,
+        originAsset: params.originAsset,
+        refundTo: params.refundTo,
+        deadline,
+      });
 
   const details = {
-    depositAddress: quote.depositAddress,
-    depositMemo: quote.depositMemo ?? null,
-    amountIn: quote.amountIn,
-    amountInFormatted: quote.amountInFormatted ?? null,
-    amountOut: quote.amountOut,
+    provider: params.direct ? "direct-usdc" : "1click",
+    depositAddress: instruction.depositAddress,
+    depositMemo: instruction.depositMemo ?? null,
+    amountIn: instruction.amountIn,
+    amountInFormatted: instruction.amountInFormatted ?? null,
+    amountOut: instruction.amountOut,
     originAsset: params.originAsset ?? config.nearIntents.originAsset,
     originLabel: params.originLabel ?? null,
     refundTo: params.refundTo ?? null,
     origin: params.originMeta ?? null,
     // The invoice's own TTL, not 1Click's quote lifetime (which can be days).
     deadline: deadline.toISOString(),
+    // The rate this invoice was priced at, and where it came from.
+    fx: invoice.currency.toUpperCase() === "USD" ? null : fxOrNull(invoice.currency),
   };
 
   if (invoice.status === INVOICE_STATUS.DRAFT) {
@@ -168,6 +195,7 @@ export async function createCryptoPayment(params: {
           {
             depositAddress: details.depositAddress,
             depositMemo: details.depositMemo,
+            provider: details.provider,
             originLabel: details.originLabel,
             amountInFormatted: details.amountInFormatted,
             createdAt: new Date().toISOString(),
@@ -179,6 +207,24 @@ export async function createCryptoPayment(params: {
 
   logger.info("Crypto payment created", { invoiceId: invoice.id, reference, amountOut });
   return { invoice: pending, reference, ...details };
+}
+
+/** Write what 1Click reported into the payment's event history. Best effort: never blocks settlement. */
+function trackRail(
+  reference: string,
+  merchantId: string | undefined,
+  event: RailEventInput,
+  initialState: "created" | "awaiting_funds" | "expired" = "awaiting_funds"
+) {
+  return recordRailEvent({
+    reference,
+    kind: "invoice",
+    direction: "in",
+    rail: "1click",
+    userId: merchantId,
+    initialState,
+    event,
+  });
 }
 
 export type CryptoPayState =
@@ -217,14 +263,7 @@ export async function getCryptoPaymentState(
   reference: string
 ): Promise<{ state: CryptoPayState; nearStatus?: string }> {
   const invoice = await getInvoiceByReference(reference);
-  if (!invoice) {
-    const walletTopUp = await prisma.transaction.findUnique({
-      where: { reference },
-      include: { user: { select: { phone: true } } },
-    });
-    if (walletTopUp?.type === "wallet_topup") return getWalletTopUpState(walletTopUp);
-    return { state: "unknown" };
-  }
+  if (!invoice) return { state: "unknown" };
   if (invoice.status === INVOICE_STATUS.PAID) return { state: "paid" };
   // An expired invoice is NOT final: money may still arrive for a deposit
   // address minted before it expired, and that is a real payment. Fall through
@@ -239,20 +278,35 @@ export async function getCryptoPaymentState(
     return { state: meta.nearStatus === "REFUNDED" ? "refunded" : "failed", nearStatus: meta.nearStatus };
   }
 
-  const quotes: Array<{ depositAddress: string; depositMemo?: string | null }> =
-    meta.nearQuotes ?? (meta.nearIntents?.depositAddress ? [meta.nearIntents] : []);
-  if (quotes.length === 0) return { state: "unknown" };
+  type QuoteEntry = { depositAddress: string; depositMemo?: string | null; provider?: string };
+  const allQuotes: QuoteEntry[] = meta.nearQuotes ?? (meta.nearIntents?.depositAddress ? [meta.nearIntents] : []);
+  if (allQuotes.length === 0) return { state: "unknown" };
 
-  // Poll every deposit address this invoice ever minted: the customer may
-  // have paid an earlier one before changing their selection.
+  // A direct USDC payment has no 1Click deposit address to poll: it is found by
+  // reading transfers to the treasury, and settles the invoice from there.
+  const hasDirect = allQuotes.some((q) => q.provider === "direct-usdc");
+  const quotes = allQuotes.filter((q) => q.provider !== "direct-usdc");
+  if (hasDirect) {
+    await scanDirectUsdc().catch((error: any) => logger.warn("Direct USDC scan failed", { reference, error: error?.message }));
+    const after = await getInvoiceByReference(reference);
+    if (after?.status === INVOICE_STATUS.PAID) return { state: "paid" };
+  }
+
+  // Poll every 1Click deposit address this invoice ever minted: the customer
+  // may have paid an earlier one before changing their selection.
   const results = await Promise.allSettled(
     quotes.map((q) => nearIntents.getStatus(q.depositAddress, q.depositMemo ?? undefined))
   );
   const statuses = results.map((r) => (r.status === "fulfilled" ? r.value : null));
-  const answered = statuses.filter((r): r is NonNullable<typeof r> => r !== null);
+  // What the payment's deposit addresses say, together, in canonical terms.
+  let summary: ReturnType<typeof summariseQuoteStatuses> = quotes.length
+    ? summariseQuoteStatuses(statuses)
+    : { state: "awaiting_funds" };
+  // Every swap quote being dead must not fail an invoice that can still be paid directly.
+  if (hasDirect && (summary.state === "refunded" || summary.state === "failed")) summary = { state: "awaiting_funds" };
 
-  const successIdx = statuses.findIndex((r) => r?.status === "SUCCESS");
-  if (successIdx >= 0) {
+  if (summary.state === "settled") {
+    const successIdx = summary.paidIndex!;
     const success = statuses[successIdx]!;
     // What was actually paid, and the proof - shown to the customer and the merchant.
     const sd: any = (success as any).swapDetails || {};
@@ -270,24 +324,26 @@ export async function getCryptoPaymentState(
     await settleInvoicePayment(reference, { source: "near_poll", provider: "near-intents", nearIntents: success, crypto });
     await prisma.transaction.updateMany({ where: { reference }, data: { status: "completed" } });
     await recordReceipt(reference, crypto);
+    await trackRail(reference, invoice.merchantId, oneClickEvent(success, tx?.hash ?? undefined), wasExpired ? "expired" : "awaiting_funds");
     return { state: "paid", nearStatus: success.status };
   }
 
-  const inFlight = answered.find((r) => r.status === "PROCESSING" || r.status === "KNOWN_DEPOSIT_TX");
-  if (inFlight) return { state: "processing", nearStatus: inFlight.status };
+  if (summary.state === "processing") {
+    await trackRail(reference, invoice.merchantId, { type: "processing", providerStatus: summary.providerStatus ?? "PROCESSING" });
+    return { state: "processing", nearStatus: summary.providerStatus };
+  }
 
   if (wasExpired) return { state: "expired" };
 
   // Refunded/failed only when EVERY address is dead - one unused or expired
   // quote must not fail an invoice that still has a live one.
-  const allDead =
-    answered.length === quotes.length && answered.every((r) => r.status === "REFUNDED" || r.status === "FAILED");
-  if (allDead) {
-    const nearStatus = answered.some((r) => r.status === "REFUNDED") ? "REFUNDED" : "FAILED";
+  if (summary.state === "refunded" || summary.state === "failed") {
+    const nearStatus = summary.providerStatus!;
     await recordNearStatus(reference, nearStatus);
     await failInvoicePayment(reference, nearStatus);
     await prisma.transaction.updateMany({ where: { reference }, data: { status: "failed" } });
-    return { state: nearStatus === "REFUNDED" ? "refunded" : "failed", nearStatus };
+    await trackRail(reference, invoice.merchantId, { type: summary.state, providerStatus: nearStatus });
+    return { state: summary.state, nearStatus };
   }
 
   // Nothing paid and the window has closed.
@@ -296,55 +352,11 @@ export async function getCryptoPaymentState(
       where: { id: invoice.id, status: { in: [INVOICE_STATUS.SENT, INVOICE_STATUS.PENDING] } },
       data: { status: INVOICE_STATUS.EXPIRED },
     });
+    await trackRail(reference, invoice.merchantId, { type: "expired", providerStatus: "WINDOW_CLOSED" });
     return { state: "expired" };
   }
 
-  return { state: "awaiting_payment", nearStatus: answered[answered.length - 1]?.status };
-}
-
-async function getWalletTopUpState(transaction: any): Promise<{ state: CryptoPayState; nearStatus?: string }> {
-  const meta = (transaction.metadata as any) || {};
-  const quote = meta.nearIntents;
-  if (transaction.status === "completed") return { state: "paid", nearStatus: meta.nearStatus };
-  if (transaction.status === "failed") {
-    return { state: meta.nearStatus === "REFUNDED" ? "refunded" : "failed", nearStatus: meta.nearStatus };
-  }
-  if (!quote?.depositAddress) return { state: "unknown" };
-
-  const result = await nearIntents.getStatus(quote.depositAddress, quote.depositMemo ?? undefined);
-  const nearStatus = result.status;
-  if (nearStatus === "SUCCESS" || nearStatus === "FAILED" || nearStatus === "REFUNDED") {
-    const status = nearStatus === "SUCCESS" ? "completed" : "failed";
-    const changed = await prisma.transaction.updateMany({
-      where: { id: transaction.id, status: "processing" },
-      data: { status, metadata: { ...meta, nearStatus, nearResult: result } as Prisma.InputJsonValue },
-    });
-    if (changed.count > 0) {
-      const originTx = (result.swapDetails as any)?.originChainTxHashes?.[0];
-      const txUrl = typeof originTx?.explorerUrl === "string" && originTx.explorerUrl.startsWith("https://")
-        ? `\nTransaction: ${originTx.explorerUrl}`
-        : "";
-      const received = quote.amountOut
-        ? `${(Number(quote.amountOut) / 10 ** config.nearIntents.destinationDecimals).toFixed(2)} USDC`
-        : "your funds";
-      const message = nearStatus === "SUCCESS"
-        ? `*Top-up complete*\n\n${received} (about ${transaction.amount} ${transaction.currency}) was routed to your Privy wallet:\n\`${meta.walletAddress}\`${txUrl}`
-        : nearStatus === "REFUNDED"
-          ? `Your top-up was refunded to your Privy wallet:\n\`${meta.walletAddress}\``
-          : "Your NEAR Intents top-up failed. No funds were delivered; contact support if you sent tokens.";
-      await whatsapp.sendTextMessage(transaction.user.phone, message);
-    }
-    return { state: nearStatus === "SUCCESS" ? "paid" : nearStatus === "REFUNDED" ? "refunded" : "failed", nearStatus };
-  }
-
-  if (nearStatus === "PROCESSING" || nearStatus === "KNOWN_DEPOSIT_TX") {
-    await prisma.transaction.updateMany({
-      where: { id: transaction.id, status: "processing" },
-      data: { metadata: { ...meta, nearStatus } as Prisma.InputJsonValue },
-    });
-    return { state: "processing", nearStatus };
-  }
-  return { state: "awaiting_payment", nearStatus };
+  return { state: "awaiting_payment", nearStatus: summary.providerStatus };
 }
 
 /** Poll 1Click once and settle/fail the invoice. */

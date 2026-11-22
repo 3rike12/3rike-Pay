@@ -58,13 +58,23 @@ export async function getIdempotencyResult<T = unknown>(key: string): Promise<T 
 }
 
 /**
+ * JSON has no BigInt, and JSON.stringify throws on one. The ledger's rows carry
+ * minor-unit BigInt columns, so a stored result must turn them into strings. If
+ * it threw instead, the result would never be cached and a repeated call would
+ * run again, which is exactly what an idempotency key exists to stop.
+ */
+export function stringifyResult(result: unknown): string {
+  return JSON.stringify(result, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
+}
+
+/**
  * Store the result of an idempotent operation.
  */
 export async function setIdempotencyResult<T = unknown>(key: string, result: T, ttlSeconds = DEFAULT_RESULT_TTL_SECONDS) {
   if (!redis) return;
 
   try {
-    await redis.set(resultKey(key), JSON.stringify(result), "EX", ttlSeconds);
+    await redis.set(resultKey(key), stringifyResult(result), "EX", ttlSeconds);
   } catch (error: any) {
     logger.error("Failed to store idempotency result", { key, error: error.message });
   }
