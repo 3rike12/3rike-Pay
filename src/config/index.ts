@@ -210,6 +210,21 @@ export const config = {
   },
 
   /**
+   * Tokenized stocks on Base. Every country is open except the United States
+   * (the Base quest excludes US trading, and the tokens' own terms are for people
+   * outside the US).
+   *   STOCKS_BLOCK_US=false     turn the US block off
+   *   STOCKS_NAV_MAX_AGE_SECONDS  a price older than this is shown as stale (default 86400:
+   *                               feeds run 24/5 and hold their last value off-hours)
+   */
+  stocks: {
+    apiUrl: process.env.STOCKS_API_URL || "https://api.coinbase.com/v1/tokenized-stocks",
+    cacheSeconds: Number(process.env.STOCKS_CACHE_SECONDS || 300),
+    navMaxAgeSeconds: Number(process.env.STOCKS_NAV_MAX_AGE_SECONDS || 86400),
+    blockUs: process.env.STOCKS_BLOCK_US !== "false",
+  },
+
+  /**
    * Which column balances are read from. "float" (default) is the original
    * column; "minor" reads whole minor units, which cannot accumulate float
    * error. Switch to "minor" only after `npm run money:minor` shows no drift:
