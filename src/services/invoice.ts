@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { flutterwave } from "@/services/flutterwave";
-import { ledger } from "@/services/ledger";
+import { SYSTEM_ACCOUNTS, ledger } from "@/services/ledger";
 import { whatsapp } from "@/services/whatsapp";
 import { withIdempotencyKey } from "@/utils/idempotency";
 import { FLUTTERWAVE_SPLIT, MESSAGES } from "@/config/constants";
@@ -827,6 +827,7 @@ export async function settleInvoicePayment(
           description: `Platform fee for invoice ${reference}`,
           metadata: { type: "platform_fee", invoiceId: invoice.id, split, ...metadata },
           allowNegative: true,
+          counter: SYSTEM_ACCOUNTS.fees,
           idempotencyKey: `fw-fee-debit:${reference}`,
         });
         bookedPlatformFee = platformFee;
@@ -847,6 +848,8 @@ export async function settleInvoicePayment(
         reference,
         description: `Platform fee for invoice ${reference}`,
         metadata: { type: "platform_fee", invoiceId: invoice.id, split, ...metadata },
+        system: true,
+        counter: SYSTEM_ACCOUNTS.fees,
         idempotencyKey: `fw-fee-credit:${reference}`,
       });
     }

@@ -14,7 +14,7 @@ vi.mock("@/config", () => ({
 
 const debit = vi.fn();
 const credit = vi.fn();
-vi.mock("@/services/ledger", () => ({ ledger: { debit: (...a: any[]) => debit(...a), credit: (...a: any[]) => credit(...a) } }));
+vi.mock("@/services/ledger", () => ({ SYSTEM_ACCOUNTS: { external: "external", opening: "opening", fxClearing: "fx_clearing", fees: "fees", stockClearing: "stock_clearing" }, ledger: { debit: (...a: any[]) => debit(...a), credit: (...a: any[]) => credit(...a) } }));
 
 const requestQuote = vi.fn();
 const resolveOriginAsset = vi.fn();

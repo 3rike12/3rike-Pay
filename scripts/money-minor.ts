@@ -7,8 +7,9 @@
 import "dotenv/config";
 import { prisma } from "@/db/prisma";
 import { backfillMinor, findLedgerSumDrift, findTransactionDrift, findWalletDrift } from "@/services/moneyMinor";
-import { findNegativeWallets, findPositionProblems } from "@/services/ledgerVerify";
+import { countLegacyEntries, findNegativeWallets, findPositionProblems, findUnbalancedJournals, findZeroSumBreaks } from "@/services/ledgerVerify";
 import { stockSolvency } from "@/services/stockSolvency";
+import { gatherTrialBalance } from "@/services/trialBalance";
 
 (async () => {
   if (process.argv.includes("--backfill")) {
@@ -34,6 +35,15 @@ import { stockSolvency } from "@/services/stockSolvency";
   for (const d of sums) {
     console.log(`Ledger ${d.walletId}: entries add up to ${d.fromEntriesMinor}, balance is ${d.balanceMinor}`);
   }
+  const unbalanced = await findUnbalancedJournals();
+  if (unbalanced.length === 0) console.log("Journals: every journal balances.");
+  for (const d of unbalanced) console.log(`UNBALANCED journal ${d.journalId} (${d.currency}): credits ${d.creditsMinor}, debits ${d.debitsMinor}`);
+  const breaks = await findZeroSumBreaks();
+  if (breaks.length === 0) console.log("Books: all accounts add up to exactly zero in every currency.");
+  for (const d of breaks) console.log(`BOOKS DO NOT ADD UP in ${d.currency}: total ${d.totalMinor} (should be 0)`);
+  const legacy = await countLegacyEntries();
+  if (legacy > 0) console.log(`${legacy} entr${legacy === 1 ? "y" : "ies"} predate double-entry; run the opening-balance step to explain them.`);
+
   const negatives = await findNegativeWallets();
   if (negatives.length === 0) console.log("Negative balances: none.");
   for (const d of negatives) console.log(`Negative: wallet ${d.walletId} (${d.currency}, user ${d.userId}) is at ${d.balance}`);
@@ -56,7 +66,22 @@ import { stockSolvency } from "@/services/stockSolvency";
     console.log(`Stock cover: could not be checked (${error?.message}).`);
   }
 
-  if (wallets.length || sums.length || txs.length || negatives.length || positions.length || uncovered) {
+  // The accounting equation across everything: what is held against what is owed, with trades in flight counted.
+  let unbalanced = 0;
+  try {
+    const t = await gatherTrialBalance();
+    console.log(`Trial balance: USDC held ${t.usdc.heldUsd ?? "unknown"}, owed ${t.usdc.expectedUsd.toFixed(2)} (cash ${t.usdc.cashOwedUsd.toFixed(2)} + ${t.usdc.inFlightBuyUsd.toFixed(2)} in ${t.inFlightOrders} trade(s) in flight): ${t.usdc.ok ? "balances" : "DOES NOT BALANCE"}${t.usdc.differenceUsd !== null ? ` (difference ${t.usdc.differenceUsd.toFixed(2)})` : ""}`);
+    if (!t.usdc.ok) unbalanced++;
+    for (const k of t.tokens) {
+      if (!k.ok) unbalanced++;
+      console.log(`Trial balance: ${k.tokenAddress} held ${k.held ?? "unknown"}, expected ${k.expected} (owned ${k.owed} + ${k.inFlightSell} in flight): ${k.ok ? "balances" : "DOES NOT BALANCE"}`);
+    }
+  } catch (error: any) {
+    unbalanced++;
+    console.log(`Trial balance: could not be built (${error?.message}).`);
+  }
+
+  if (wallets.length || sums.length || txs.length || negatives.length || positions.length || uncovered || unbalanced) {
     console.log("\nDo not switch reads to the minor columns while any of the above remains unexplained.");
     process.exitCode = 1;
   }

@@ -14,13 +14,18 @@
 // Every method takes an optional second argument { undo } that a transaction
 // passes so its writes can be rolled back. Tests can spy on the shared methods
 // (transaction calls go through them) and should forward that argument.
-type Ctx = { undo?: Array<() => void> } | undefined;
+type Ctx = { undo?: Array<() => void>; keys?: string[]; done?: Promise<void> } | undefined;
 
 export function makeLedgerDb() {
   const wallets = new Map<string, any>();
   const entries: any[] = [];
   const transactions = new Map<string, any>();
+  const users = new Map<string, any>(); // by phone
+  const journals = new Map<string, any>();
   let n = 0;
+  // Journal keys held by a transaction that has not finished. Like a real unique index, a second
+  // insert of the same key WAITS for that transaction to commit or roll back before it is judged.
+  const inflightKeys = new Map<string, Promise<void>>();
   const tick = () => new Promise<void>((r) => setImmediate(r));
   const uniqueError = (target: string) => Object.assign(new Error(`Unique constraint failed on ${target}`), { code: "P2002", meta: { target: [target] } });
 
@@ -72,7 +77,7 @@ export function makeLedgerDb() {
     },
     transactions,
     seedWallet(row: any) {
-      const w = { id: `w${++n}`, balanceMinor: 0n, ...row };
+      const w = { id: `w${++n}`, balanceMinor: 0n, kind: "user", ...row };
       wallets.set(w.id, w);
       return w;
     },
@@ -85,14 +90,25 @@ export function makeLedgerDb() {
       findMany: async ({ take, cursor, skip, select, where }: any = {}, _ctx?: Ctx) => {
         let rows = [...wallets.values()].sort((a, b) => a.id.localeCompare(b.id));
         if (where?.balanceMinor?.lt !== undefined) rows = rows.filter((r) => r.balanceMinor < where.balanceMinor.lt);
+        if (where?.kind) rows = rows.filter((r) => r.kind === where.kind);
         if (cursor) rows = rows.slice(rows.findIndex((r) => r.id === cursor.id) + (skip ?? 0));
         if (take) rows = rows.slice(0, take);
         return select ? rows.map((r) => Object.fromEntries(Object.keys(select).map((k) => [k, r[k]]))) : rows;
       },
+      groupBy: async ({ by }: any) => {
+        const acc = new Map<string, any>();
+        for (const w of wallets.values()) {
+          const k = by.map((f: string) => w[f]).join("|");
+          const row = acc.get(k) ?? { ...Object.fromEntries(by.map((f: string) => [f, w[f]])), _sum: { balanceMinor: 0n } };
+          row._sum.balanceMinor += w.balanceMinor;
+          acc.set(k, row);
+        }
+        return [...acc.values()];
+      },
       create: async ({ data }: any, ctx?: Ctx) => {
         await tick();
         if ([...wallets.values()].some((w) => w.userId === data.userId && w.currency === data.currency)) throw uniqueError("userId_currency");
-        const w = { id: `w${++n}`, balanceMinor: 0n, ...data };
+        const w = { id: `w${++n}`, balanceMinor: 0n, kind: "user", ...data };
         wallets.set(w.id, w);
         ctx?.undo?.push(() => void wallets.delete(w.id));
         return { ...w };
@@ -130,19 +146,60 @@ export function makeLedgerDb() {
       findMany: async ({ take, cursor, skip, where }: any = {}, _ctx?: Ctx) => {
         let rows = [...entries].sort((a, b) => a.seq - b.seq);
         if (where?.walletId) rows = rows.filter((r) => r.walletId === where.walletId);
+        if (where?.journalId) rows = rows.filter((r) => r.journalId === where.journalId);
+        if (where && "journalId" in where && where.journalId === null) rows = rows.filter((r) => r.journalId == null);
+        if (where?.journalId?.not === null) rows = rows.filter((r) => r.journalId != null);
         if (cursor) rows = rows.slice(rows.findIndex((r) => r.id === cursor.id) + (skip ?? 0));
         return take ? rows.slice(0, take) : rows;
       },
       update: async ({ where, data }: any) => Object.assign(entries.find((e) => e.id === where.id), data),
-      groupBy: async () => {
+      groupBy: async ({ by }: any = { by: ["walletId", "direction"] }) => {
         const acc = new Map<string, any>();
         for (const e of entries) {
-          const k = `${e.walletId}|${e.direction}`;
-          const row = acc.get(k) ?? { walletId: e.walletId, direction: e.direction, _sum: { amountMinor: 0n } };
+          const k = by.map((f: string) => e[f]).join("|");
+          const row = acc.get(k) ?? { ...Object.fromEntries(by.map((f: string) => [f, e[f]])), _sum: { amountMinor: 0n } };
           row._sum.amountMinor += e.amountMinor;
           acc.set(k, row);
         }
         return [...acc.values()];
+      },
+    },
+    journal: {
+      findUnique: async ({ where }: any, _ctx?: Ctx) => {
+        await tick();
+        const j = [...journals.values()].find((x) => (where.idempotencyKey ? x.idempotencyKey === where.idempotencyKey : x.id === where.id));
+        return j ? { ...j } : null;
+      },
+      create: async ({ data }: any, ctx?: Ctx) => {
+        await tick();
+        const key = data.idempotencyKey as string | undefined;
+        if (key) {
+          const holder = inflightKeys.get(key);
+          if (holder && !(ctx?.keys ?? []).includes(key)) await holder; // wait for the transaction holding the key
+          if ([...journals.values()].some((j) => j.idempotencyKey === key)) throw uniqueError("idempotencyKey");
+          if (ctx?.done) {
+            inflightKeys.set(key, ctx.done);
+            ctx.keys!.push(key);
+          }
+        }
+        const j = { id: `j${journals.size + 1}-${Math.random().toString(36).slice(2, 6)}`, idempotencyKey: null, description: null, createdAt: new Date(), ...data };
+        journals.set(j.id, j);
+        ctx?.undo?.push(() => void journals.delete(j.id));
+        return { ...j };
+      },
+      findMany: async () => [...journals.values()].map((j) => ({ ...j })),
+    },
+    user: {
+      findUnique: async ({ where }: any, _ctx?: Ctx) => {
+        await tick();
+        return users.get(where.phone) ? { ...users.get(where.phone) } : null;
+      },
+      create: async ({ data }: any, _ctx?: Ctx) => {
+        await tick();
+        if (users.has(data.phone)) throw uniqueError("phone");
+        const u = { id: `user-${data.phone}`, ...data };
+        users.set(data.phone, u);
+        return { ...u };
       },
     },
     transaction: {
@@ -153,13 +210,19 @@ export function makeLedgerDb() {
       },
       update: async ({ where, data }: any) => Object.assign(transactions.get(where.id), data),
     },
+    journals,
+    users,
     // A transaction object whose every call goes through the shared methods above, carrying its undo log.
     $transaction: async (fn: any) => {
-      const ctx = { undo: [] as Array<() => void> };
+      let finish!: () => void;
+      const done = new Promise<void>((r) => (finish = r));
+      const ctx = { undo: [] as Array<() => void>, keys: [] as string[], done };
       const via = (table: string, ...methods: string[]) => Object.fromEntries(methods.map((m) => [m, (args: any) => api[table][m](args, ctx)]));
       const tx = {
         wallet: via("wallet", "findUnique", "findMany", "create", "update", "updateMany"),
         ledgerEntry: via("ledgerEntry", "create", "findUnique", "findMany", "groupBy"),
+        journal: via("journal", "create", "findUnique", "findMany"),
+        user: via("user", "findUnique", "create"),
         transaction: api.transaction,
       };
       try {
@@ -167,12 +230,18 @@ export function makeLedgerDb() {
       } catch (error) {
         for (const u of ctx.undo.reverse()) u();
         throw error;
+      } finally {
+        for (const k of ctx.keys) inflightKeys.delete(k);
+        finish();
       }
     },
     reset() {
       wallets.clear();
       entries.length = 0;
       transactions.clear();
+      users.clear();
+      journals.clear();
+      inflightKeys.clear();
       n = 0;
     },
   };

@@ -121,7 +121,7 @@ vi.mock("@/services/database", () => ({
 }));
 
 vi.mock("@/services/ledger", () => ({
-  ledger: { listBalances: (...args: any[]) => h.listBalances(...args) },
+  SYSTEM_ACCOUNTS: { external: "external", opening: "opening", fxClearing: "fx_clearing", fees: "fees", stockClearing: "stock_clearing" }, ledger: { listBalances: (...args: any[]) => h.listBalances(...args) },
 }));
 
 vi.mock("@/services/invoice", () => ({

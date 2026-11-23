@@ -9,7 +9,7 @@ vi.mock("@/db/prisma", async () => {
   const stock = makePositionDb();
   // One database with both ledgers' tables.
   const prisma = {
-    wallet: money.wallet, ledgerEntry: money.ledgerEntry, transaction: money.transaction,
+    wallet: money.wallet, ledgerEntry: money.ledgerEntry, transaction: money.transaction, journal: money.journal, user: money.user,
     stockPosition: stock.stockPosition, positionEntry: stock.positionEntry,
     // A transaction that can touch both ledgers; either failing rolls back both.
     $transaction: (fn: any) => money.$transaction((m: any) => stock.$transaction((st: any) => fn({ ...m, ...st }))),
@@ -30,6 +30,12 @@ beforeEach(() => {
 });
 
 describe("findNegativeWallets", () => {
+  it("does not report a counter-account: money that came in from outside makes it negative by design", async () => {
+    await ledger.credit({ userId: "u1", amount: 10, currency: "KES", reference: "c" });
+    expect([...money.wallets.values()].some((w: any) => w.kind === "system" && w.balanceMinor < 0n)).toBe(true);
+    expect(await findNegativeWallets()).toEqual([]);
+  });
+
   it("reports nothing when every wallet is at or above zero", async () => {
     await ledger.credit({ userId: "u1", amount: 10, currency: "KES", reference: "c" });
     await ledger.debit({ userId: "u1", amount: 10, currency: "KES", reference: "d" }); // exactly zero is fine

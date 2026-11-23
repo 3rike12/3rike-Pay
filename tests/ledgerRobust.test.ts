@@ -30,9 +30,10 @@ describe("durable idempotency (the database, not Redis, makes a posting happen o
   it("a repeated credit with the same key posts once and returns the same entry", async () => {
     const a = await ledger.credit({ userId: "u1", amount: 100, currency: "KES", reference: "r1", idempotencyKey: "k1" });
     const b = await ledger.credit({ userId: "u1", amount: 100, currency: "KES", reference: "r1", idempotencyKey: "k1" });
-    expect(db.entries).toHaveLength(1);
+    expect(db.entries).toHaveLength(2); // the person's entry and its counter-entry: once, not twice
     expect(wallet("u1").balance).toBe(100);
     expect(b.entry.id).toBe(a.entry.id);
+    expect(db.journals.size).toBe(1);
   });
 
   it("holds however long ago the first posting was: no cache expiry can let it post twice", async () => {
@@ -47,7 +48,7 @@ describe("durable idempotency (the database, not Redis, makes a posting happen o
       Array.from({ length: 5 }, () => ledger.credit({ userId: "u1", amount: 40, currency: "KES", reference: "r1", idempotencyKey: "race" }))
     );
     expect(results.every((r) => r.status === "fulfilled")).toBe(true);
-    expect(db.entries).toHaveLength(1);
+    expect(db.journals.size).toBe(1);
     expect(wallet("u1").balance).toBe(40);
     expect(wallet("u1").balanceMinor).toBe(4000n);
   });
@@ -85,7 +86,7 @@ describe("durable idempotency (the database, not Redis, makes a posting happen o
     await ledger.transfer({ fromUserId: "a", toUserId: "b", amount: 25, currency: "KES", reference: "t", idempotencyKey: "t1" });
     expect(wallet("a").balance).toBe(75);
     expect(wallet("b").balance).toBe(25);
-    expect(db.entries).toHaveLength(2);
+    expect(db.journals.size).toBe(1); // one journal, two lines
   });
 
   it("a refused posting does not use up its key, so the retry after a top-up works", async () => {
@@ -212,13 +213,16 @@ describe("the entries always explain the balance", () => {
     }
     for (const w of db.wallets.values()) {
       expect(w.balanceMinor, `wallet ${w.userId} minor vs entries`).toBe(netMinor(w.id));
-      expect(w.balance).toBeGreaterThanOrEqual(0);
-      expect(w.balanceMinor).toBeGreaterThanOrEqual(0n);
+      if (w.kind === "user") {
+        expect(w.balance).toBeGreaterThanOrEqual(0);
+        expect(w.balanceMinor).toBeGreaterThanOrEqual(0n);
+      }
     }
     // And money was only ever moved, never made, by transfers: totals match the entries overall.
     const total = [...db.wallets.values()].reduce((n: bigint, w: any) => n + w.balanceMinor, 0n);
     const fromEntries = db.entries.reduce((n: bigint, e: any) => n + (e.direction === "credit" ? e.amountMinor : -e.amountMinor), 0n);
     expect(total).toBe(fromEntries);
+    expect(total).toBe(0n); // double-entry: nothing was created or lost anywhere
   });
 
   it("every entry's running balance is the wallet's balance right after it, per wallet in order", async () => {
@@ -244,7 +248,7 @@ describe("when the database says no (races and crashes)", () => {
     const second = await ledger.credit({ userId: "u1", amount: 50, currency: "KES", reference: "r1", idempotencyKey: "k" });
     expect(second.entry.id).toBe(first.entry.id);
     expect(wallet("u1").balance).toBe(50);
-    expect(db.entries).toHaveLength(1);
+    expect(db.journals.size).toBe(1);
   });
 
   it("a lost race creating a wallet is retried and the credit still lands once", async () => {

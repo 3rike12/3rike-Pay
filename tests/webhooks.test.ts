@@ -66,7 +66,7 @@ const processTodenEvent = vi.fn();
 vi.mock("@/services/kyc", () => ({ processTodenEvent: (...a: any[]) => processTodenEvent(...a) }));
 
 vi.mock("@/services/ledger", () => ({
-  ledger: { credit: vi.fn(), debit: vi.fn(), transfer: vi.fn(), getBalance: vi.fn(), listBalances: vi.fn() },
+  SYSTEM_ACCOUNTS: { external: "external", opening: "opening", fxClearing: "fx_clearing", fees: "fees", stockClearing: "stock_clearing" }, ledger: { credit: vi.fn(), debit: vi.fn(), transfer: vi.fn(), getBalance: vi.fn(), listBalances: vi.fn() },
 }));
 
 vi.mock("@/services/invoice", () => ({

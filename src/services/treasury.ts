@@ -76,7 +76,7 @@ export interface Holding {
 /** Every non-zero wallet, with its USD value. Platform fee wallet is flagged by phone. */
 export async function holdingsByUser(): Promise<Holding[]> {
   const wallets = await prisma.wallet.findMany({
-    where: { balance: { not: 0 } },
+    where: { balance: { not: 0 }, kind: "user" }, // counter-accounts are not owed to anyone
     include: { user: { select: { phone: true } } },
     orderBy: [{ userId: "asc" }, { currency: "asc" }],
   });

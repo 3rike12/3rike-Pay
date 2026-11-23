@@ -13,6 +13,11 @@ vi.mock("@/db/prisma", async () => {
   return { __db: db, prisma: db };
 });
 const db = ((await import("@/db/prisma")) as any).__db;
+/** The entries on a person's own wallet. Every posting also has a counter-entry on a system account. */
+const entriesOn = (userId: string) => {
+  const w = [...db.wallets.values()].find((x: any) => x.userId === userId);
+  return db.entries.filter((e: any) => e.walletId === w.id);
+};
 
 import { ledger } from "@/services/ledger";
 import { backfillMinor, findWalletDrift, findLedgerSumDrift, findTransactionDrift } from "@/services/moneyMinor";
@@ -28,7 +33,7 @@ describe("ledger dual-writes minor units", () => {
     await ledger.credit({ userId: "u1", amount: 13000, currency: "KES", reference: "r1" });
     const [w] = [...db.wallets.values()];
     expect(w).toMatchObject({ balance: 13000, balanceMinor: 1300000n });
-    expect(db.entries[0]).toMatchObject({ direction: "credit", amount: 13000, amountMinor: 1300000n, runningBalance: 13000, runningBalanceMinor: 1300000n });
+    expect(entriesOn("u1")[0]).toMatchObject({ direction: "credit", amount: 13000, amountMinor: 1300000n, runningBalance: 13000, runningBalanceMinor: 1300000n });
   });
 
   it("credits and debits keep the float and the minor balance in step", async () => {
@@ -38,7 +43,7 @@ describe("ledger dual-writes minor units", () => {
     const [w] = [...db.wallets.values()];
     expect(w.balanceMinor).toBe(5025n); // 100.1 + 0.2 - 50.05 = 50.25
     expect(await findWalletDrift()).toEqual([]);
-    expect(db.entries.map((e: any) => e.runningBalanceMinor)).toEqual([10010n, 10030n, 5025n]);
+    expect(entriesOn("u1").map((e: any) => e.runningBalanceMinor)).toEqual([10010n, 10030n, 5025n]);
   });
 
   it("zero-decimal currencies store whole units", async () => {
@@ -53,7 +58,7 @@ describe("ledger dual-writes minor units", () => {
     const b = [...db.wallets.values()].find((w: any) => w.userId === "b");
     expect(a).toMatchObject({ balance: 749.5, balanceMinor: 74950n });
     expect(b).toMatchObject({ balance: 250.5, balanceMinor: 25050n });
-    expect(db.entries.map((e: any) => [e.direction, e.amountMinor])).toEqual([["debit", 25050n], ["credit", 25050n]]);
+    expect([...entriesOn("a"), ...entriesOn("b")].map((e: any) => [e.direction, e.amountMinor])).toEqual([["debit", 25050n], ["credit", 25050n]]);
   });
 
   it("a wallet that predates the migration heals on its first write", async () => {
@@ -72,7 +77,7 @@ describe("ledger dual-writes minor units", () => {
     await ledger.credit({ userId: "u1", amount: 10, currency: "KES", reference: "r1" });
     await expect(ledger.debit({ userId: "u1", amount: 20, currency: "KES", reference: "r2" })).rejects.toThrow("Insufficient");
     expect([...db.wallets.values()][0].balanceMinor).toBe(1000n);
-    expect(db.entries).toHaveLength(1);
+    expect(db.journals.size).toBe(1); // only the first credit was ever journalled
   });
 });
 
@@ -128,7 +133,7 @@ describe("MONEY_READS=minor", () => {
   it("records the exact running balance on each entry", async () => {
     await ledger.credit({ userId: "u1", amount: 0.1, currency: "USD", reference: "r1" });
     await ledger.credit({ userId: "u1", amount: 0.2, currency: "USD", reference: "r2" });
-    expect(db.entries.map((e: any) => [e.runningBalance, e.runningBalanceMinor])).toEqual([[0.1, 10n], [0.3, 30n]]);
+    expect(entriesOn("u1").map((e: any) => [e.runningBalance, e.runningBalanceMinor])).toEqual([[0.1, 10n], [0.3, 30n]]);
   });
 
   it("decides sufficiency on whole units: exactly the balance is allowed, a cent more is not", async () => {

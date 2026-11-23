@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
 import { autoramp } from "@/services/autoramp";
-import { ledger } from "@/services/ledger";
+import { ledger, SYSTEM_ACCOUNTS } from "@/services/ledger";
 import { getTreasurySigner } from "@/services/withdrawal";
 import { mapOfframpEvent } from "@/rails/autoRamp";
 import { fromTransactionStatus, isFinal } from "@/rails/state";
@@ -150,6 +150,7 @@ export async function requestCashout(params: {
     reference,
     description: `Cash out to bank (₦${quote.ngn})`,
     metadata: { type: "cashout", ngn: quote.ngn },
+    counter: SYSTEM_ACCOUNTS.worldOut,
     idempotencyKey: `cashout-debit:${reference}`,
   });
 
@@ -161,6 +162,7 @@ export async function requestCashout(params: {
       reference,
       description: `Cash-out reversed: ${why}`,
       metadata: { type: "cashout_reversal" },
+      counter: SYSTEM_ACCOUNTS.worldOut,
       idempotencyKey: `cashout-reversal:${reference}`,
     });
     await prisma.transaction.updateMany({ where: { reference }, data: { status: "failed" } });
@@ -272,6 +274,7 @@ export async function applyOfframpEvent(
               reference,
               description: "Cash-out failed: balance restored",
               metadata: { type: "cashout_reversal", event },
+              counter: SYSTEM_ACCOUNTS.worldOut,
               idempotencyKey: `cashout-reversal:${reference}`,
             });
           }

@@ -46,7 +46,7 @@ const ledgerDebit = vi.fn();
 const ledgerListBalances = vi.fn(async () => [{ currency: "RWF", balance: 2850 }]);
 
 vi.mock("@/services/ledger", () => ({
-  ledger: {
+  SYSTEM_ACCOUNTS: { external: "external", opening: "opening", fxClearing: "fx_clearing", fees: "fees", stockClearing: "stock_clearing" }, ledger: {
     credit: (...args: any[]) => ledgerCredit(...args),
     debit: (...args: any[]) => ledgerDebit(...args),
     listBalances: (...args: any[]) => ledgerListBalances(...args),

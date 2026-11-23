@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
-import { ledger } from "@/services/ledger";
+import { ledger, SYSTEM_ACCOUNTS } from "@/services/ledger";
 import { nearIntents } from "@/services/nearIntents";
 import { mapOneClickStatus } from "@/rails/oneClick";
 import { applyRailEvent } from "@/rails/settlement";
@@ -114,6 +114,7 @@ export async function requestWithdrawal(params: {
     reference,
     description: `Withdrawal to ${token.symbol} (${token.blockchain})`,
     metadata: { type: "withdrawal", symbol: token.symbol, chain: token.blockchain, address: params.address },
+    counter: SYSTEM_ACCOUNTS.worldOut,
     idempotencyKey: debitKey,
   });
 
@@ -125,6 +126,7 @@ export async function requestWithdrawal(params: {
       reference,
       description: `Withdrawal reversed: ${why}`,
       metadata: { type: "withdrawal_reversal" },
+      counter: SYSTEM_ACCOUNTS.worldOut,
       idempotencyKey: `withdraw-reversal:${reference}`,
     });
     await prisma.transaction.updateMany({ where: { reference }, data: { status: "failed" } });
@@ -241,6 +243,7 @@ export async function verifyWithdrawal(
                 reference,
                 description: `Withdrawal ${res.status.toLowerCase()}: balance restored`,
                 metadata: { type: "withdrawal_reversal", status: res.status },
+                counter: SYSTEM_ACCOUNTS.worldOut,
                 idempotencyKey: `withdraw-reversal:${reference}`,
               });
             },

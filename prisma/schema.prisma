@@ -136,6 +136,9 @@ model Wallet {
   balance   Float    @default(0)
   // Same balance as whole minor units (cents). Dual-written; the float is still the source of truth.
   balanceMinor BigInt @default(0)
+  // user: what we owe a person. system: a counter-account (external, fx clearing, ...). Balance is
+  // credits minus debits for both, so a balanced journal keeps every account together at zero.
+  kind      String   @default("user")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -165,9 +168,31 @@ model LedgerEntry {
   // Makes a posting happen at most once, enforced by the database itself (not a cache that expires).
   // Null for postings made without one; unique among those that have one.
   idempotencyKey String?  @unique
+  // The journal this entry belongs to: every journal's entries sum to zero per currency.
+  // Null only for entries written before double-entry existed.
+  journalId      String?
+  journal        Journal? @relation(fields: [journalId], references: [id])
   createdAt      DateTime @default(now())
 
   @@index([walletId])
+  @@index([reference])
+  @@index([journalId])
+}
+
+// ============================================
+// A journal: one movement of money, as two or more entries that balance (debits equal
+// credits, per currency). It is the unit of idempotency: a journal with a given key
+// exists at most once, and all of its entries are written, or none are.
+// ============================================
+model Journal {
+  id             String   @id @default(uuid())
+  reference      String
+  description    String?
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+
+  entries LedgerEntry[]
+
   @@index([reference])
 }
 
@@ -358,4 +383,137 @@ model PositionEntry {
 
   @@index([positionId])
   @@index([reference])
+}
+
+// ============================================
+// Stock orders: one row per buy or sell, driven through guarded states so a crash
+// at any point resumes without a double debit or credit.
+//   buy:  created -> funded (cash debited) -> submitted (sent to the venue) -> filled | refunded
+//   sell: created -> funded (units debited) -> submitted -> filled | refunded
+//   failed: nothing was debited (e.g. not enough cash). An order whose outcome at
+//   the venue is unknown STAYS submitted: it is never refunded on a guess.
+// ============================================
+model StockOrder {
+  id              String   @id @default(uuid())
+  reference       String   @unique          // our id, and the venue's client order id
+  userId          String
+  side            String                    // buy | sell
+  tokenAddress    String
+  tokenDecimals   Int
+  currency        String                    // the user's balance currency
+  cashAmount      Float                     // buy: debited from the user; sell: credited on fill
+  cashAmountMinor BigInt   @default(0)
+  usdcUnits       BigInt   @default(0)      // buy: USDC to spend; sell: USDC received (set on fill)
+  tokenUnits      BigInt   @default(0)      // buy: units received (set on fill); sell: units sold
+  minTokenUnits   BigInt   @default(0)      // buy: the floor sent to the venue
+  minUsdcUnits    BigInt   @default(0)      // sell: the floor sent to the venue
+  state           String   @default("created") // created | funded | submitted | filled | refunded | failed
+  venue           String
+  txHash          String?
+  failure         String?
+  fx              Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([state])
+}
+
+// ============================================
+// Recurring stock buys ("buy 2000 of Apple every Friday"). Runs at 08:00 UTC.
+// Each run places an order whose reference is derived from the schedule and the
+// scheduled time, so a crash and retry resumes the same order instead of making
+// another. `nextRunAt` is advanced by a guarded update, so only one worker does.
+// ============================================
+model StockSchedule {
+  id            String    @id @default(uuid())
+  reference     String    @unique          // the confirmation that created it: creating twice makes one
+  userId        String
+  tokenAddress  String
+  tokenDecimals Int
+  ticker        String
+  name          String
+  cashAmount    Float
+  currency      String
+  frequency     String                      // daily | weekly | monthly
+  weekday       Int?                        // 0 = Sunday .. 6 = Saturday
+  dayOfMonth    Int?                        // 1..28
+  state         String    @default("active") // active | paused | cancelled
+  nextRunAt     DateTime
+  lastRunAt     DateTime?
+  failures      Int       @default(0)       // consecutive; three pause it
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([state, nextRunAt])
+  @@index([userId])
+}
+
+// ============================================
+// Trades the treasury has sent to a venue. One row per order reference, written
+// BEFORE the transaction is broadcast, so a crash can never lose track of a trade.
+// ============================================
+model VenueTrade {
+  id           String   @id @default(uuid())
+  reference    String   @unique          // our order reference: the venue's idempotency key
+  venue        String
+  side         String                    // buy | sell
+  tokenAddress String
+  sellAmount   BigInt                    // base units of what the treasury gives
+  minBuyAmount BigInt                    // the floor the swap enforces on chain
+  txHash       String?                   // null until the swap was handed to the signer
+  state        String   @default("submitted") // submitted | filled | rejected
+  failure      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([state])
+}
+
+// ============================================
+// Stock alerts: what each token looked like last time we checked (so a change can
+// be noticed), what we have already told each person (so nobody is told twice),
+// and who asked not to be told.
+// ============================================
+model StockSnapshot {
+  tokenAddress     String   @id
+  multiplier       Float
+  navPrice         Float?
+  navUpdatedAt     String?
+  refPrice         Float?                   // the price a move is measured from
+  refAt            DateTime?
+  lastMoveAlertAt  DateTime?
+  pendingSince     DateTime?                // set while an alert could not be delivered to everyone
+  updatedAt        DateTime @updatedAt
+}
+
+model StockAlert {
+  id        String   @id @default(uuid())
+  key       String   @unique                // kind:token:event:user - one alert per person per event
+  userId    String
+  kind      String                          // corporate_action | price_move
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model StockAlertOptOut {
+  userId    String   @id
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// Price history: one row per NEW price data point a token's feed published, so a
+// trend and a drawdown can be computed from what we actually saw. Only the shape
+// of the price matters (percent moves), never its absolute unit.
+// ============================================
+model StockPricePoint {
+  id           String   @id @default(uuid())
+  tokenAddress String
+  price        Float
+  observedAt   DateTime                  // when the feed says the price was set
+  createdAt    DateTime @default(now())
+
+  @@unique([tokenAddress, observedAt])
+  @@index([tokenAddress, observedAt])
 }
