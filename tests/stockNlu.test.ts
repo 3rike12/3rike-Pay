@@ -105,6 +105,92 @@ describe("standing orders", () => {
   });
 });
 
+describe("research questions", () => {
+  it.each([
+    ["why is nvidia down", ["nvidia"]],
+    ["why did tesla go up today", ["tesla"]],
+    ["explain apple to me", ["apple"]],
+    ["analyze nvidia", ["nvidia"]],
+    ["should i buy tesla", ["tesla"]],
+    ["should i sell my microsoft", ["microsoft"]],
+    ["should i keep my nvda", ["nvda"]],
+    ["is tesla a good buy", ["tesla"]],
+    ["is apple worth buying", ["apple"]],
+    ["how risky is amazon", ["amazon"]],
+    ["compare tesla and nvidia", ["tesla", "nvidia"]],
+    ["tesla vs apple", ["tesla", "apple"]],
+    ["apple versus microsoft", ["apple", "microsoft"]],
+    ["what do you think of meta", ["meta"]],
+  ])("%s", (text, queries) => {
+    expect(parseStockRequest(text)).toEqual({ intent: "research", question: text, queries });
+  });
+
+  it("with no stock named, still a research question, with no stock", () => {
+    expect(parseStockRequest("should i sell")).toEqual({ intent: "research", question: "should i sell", queries: [] });
+    expect(parseStockRequest("why is it down")).toEqual({ intent: "research", question: "why is it down", queries: [] });
+  });
+
+  it("a number, email or link pasted into a question is never taken for a stock", () => {
+    expect((parseStockRequest("why is tesla down 0788000111 ada@example.com https://x.test/a") as any).queries).toEqual(["tesla"]);
+    const withPhone = (parseStockRequest("why is tesla down, call me on +254 712 345 678") as any).queries as string[];
+    expect(withPhone[0]).toBe("tesla");
+    expect(withPhone.join(" ")).not.toMatch(/\d/); // no part of the number survives as a "stock"
+  });
+
+  it("at most three stocks", () => {
+    expect((parseStockRequest("compare tesla, nvidia, apple, meta and amazon") as any).queries).toHaveLength(3);
+  });
+
+  it("does not steal ordinary buys, sells, prices or the list", () => {
+    expect(parseStockRequest("buy 5000 of tesla")).toMatchObject({ intent: "buy" });
+    expect(parseStockRequest("sell half my nvda")).toMatchObject({ intent: "sell" });
+    expect(parseStockRequest("price of tesla")).toEqual({ intent: "quote", query: "tesla" });
+    expect(parseStockRequest("how is apple doing")).toEqual({ intent: "quote", query: "apple" });
+    expect(parseStockRequest("my stocks")).toEqual({ intent: "holdings" });
+    expect(parseStockRequest("what stocks can i buy")).toEqual({ intent: "list" });
+    expect(parseStockRequest("buy 2000 of apple every friday")).toMatchObject({ intent: "recurring_buy" });
+  });
+});
+
+describe("plans", () => {
+  it.each([
+    ["I have 5000 a week, what should I buy", { budget: 5000, frequency: "weekly" }],
+    ["what should i invest in with 10k a month", { budget: 10000, frequency: "monthly" }],
+    ["build me a portfolio with 20000", { budget: 20000 }],
+    ["I have $50 each week to put in stocks", { budget: 50, currency: "USD", frequency: "weekly" }],
+    ["suggest a plan for 3000 daily", { budget: 3000, frequency: "daily" }],
+    ["what can i buy with 2000", { budget: 2000 }],
+    ["where should i put 5k", { budget: 5000 }],
+  ])("%s", (text, extra) => {
+    expect(parseStockRequest(text)).toEqual({ intent: "plan", question: text, ...extra });
+  });
+
+  it("a plan with no amount still asks, so the bot can say how much", () => {
+    expect(parseStockRequest("what should i buy")).toEqual({ intent: "plan", question: "what should i buy" });
+  });
+
+  it("is not mistaken for a buy of a particular stock", () => {
+    expect(parseStockRequest("invest 3000 in tesla")).toMatchObject({ intent: "buy", query: "tesla" });
+  });
+});
+
+describe("stock alerts", () => {
+  it.each(["stop stock alerts", "turn off stock alerts", "no more stock alerts", "mute stock notifications", "disable alerts", "stop the alerts"])("%s turns them off", (text) => {
+    expect(parseStockRequest(text)).toEqual({ intent: "alerts_off" });
+  });
+  it.each(["turn on stock alerts", "enable stock alerts", "alert me about my stocks", "resume stock alerts", "notify me about stock changes"])("%s turns them on", (text) => {
+    expect(parseStockRequest(text)).toEqual({ intent: "alerts_on" });
+  });
+  it("does not take over unrelated messages that merely mention alerts", () => {
+    expect(parseStockRequest("alerts")).toBeNull();
+    expect(parseStockRequest("what is an alert")).toBeNull();
+    expect(parseStockRequest("stop")).toBeNull();
+  });
+  it("is not mistaken for stopping a recurring buy, which keeps its own meaning", () => {
+    expect(parseStockRequest("stop my apple buys")).toEqual({ intent: "cancel_recurring", query: "apple" });
+  });
+});
+
 describe("looking", () => {
   it.each([
     "my stocks",
@@ -123,7 +209,6 @@ describe("looking", () => {
     ["how's msft doing today", "msft"],
     ["tell me about amazon", "amazon"],
     ["news on tesla", "tesla"],
-    ["analyze nvidia", "nvidia"],
     ["what's happening with meta", "meta"],
   ])("%s is a question about a stock", (text, query) => {
     expect(parseStockRequest(text)).toEqual({ intent: "quote", query });

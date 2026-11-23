@@ -26,19 +26,142 @@ import {
   renderInvoiceSummary,
   scheduleInvoiceVerification,
 } from "@/services/invoice";
-import { formatUsdThreshold, toUsd } from "@/services/treasury";
+import { formatUsdThreshold, fromUsd, toUsd } from "@/services/treasury";
 import { createCryptoPayment, createDefaultCryptoPayment, scheduleCryptoVerification } from "@/services/cryptoInvoice";
 import { nearIntents } from "@/services/nearIntents";
 import { quoteCashout, requestCashout } from "@/services/cashout";
 import { getOrCreateVerificationSession, markKycPending } from "@/services/kyc";
 import { requestWithdrawal, scheduleWithdrawalVerification } from "@/services/withdrawal";
 import { checkLimits } from "@/rails/limits";
+import { randomUUID } from "crypto";
+import { createStockBot } from "@/bot/stocks";
+import { getStocks, type StockToken } from "@/services/stocks";
+import { positions } from "@/services/positions";
+import * as stockOrders from "@/services/stockOrders";
+import * as stockSchedules from "@/services/stockSchedules";
+import { prismaAlertStore } from "@/services/stockAlertStore";
+import { Undeliverable } from "@/services/stockAlerts";
+import { createConfiguredLlm } from "@/services/llm";
+import { answerResearch, buildFacts, enrichFacts, renderResearch } from "@/services/stockResearch";
+import { statsFor } from "@/services/priceHistory";
+import { buildPortfolioFacts } from "@/services/portfolioContext";
+import { buildPlans, type Plan } from "@/services/planBuilder";
+import { annotateImpact, loadFills, loadRecurring, venuePriceUsd } from "@/services/researchContext";
+import { getStockVenue } from "@/services/stockVenue";
+import { createDailyLimiter } from "@/services/dailyLimit";
+import type { RunEvent } from "@/services/stockSchedules";
 import { paymentQrPng } from "@/utils/qr";
 import { createLogger } from "@/utils/logger";
 import { config } from "@/config";
 import { TRIGGERS, MESSAGES, FLOWS, LIMITS, KYC_STATUS, DRY_RUN_FLOWS, SESSION_STATE } from "@/config/constants";
 
 const logger = createLogger("bot");
+
+// The research assistant: an AI model that explains and suggests but never trades. Off without an API key.
+const researchModel = createConfiguredLlm();
+const researchLimiter = createDailyLimiter(config.llm?.dailyLimit ?? 20, { name: "research" });
+
+// Stocks: plain-language buying, selling and looking, with a confirm step before anything is charged.
+const stockBot = createStockBot({
+  send: (phone, text) => whatsapp.sendTextMessage(phone, text),
+  stocks: () => getStocks(),
+  setSession: (userId, data) => updateSession(userId, SESSION_STATE.STOCK_CONFIRM, data),
+  resetSession: (userId) => resetSession(userId),
+  currencyFor: (user) => merchantCurrency(user),
+  money: (amount, currency) => formatCurrency(amount, currency),
+  convert: (amount, from, to) => fromUsd(toUsd(amount, from), to),
+  balanceOf: (userId, currency) => ledger.getBalance(userId, currency),
+  orders: stockOrders,
+  positions,
+  research: {
+    async ask({ userId, question, stocks, budget }) {
+      if (!researchModel) return { kind: "off" };
+      const allStocks = await getStocks();
+      if (!(await researchLimiter.allow(userId))) return { kind: "limit" };
+      // The model gets facts about the stocks and the person's holding in them: no name, phone or balance.
+      const venue = getStockVenue();
+      const [fills, recurring] = await Promise.all([loadFills(userId).catch(() => []), loadRecurring(userId).catch(() => [])]);
+      const allHeld = await positions.list(userId);
+      const heldTokens = allHeld.map((h) => ({ token: allStocks.find((t) => t.address === h.tokenAddress), units: h.units })).filter((h): h is { token: StockToken; units: bigint } => !!h.token);
+      const portfolio = await buildPortfolioFacts({ holdings: heldTokens, fills, recurring, tokenPriceUsd: venuePriceUsd(venue) });
+      const facts = await Promise.all(
+        stocks.map(async (t) =>
+          enrichFacts(
+            buildFacts(t, await prismaAlertStore.getSnapshot(t.address), await positions.get(userId, t.address)),
+            await statsFor(t.address).catch(() => null),
+            portfolio.positions.find((p) => p.ticker === t.ticker)
+          )
+        )
+      );
+
+      // "What should I buy": options are computed here, priced against the venue, and the model only chooses.
+      let plans: Plan[] | undefined;
+      if (budget) {
+        const usdPerUnit = toUsd(1, budget.currency);
+        const minOrder = Math.ceil(fromUsd(config.stocks.minOrderUsd, budget.currency));
+        const stats = await Promise.all(stocks.map((t) => statsFor(t.address).catch(() => null)));
+        const built = buildPlans({
+          budget: budget.amount,
+          minOrder,
+          candidates: stocks.map((t, i) => ({
+            ticker: t.ticker,
+            volatility: stats[i]?.volatility ?? "unknown",
+            currentWeightPercent: portfolio.positions.find((p) => p.ticker === t.ticker)?.weightPercent ?? null,
+          })),
+        });
+        plans = await annotateImpact(built, stocks, usdPerUnit, venue);
+      }
+      const result = await answerResearch(researchModel, {
+        question,
+        stocks: facts,
+        budget,
+        candidates: budget ? stocks.map((t) => ({ ticker: t.ticker, name: t.name })) : undefined,
+        plans,
+      });
+      if (result.kind === "ok") return { kind: "text", text: renderResearch(result) };
+      if (result.kind === "fallback") return { kind: "text", text: result.text };
+      return { kind: "off" };
+    },
+  },
+  alerts: { optOut: (userId) => prismaAlertStore.optOut(userId), optIn: (userId) => prismaAlertStore.optIn(userId) },
+  schedules: {
+    checkCash: (cashAmount, currency) => void stockOrders.checkOrderCash(cashAmount, currency),
+    create: (p) =>
+      stockSchedules.createSchedule({ reference: p.reference, userId: p.userId, token: p.token, cashAmount: p.cashAmount, currency: p.currency, rule: p.rule }),
+    cancel: (userId, tokenAddress) => stockSchedules.cancelSchedules(userId, tokenAddress),
+    label: (rule, createdOn) => stockSchedules.scheduleLabel(rule, createdOn),
+    firstRun: (from, rule) => stockSchedules.nextRunAfter(from, rule),
+  },
+  newId: () => randomUUID(),
+  now: () => Date.now(),
+});
+
+/** Send a stock alert to a person by user id. Called by the background alert job. */
+export async function sendStockAlert(userId: string, text: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user?.phone) throw new Undeliverable("No phone number for that user");
+  await whatsapp.sendTextMessage(user.phone, text);
+}
+
+/** Tell someone how a recurring buy went. Called by the background scheduler. */
+export async function announceScheduledStockRun(event: RunEvent): Promise<void> {
+  const [user, stocks] = await Promise.all([
+    prisma.user.findUnique({ where: { id: event.schedule.userId } }),
+    getStocks().catch(() => []),
+  ]);
+  if (!user?.phone) return;
+  const token = stocks.find((s) => s.address === event.schedule.tokenAddress);
+  await whatsapp.sendTextMessage(user.phone, stockBot.scheduleEventMessage(event, token));
+}
+
+// An order that finishes after the person's own confirmation (a slow venue) is announced to them here,
+// once, by whoever resolved it.
+stockOrders.setOrderListener(async (order) => {
+  const [user, stocks] = await Promise.all([prisma.user.findUnique({ where: { id: order.userId } }), getStocks().catch(() => [])]);
+  if (!user?.phone) return;
+  const message = stockBot.settledMessage(order, stocks.find((s) => s.address === order.tokenAddress));
+  if (message) await whatsapp.sendTextMessage(user.phone, message);
+});
 
 type FlowData = Record<string, unknown>;
 
@@ -980,6 +1103,9 @@ const SLASH_COMMANDS: Record<string, SlashHandler> = {
   topup: (phone, user, args) => handleTopUpCommand(phone, user, args || ""),
   addmoney: (phone, user, args) => handleTopUpCommand(phone, user, args || ""),
   deposit: (phone, user, args) => handleTopUpCommand(phone, user, args || ""),
+  stocks: (phone, user) => stockBot.handleCommand(phone, user, "stocks", ""),
+  stock: (phone, user, args) => stockBot.handleCommand(phone, user, "stock", args || ""),
+  portfolio: (phone, user) => stockBot.handleCommand(phone, user, "portfolio", ""),
   cashout: (phone, user, args) => handleCashoutCommand(phone, user, args || ""),
   tobank: (phone, user, args) => handleCashoutCommand(phone, user, args || ""),
   balance: handleCheckBalance,
@@ -1277,6 +1403,8 @@ export async function handleMessage(
         return await handleTopUpAmount(phone, user, messageText);
       case SESSION_STATE.CASHOUT_CONFIRM:
         return await handleCashoutConfirm(phone, user, flowData, action, messageText);
+      case SESSION_STATE.STOCK_CONFIRM:
+        return await stockBot.handleConfirm(phone, user, flowData, messageText || "");
       case SESSION_STATE.KYC_FLOW:
         // Form is open on the user's phone; the Flow endpoint owns the steps.
         // If they are already verified, the session is stale (form completed but
@@ -1308,6 +1436,10 @@ export async function handleMessage(
 
 async function handleIdle(phone: string, user: any, action?: string, text?: string) {
   const t = (text || "").toLowerCase();
+
+  // Stocks come first among the free-text handlers: it recognises only messages that are
+  // clearly about stocks and returns false for everything else, so nothing below is hijacked.
+  if (text && !action && (await stockBot.tryHandle(phone, user, text))) return true;
 
   // A retried confirmation tap can arrive after the invoice flow completed and
   // its session was cleared. Ignore that stale tap instead of opening the menu.

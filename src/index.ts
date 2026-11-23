@@ -4,6 +4,9 @@ import { startCryptoQueue, stopCryptoQueue } from "@/services/cryptoQueue";
 import { nearIntents } from "@/services/nearIntents";
 import { setTreasurySigner } from "@/services/withdrawal";
 import { createPrivySigner } from "@/services/privySigner";
+import { startStockScheduler } from "@/services/stockScheduler";
+import { registerConfiguredVenue } from "@/services/stockVenueSetup";
+import { announceScheduledStockRun, sendStockAlert } from "@/bot";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -157,7 +160,14 @@ async function main() {
     }
   });
 
+  // Stocks need a trading venue; without a complete configuration they stay off.
+  registerConfiguredVenue();
+
+  // Recurring stock buys, and resolving any stock order left unfinished. Does nothing until a venue is configured.
+  const stopStockScheduler = startStockScheduler({ notify: announceScheduledStockRun, notifyUser: sendStockAlert });
+
   const shutdown = () => {
+    stopStockScheduler();
     stopCryptoQueue().finally(() => process.exit(0));
   };
   process.once("SIGTERM", shutdown);

@@ -38,6 +38,12 @@ export type StockRequest =
   | { intent: "sell"; query: string; amount?: number; currency?: NamedCurrency; fraction?: number }
   | { intent: "cancel_recurring"; query?: string }
   | { intent: "holdings" }
+  /** A question that needs the research assistant. `queries` are the stocks named, in the person's words. */
+  | { intent: "research"; question: string; queries: string[] }
+  /** "I have 5000 a week, what should I buy?": a budget and no particular stock. */
+  | { intent: "plan"; question: string; budget?: number; currency?: NamedCurrency; frequency?: Frequency }
+  | { intent: "alerts_off" }
+  | { intent: "alerts_on" }
   | { intent: "quote"; query: string }
   | { intent: "list" };
 
@@ -145,6 +151,31 @@ function cleanQuery(text: string): string {
     .trim();
 }
 
+/** Words that make a question a research question, and the words around a stock name that are not part of it. */
+const RESEARCH_RE = /\b(why (is|are|did|does|has|have|was|were)|explain|should i (buy|sell|hold|keep|get)|worth (buying|it|holding)|good (buy|investment|stock|time)|bad (buy|investment|stock)|how risky|risks?\b|risky|compare|versus|analy[sz]e|analysis|what do you think|is it (a )?(good|bad|safe)|is .{1,30} (a )?(good|bad|safe|worth))|\bvs\.?\b/i;
+const PLAN_RE = /\b(what|which|where)\b.{0,25}\bshould i (buy|invest|put|start|get)\b|\b(build|make|create|suggest|recommend|plan|draw up)\b.{0,25}\b(portfolio|plan)\b|\bi have (?:[$₦]|usd|ngn|kes|tzs)?\s?\d[\d,.]*\s?(k|m)?\b.{0,20}\b(a|per|each|every) (day|week|month)\b.{0,40}\b(buy|invest|put|stocks?)|\bwhat can i (buy|invest in) with\b/i;
+const RESEARCH_FILLER = new Set([
+  "why", "is", "are", "did", "does", "has", "have", "was", "were", "up", "down", "going", "good", "bad", "worth", "buying", "holding", "hold", "keep", "buy", "sell",
+  "get", "risk", "risks", "risky", "safe", "how", "compare", "versus", "vs", "explain", "analyze", "analyse", "analysis", "think", "about", "price", "prices", "time",
+  "investment", "should", "what", "do", "you", "or", "than", "better", "move", "moved", "moving", "happening", "dropped", "fallen", "rising", "falling", "go", "went", "goes", "gone", "doing", "today", "lately", "so", "much", "wrong",
+]);
+
+function researchQueries(raw: string): string[] {
+  // Numbers, emails and links a person pasted in are never part of a stock's name.
+  const lower = raw
+    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, " ")
+    .replace(/\+?\d[\d\s().-]{6,}\d/g, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\b\d{4,}\b/g, " ");
+  const parts = lower.split(/\b(?:vs\.?|versus|and|or|with|compared to|against)\b|,/);
+  const out: string[] = [];
+  for (const part of parts) {
+    const q = cleanQuery(part).split(" ").filter((w) => w && !RESEARCH_FILLER.has(w)).join(" ").trim();
+    if (q && !out.includes(q)) out.push(q);
+  }
+  return out.slice(0, 3);
+}
+
 const BUY = /\b(buy|buying|purchase|invest|investing|put)\b|\bget me\b|\bpick up\b|\bstack up on\b|\btop up my\b/i;
 const SELL = /\b(sell|selling|dump|exit)\b/i;
 
@@ -163,6 +194,23 @@ export function parseStockRequest(input: string): StockRequest | null {
     const q = cleanQuery(lower.replace(/\b(stop|cancel|pause|end|delete|remove|buys?|buying|purchases?|recurring|schedule|auto|investing|plan|my|all)\b/g, " "));
     return { intent: "cancel_recurring", ...(q ? { query: q } : {}) };
   }
+
+  // Turning stock alerts off or on. Needs the word "alert" or "stock", so it is never confused with anything else.
+  if (/\b(alerts?|notifications?)\b/.test(lower) || (/\bstocks?\b/.test(lower) && /\b(updates?|notifications?|notify me|let me know)\b/.test(lower))) {
+    if (/\b(stop|turn off|switch off|disable|no more|mute|unsubscribe|don'?t (send|want|message|notify))\b/.test(lower) && /\b(stocks?|alerts?|notifications?)\b/.test(lower)) return { intent: "alerts_off" };
+    if (/\b(turn on|switch on|enable|start|resume|subscribe|send me|notify me|alert me)\b/.test(lower) && /\bstock/.test(lower)) return { intent: "alerts_on" };
+  }
+
+  // A budget and a question about what to buy: a plan, not an order.
+  if (PLAN_RE.test(lower)) {
+    const { text: noCurrency, currency } = takeCurrency(text);
+    const { amount } = takeAmount(noCurrency);
+    const frequency: Frequency | undefined = /\b(a|per|each|every) day\b|\bdaily\b/.test(lower) ? "daily" : /\b(a|per|each|every) week\b|\bweekly\b/.test(lower) ? "weekly" : /\b(a|per|each|every) month\b|\bmonthly\b/.test(lower) ? "monthly" : undefined;
+    return { intent: "plan", question: text, ...(amount !== undefined ? { budget: amount } : {}), ...(currency ? { currency } : {}), ...(frequency ? { frequency } : {}) };
+  }
+
+  // A question that needs thinking about, not looking up.
+  if (RESEARCH_RE.test(lower)) return { intent: "research", question: text, queries: researchQueries(lower) };
 
   // What do I own.
   if (/\b(my (stocks?|portfolio|holdings|shares|investments?)|portfolio|holdings|what (do i|stocks do i) (own|have|hold))\b/.test(lower)) {
