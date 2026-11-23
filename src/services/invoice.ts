@@ -960,6 +960,15 @@ export async function settleInvoicePayment(
       });
     }
 
+    // Invest the merchant's chosen share of this sale, if they set one up. Runs last, in the
+    // background: it can never delay or undo the settlement, and any failure ends in a log line.
+    if (!topUp && invoice.amount > 0) {
+      const received = invoice.amount - bookedPlatformFee - (bookedFlutterwaveFee ?? 0);
+      void import("@/services/invoiceSweep")
+        .then((m) => m.sweepPaidInvoice({ merchantId: invoice.merchantId, invoiceId: invoice.id, amount: received, currency: invoice.currency, phone: invoice.merchant?.phone ?? null }))
+        .catch((error: any) => logger.warn("Invoice sweep could not run", { reference, error: error?.message }));
+    }
+
     logger.info("Invoice settled", {
       invoiceId: invoice.id,
       reference,
