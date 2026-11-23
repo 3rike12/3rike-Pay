@@ -1,5 +1,5 @@
 // Minor-unit (integer money) migration tool.
-//   npm run money:minor                 report drift between float and minor balances, change nothing
+//   npm run money:minor                 check the ledgers (drift, negatives, stock positions, token cover); change nothing
 //   npm run money:minor -- --backfill   fill the minor columns on rows written before dual-writing
 //
 // Run the backfill, then the report, until it says "no drift". Only then is it
@@ -7,6 +7,8 @@
 import "dotenv/config";
 import { prisma } from "@/db/prisma";
 import { backfillMinor, findLedgerSumDrift, findTransactionDrift, findWalletDrift } from "@/services/moneyMinor";
+import { findNegativeWallets, findPositionProblems } from "@/services/ledgerVerify";
+import { stockSolvency } from "@/services/stockSolvency";
 
 (async () => {
   if (process.argv.includes("--backfill")) {
@@ -32,7 +34,29 @@ import { backfillMinor, findLedgerSumDrift, findTransactionDrift, findWalletDrif
   for (const d of sums) {
     console.log(`Ledger ${d.walletId}: entries add up to ${d.fromEntriesMinor}, balance is ${d.balanceMinor}`);
   }
-  if (wallets.length || sums.length || txs.length) {
+  const negatives = await findNegativeWallets();
+  if (negatives.length === 0) console.log("Negative balances: none.");
+  for (const d of negatives) console.log(`Negative: wallet ${d.walletId} (${d.currency}, user ${d.userId}) is at ${d.balance}`);
+
+  const positions = await findPositionProblems();
+  if (positions.length === 0) console.log("Stock positions: every position matches its entries.");
+  for (const d of positions) console.log(`Position ${d.positionId} (user ${d.userId}, ${d.tokenAddress}): ${d.problem}, holds ${d.units}${d.fromEntries !== undefined ? `, entries add up to ${d.fromEntries}` : ""}`);
+
+  // Does the treasury hold the tokens users are recorded as owning? Skipped quietly if there are none.
+  let uncovered = 0;
+  try {
+    for (const c of await stockSolvency()) {
+      if (c.covered) continue;
+      uncovered++;
+      console.log(`NOT COVERED ${c.tokenAddress}: users own ${c.owed}, treasury holds ${c.held === null ? "unknown (could not read the chain)" : c.held}`);
+    }
+    if (uncovered === 0) console.log("Stock cover: the treasury holds every token users own.");
+  } catch (error: any) {
+    uncovered++;
+    console.log(`Stock cover: could not be checked (${error?.message}).`);
+  }
+
+  if (wallets.length || sums.length || txs.length || negatives.length || positions.length || uncovered) {
     console.log("\nDo not switch reads to the minor columns while any of the above remains unexplained.");
     process.exitCode = 1;
   }
