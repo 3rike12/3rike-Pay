@@ -162,6 +162,9 @@ model LedgerEntry {
   reference      String   // external tx ref (tx_ref, transfer ref, etc.)
   description    String?
   metadata       Json     @default("{}")
+  // Makes a posting happen at most once, enforced by the database itself (not a cache that expires).
+  // Null for postings made without one; unique among those that have one.
+  idempotencyKey String?  @unique
   createdAt      DateTime @default(now())
 
   @@index([walletId])
