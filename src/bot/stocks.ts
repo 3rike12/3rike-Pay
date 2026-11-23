@@ -4,6 +4,9 @@ import { checkStockEligibility, eligibilityMessage } from "@/services/stockEligi
 import type { BuyPreview, SellPreview, StockOrderRow } from "@/services/stockOrders";
 import { OrderRefused } from "@/services/orderErrors";
 import type { ScheduleRule, RunEvent } from "@/services/stockSchedules";
+import type { RebalancePlan } from "@/services/rebalancePlan";
+import { validTargets } from "@/services/rebalance";
+import { MAX_SWEEP_PERCENT } from "@/services/stockSweep";
 
 // ============================================
 // Stocks in WhatsApp
@@ -30,7 +33,9 @@ const MAX_SKIPS = 3;
 
 export interface PendingStockOrder {
   id: string;
-  kind: "buy" | "sell" | "recurring";
+  kind: "buy" | "sell" | "recurring" | "rebalance";
+  /** rebalance: the trades to place, sells first. `token` is the first of them. */
+  trades?: Array<{ side: "buy" | "sell"; token: StockToken; cashAmount?: number; units?: string }>;
   /** recurring: when it repeats. */
   rule?: ScheduleRule;
   token: StockToken;
@@ -74,6 +79,16 @@ export interface StockBotDeps {
       stocks: StockToken[];
       budget?: { amount: number; currency: string; frequency?: "daily" | "weekly" | "monthly" };
     }): Promise<{ kind: "text"; text: string } | { kind: "off" } | { kind: "limit" }>;
+  };
+  rebalance: {
+    getTargets(userId: string): Promise<Array<{ tokenAddress: string; percent: number }>>;
+    setTargets(userId: string, rows: Array<{ tokenAddress: string; percent: number }>): Promise<unknown>;
+    clearTargets(userId: string): Promise<unknown>;
+    plan(userId: string, currency: string): Promise<RebalancePlan>;
+  };
+  sweep: {
+    set(userId: string, percent: number, tokenAddress: string | null): Promise<unknown>;
+    clear(userId: string): Promise<boolean>;
   };
   alerts: {
     optOut(userId: string): Promise<unknown>;
@@ -232,6 +247,112 @@ export function createStockBot(deps: StockBotDeps) {
     }
   }
 
+  // ----- target mix and rebalancing -----
+
+  const pct = (n: number) => (Number.isInteger(n) ? n : n.toFixed(1)) + "%";
+
+  async function setTarget(phone: string, user: any, stocks: StockToken[], entries: Array<{ percent: number; query: string }>) {
+    if (entries.length > 6) return say(phone, "That's a lot of stocks to keep in balance. Please use six or fewer.");
+    const rows: Array<{ tokenAddress: string; percent: number; token: StockToken }> = [];
+    for (const e of entries) {
+      const token = await resolve(phone, stocks, e.query);
+      if (!token) return;
+      if (rows.some((r) => r.tokenAddress === token.address)) return say(phone, "You named " + token.ticker + " twice. Please list each stock once.");
+      rows.push({ tokenAddress: token.address, percent: e.percent, token });
+    }
+    if (!validTargets(rows.map((r) => ({ address: r.tokenAddress, percent: r.percent })))) {
+      const total = rows.reduce((n, r) => n + r.percent, 0);
+      return say(phone, "Those add up to " + pct(total) + ", not 100%. For example: *keep me 40% Nvidia, 35% Microsoft, 25% Apple*.");
+    }
+    await deps.rebalance.setTargets(user.id, rows.map((r) => ({ tokenAddress: r.tokenAddress, percent: r.percent })));
+    const list = rows.map((r) => "• " + pct(r.percent) + " " + label(r.token)).join("\n");
+    return say(phone, "*Target mix saved*\n\n" + list + "\n\nI'll let you know when your stocks drift away from it. Send *rebalance* to check now.");
+  }
+
+  const mixLines = (rows: Array<{ token: StockToken; targetPercent: number; actualPercent: number }>) =>
+    rows.map((r) => "• " + r.token.ticker + ": " + pct(r.actualPercent) + " now, target " + pct(r.targetPercent)).join("\n");
+
+  async function showTarget(phone: string, user: any) {
+    const plan = await deps.rebalance.plan(user.id, deps.currencyFor(user)).catch(() => null);
+    if (!plan || plan.status === "no_target") return say(phone, "You haven't set a target mix. For example: *keep me 40% Nvidia, 35% Microsoft, 25% Apple*.");
+    if (plan.status === "unpriced") return say(phone, "I can't price " + plan.missing.join(", ") + " right now, so I can't show your mix. Please try again shortly.");
+    return say(phone, "*Your target mix*\n\n" + mixLines(plan.rows) + "\n\nSend *rebalance* to see what it would take to get back on target.");
+  }
+
+  async function rebalance(phone: string, user: any) {
+    const currency = deps.currencyFor(user);
+    let plan: RebalancePlan;
+    try {
+      plan = await deps.rebalance.plan(user.id, currency);
+    } catch {
+      return say(phone, GENERIC_PRICE_ERROR);
+    }
+    switch (plan.status) {
+      case "no_target":
+        return say(phone, "You haven't set a target mix yet. For example: *keep me 40% Nvidia, 35% Microsoft, 25% Apple*.");
+      case "unpriced":
+        return say(phone, "I can't price " + plan.missing.join(", ") + " right now, so I can't check your mix. Please try again shortly.");
+      case "nothing_held":
+        return say(phone, "You don't hold any of the stocks in your target yet. Buy some, for example *buy 5000 of Nvidia*, and I'll keep them in balance.");
+      case "balanced":
+        return say(phone, "*You're on target*\n\n" + mixLines(plan.rows) + "\n\nNothing to do. I'll tell you if that changes.");
+    }
+    const lines = plan.trades.map((t) => (t.side === "sell" ? "• Sell about $" + t.usd.toFixed(2) + " of " + t.token.ticker : "• Buy " + deps.money(t.cashAmount!, currency) + " of " + t.token.ticker));
+    const pending: PendingStockOrder = {
+      id: deps.newId(),
+      kind: "rebalance",
+      token: plan.trades[0].token,
+      currency,
+      trades: plan.trades.map((t) => ({ side: t.side, token: t.token, ...(t.cashAmount !== undefined ? { cashAmount: t.cashAmount } : {}), ...(t.units !== undefined ? { units: t.units.toString() } : {}) })),
+      expiresAt: deps.now() + CONFIRM_TTL_MS,
+    };
+    const body = "*Rebalance*\n\nYour mix:\n" + mixLines(plan.rows) + "\n\nTo get back on target I'd:\n" + lines.join("\n") + "\n\nSells go first, then the buys use the proceeds. Prices move, so the final amounts can differ slightly.";
+    return propose(phone, user, pending, body);
+  }
+
+  /** Place the trades of a confirmed rebalance: sells first, then buys. Each has its own fixed reference. */
+  async function runRebalance(phone: string, user: any, pending: PendingStockOrder) {
+    const ordered = [...(pending.trades ?? [])].sort((a, b) => (a.side === b.side ? 0 : a.side === "sell" ? -1 : 1));
+    const out: string[] = [];
+    for (let i = 0; i < ordered.length; i++) {
+      const t = ordered[i];
+      const reference = "stk:" + pending.id + ":" + i;
+      try {
+        const order =
+          t.side === "buy"
+            ? await deps.orders.placeBuy({ reference, userId: user.id, token: t.token, cashAmount: t.cashAmount!, currency: pending.currency })
+            : await deps.orders.placeSell({ reference, userId: user.id, token: t.token, units: BigInt(t.units!), currency: pending.currency });
+        const verb = t.side === "buy" ? "Bought" : "Sold";
+        if (order.state === "filled") out.push("✓ " + verb + " " + t.token.ticker);
+        else if (order.state === "refunded" || order.state === "failed") out.push("✗ " + t.token.ticker + ": didn't go through, nothing was charged");
+        else out.push("… " + t.token.ticker + ": in progress, I'll confirm when it settles");
+      } catch (error) {
+        out.push("✗ " + t.token.ticker + ": " + userSafe(error, "something went wrong"));
+      }
+    }
+    return say(phone, "*Rebalance*\n\n" + out.join("\n") + "\n\nSend *my stocks* to see where you are.");
+  }
+
+  // ----- investing a share of sales -----
+
+  async function setSweep(phone: string, user: any, stocks: StockToken[], percent: number, query?: string) {
+    if (!(percent > 0) || percent > MAX_SWEEP_PERCENT) return say(phone, "Pick a share between 1% and " + MAX_SWEEP_PERCENT + "% of each sale.");
+    let tokenAddress: string | null = null;
+    let where: string;
+    if (query) {
+      const token = await resolve(phone, stocks, query);
+      if (!token) return;
+      tokenAddress = token.address;
+      where = label(token);
+    } else {
+      const targets = await deps.rebalance.getTargets(user.id);
+      if (targets.length === 0) return say(phone, "Which stock? For example: *invest 10% of my sales in Nvidia*. Or set a target mix first and I'll spread it across that.");
+      where = "your target mix";
+    }
+    await deps.sweep.set(user.id, percent, tokenAddress);
+    return say(phone, "Done. From now on I'll put " + pct(percent) + " of every paid invoice into " + where + ".\n\nI'll tell you each time. Stop any time with *stop investing my sales*.");
+  }
+
   // ----- recurring buys -----
 
   async function recurring(phone: string, user: any, token: StockToken, amount: number, named: NamedCurrency | undefined, rule: ScheduleRule) {
@@ -342,6 +463,25 @@ export function createStockBot(deps: StockBotDeps) {
         await ask(phone, user, req.question, stocks.slice(0, 5), { amount, currency, frequency: req.frequency });
         return true;
       }
+      case "set_target":
+        await setTarget(phone, user, stocks, req.entries);
+        return true;
+      case "show_target":
+        await showTarget(phone, user);
+        return true;
+      case "clear_target":
+        await deps.rebalance.clearTargets(user.id);
+        await say(phone, "Target mix cleared. I won't check your stocks against it any more.");
+        return true;
+      case "rebalance":
+        await rebalance(phone, user);
+        return true;
+      case "set_sweep":
+        await setSweep(phone, user, stocks, req.percent, req.query);
+        return true;
+      case "stop_sweep":
+        await say(phone, (await deps.sweep.clear(user.id)) ? "Done. I've stopped investing your sales." : "You weren't investing your sales.");
+        return true;
       case "alerts_off":
         await deps.alerts.optOut(user.id);
         await say(phone, "Okay, I won't send you stock alerts. Say *turn on stock alerts* any time to get them again.");
@@ -393,6 +533,8 @@ export function createStockBot(deps: StockBotDeps) {
     // One fixed reference per confirmation: a second yes resumes this order, it never makes another.
     const reference = `stk:${pending.id}`;
     await deps.resetSession(user.id);
+
+    if (pending.kind === "rebalance") return runRebalance(phone, user, pending);
 
     if (pending.kind === "recurring") {
       try {

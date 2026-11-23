@@ -174,6 +174,47 @@ describe("plans", () => {
   });
 });
 
+describe("target mix and rebalancing", () => {
+  it("reads a target mix", () => {
+    expect(parseStockRequest("keep me 40% nvidia 35% microsoft 25% apple")).toEqual({
+      intent: "set_target",
+      entries: [{ percent: 40, query: "nvidia" }, { percent: 35, query: "microsoft" }, { percent: 25, query: "apple" }],
+    });
+    expect(parseStockRequest("set my target to 60% in tesla and 40% in nvidia")).toEqual({
+      intent: "set_target",
+      entries: [{ percent: 60, query: "tesla" }, { percent: 40, query: "nvidia" }],
+    });
+    expect(parseStockRequest("target allocation: 50% apple, 30% meta, 20% google")).toMatchObject({ intent: "set_target" });
+  });
+  it("a single stock is not a mix", () => {
+    expect(parseStockRequest("keep me 100% nvidia")?.intent).not.toBe("set_target");
+  });
+  it("shows and clears the target", () => {
+    expect(parseStockRequest("what is my target mix")).toEqual({ intent: "show_target" });
+    expect(parseStockRequest("clear my target")).toEqual({ intent: "clear_target" });
+    expect(parseStockRequest("reset my allocation")).toEqual({ intent: "clear_target" });
+  });
+  it("rebalance", () => {
+    for (const t of ["rebalance", "rebalance my portfolio", "am i balanced", "is my portfolio on target", "check my mix"]) expect(parseStockRequest(t)).toEqual({ intent: "rebalance" });
+  });
+});
+
+describe("investing a share of sales", () => {
+  it("sets it, with or without a stock", () => {
+    expect(parseStockRequest("invest 10% of my sales in nvidia")).toEqual({ intent: "set_sweep", percent: 10, query: "nvidia" });
+    expect(parseStockRequest("put 5% of every invoice into tesla")).toEqual({ intent: "set_sweep", percent: 5, query: "tesla" });
+    expect(parseStockRequest("save 15 percent of my income in stocks")).toEqual({ intent: "set_sweep", percent: 15 });
+    expect(parseStockRequest("invest 10% of my sales")).toEqual({ intent: "set_sweep", percent: 10 });
+  });
+  it("stops it, and does not mistake that for stopping a recurring buy", () => {
+    for (const t of ["stop investing my sales", "turn off auto invest", "cancel investing my invoices"]) expect(parseStockRequest(t)).toEqual({ intent: "stop_sweep" });
+    expect(parseStockRequest("stop my tesla buys")).toMatchObject({ intent: "cancel_recurring" });
+  });
+  it("an ordinary buy with a percent sign elsewhere is still a buy", () => {
+    expect(parseStockRequest("buy 5000 of tesla")).toMatchObject({ intent: "buy" });
+  });
+});
+
 describe("stock alerts", () => {
   it.each(["stop stock alerts", "turn off stock alerts", "no more stock alerts", "mute stock notifications", "disable alerts", "stop the alerts"])("%s turns them off", (text) => {
     expect(parseStockRequest(text)).toEqual({ intent: "alerts_off" });

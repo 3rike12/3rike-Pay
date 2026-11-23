@@ -48,6 +48,8 @@ import { buildPortfolioFacts } from "@/services/portfolioContext";
 import { buildPlans, type Plan } from "@/services/planBuilder";
 import { annotateImpact, loadFills, loadRecurring, venuePriceUsd } from "@/services/researchContext";
 import { getStockVenue } from "@/services/stockVenue";
+import { planRebalance, type PlanDeps } from "@/services/rebalancePlan";
+import { clearSweep, clearTargets, getTargets, setSweep, setTargets } from "@/services/stockTargets";
 import { createDailyLimiter } from "@/services/dailyLimit";
 import type { RunEvent } from "@/services/stockSchedules";
 import { paymentQrPng } from "@/utils/qr";
@@ -60,6 +62,15 @@ const logger = createLogger("bot");
 // The research assistant: an AI model that explains and suggests but never trades. Off without an API key.
 const researchModel = createConfiguredLlm();
 const researchLimiter = createDailyLimiter(config.llm?.dailyLimit ?? 20, { name: "research" });
+
+// What the rebalance planner needs: the person's target and holdings, venue prices, and FX.
+const planDeps: PlanDeps = {
+  targets: getTargets,
+  holdings: (userId) => positions.list(userId),
+  stocks: () => getStocks(),
+  tokenPriceUsd: (token) => venuePriceUsd(getStockVenue())(token),
+  fromUsd: (usd, currency) => fromUsd(usd, currency),
+};
 
 // Stocks: plain-language buying, selling and looking, with a confirm step before anything is charged.
 const stockBot = createStockBot({
@@ -123,6 +134,13 @@ const stockBot = createStockBot({
       return { kind: "off" };
     },
   },
+  rebalance: {
+    getTargets,
+    setTargets,
+    clearTargets,
+    plan: (userId, currency) => planRebalance(userId, currency, planDeps),
+  },
+  sweep: { set: setSweep, clear: clearSweep },
   alerts: { optOut: (userId) => prismaAlertStore.optOut(userId), optIn: (userId) => prismaAlertStore.optIn(userId) },
   schedules: {
     checkCash: (cashAmount, currency) => void stockOrders.checkOrderCash(cashAmount, currency),

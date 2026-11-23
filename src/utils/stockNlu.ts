@@ -42,6 +42,15 @@ export type StockRequest =
   | { intent: "research"; question: string; queries: string[] }
   /** "I have 5000 a week, what should I buy?": a budget and no particular stock. */
   | { intent: "plan"; question: string; budget?: number; currency?: NamedCurrency; frequency?: Frequency }
+  /** "keep me 40% nvidia, 35% microsoft, 25% apple": the mix the person wants to hold. */
+  | { intent: "set_target"; entries: Array<{ percent: number; query: string }> }
+  | { intent: "show_target" }
+  | { intent: "clear_target" }
+  /** "rebalance my portfolio": check the mix against the target and propose trades. */
+  | { intent: "rebalance" }
+  /** "invest 10% of my sales in nvidia": put a share of every paid invoice into stocks. */
+  | { intent: "set_sweep"; percent: number; query?: string }
+  | { intent: "stop_sweep" }
   | { intent: "alerts_off" }
   | { intent: "alerts_on" }
   | { intent: "quote"; query: string }
@@ -188,6 +197,33 @@ export function parseStockRequest(input: string): StockRequest | null {
   const text = (input || "").trim();
   if (!text || text.startsWith("/")) return null;
   const lower = text.toLowerCase();
+
+  // Investing a share of sales, and stopping that. Before "stopping a standing order", which would claim "stop investing".
+  const SALES = /\b(sales?|invoices?|income|earnings|payments?|revenue|takings)\b/;
+  if (/\b(stop|turn off|cancel|disable|pause|end)\b/.test(lower) && /\b(invest|investing|saving|sweep|auto[- ]?invest)\b/.test(lower) && (SALES.test(lower) || /\bauto[- ]?invest\b/.test(lower))) {
+    return { intent: "stop_sweep" };
+  }
+  const sweepPct = lower.match(/(\d+(?:\.\d+)?)\s*(?:%|percent|per cent)\s*(?:of\s*)?(?:all\s*)?(?:my|every|each|the)?\s*(?:paid\s*)?(?:sales?|invoices?|income|earnings|payments?|revenue|takings)\b/);
+  if (sweepPct && /\b(invest|put|save|sweep|buy|move|set aside|stash|stack)\b/.test(lower)) {
+    const tail = lower.match(/\b(?:in|into|to)\s+(.+)$/);
+    const q = tail ? cleanQuery(tail[1].replace(/\b(stocks?|shares?|equities|the market)\b/g, " ")) : "";
+    return { intent: "set_sweep", percent: Number(sweepPct[1]), ...(q ? { query: q } : {}) };
+  }
+
+  // Target mix and rebalancing.
+  if (/\b(clear|remove|delete|reset|drop)\b/.test(lower) && /\b(target|allocation)\b/.test(lower)) return { intent: "clear_target" };
+  if (/\b(target|keep me|keep my|allocation|split my portfolio|i want my (portfolio|mix))\b/.test(lower)) {
+    const pairs: Array<{ percent: number; query: string }> = [];
+    const re = /(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:in|of|to)?\s*([a-z][a-z0-9.&' ]*?)(?=\s*(?:,|;|\band\b|\+|&|\d|$))/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(lower))) {
+      const q = cleanQuery(m[2]);
+      if (q) pairs.push({ percent: Number(m[1]), query: q });
+    }
+    if (pairs.length >= 2) return { intent: "set_target", entries: pairs };
+    if (/\b(my|the) (target|allocation)( mix)?\b/.test(lower) || /\btarget (mix|allocation)\b/.test(lower)) return { intent: "show_target" };
+  }
+  if (/\brebalanc/.test(lower) || /\b(am i|is my (portfolio|mix)) (balanced|on target|in balance)\b/.test(lower) || /\bcheck my (mix|allocation)\b/.test(lower)) return { intent: "rebalance" };
 
   // Stopping a standing order.
   if (/\b(stop|cancel|pause|end|delete|remove)\b/.test(lower) && /\b(buys?|buying|purchases?|recurring|schedule|auto|investing|plan)\b/.test(lower)) {

@@ -61,6 +61,16 @@ function makeBot(over: Partial<StockBotDeps> = {}) {
       get: async (_u, t) => held.get(t) ?? 0n,
     },
     schedules: fakeSchedules(),
+    rebalance: {
+      getTargets: async () => targets,
+      setTargets: async (_u, rows) => void (targets = rows),
+      clearTargets: async () => void (targets = []),
+      plan: async () => (typeof planReply === 'function' ? planReply() : planReply),
+    },
+    sweep: {
+      set: async (_u, percent, tokenAddress) => void sweeps.push({ percent, tokenAddress }),
+      clear: async () => sweepsCleared++ >= 0 && sweeps.length > 0,
+    },
     alerts: { optOut: async (u) => void optedOut.push(u), optIn: async (u) => void optedIn.push(u) },
     research: { ask: async (p) => (asked.push(p), typeof researchReply === "function" ? researchReply(p) : researchReply) },
     newId: () => `id${++nextId}`,
@@ -70,6 +80,10 @@ function makeBot(over: Partial<StockBotDeps> = {}) {
   return createStockBot(deps);
 }
 
+let targets: Array<{ tokenAddress: string; percent: number }>;
+let planReply: any;
+let sweeps: Array<{ percent: number; tokenAddress: string | null }>;
+let sweepsCleared: number;
 let asked: any[];
 let researchReply: any;
 let optedOut: string[];
@@ -97,6 +111,10 @@ beforeEach(() => {
   held = new Map();
   balance = 100_000;
   placed = [];
+  targets = [];
+  planReply = { status: 'no_target' };
+  sweeps = [];
+  sweepsCleared = 0;
   asked = [];
   researchReply = { kind: "text", text: "Tesla is up 6% recently." };
   optedOut = [];
@@ -739,4 +757,177 @@ function depsWith(ordersOver: Partial<StockBotDeps["orders"]>, stocks?: StockTok
     now: () => now,
   };
   return d;
+}
+
+
+describe("target mix", () => {
+  it("saves a mix that adds up to 100", async () => {
+    await bot.tryHandle(PHONE, KE, "keep me 40% nvidia 35% microsoft 25% tesla");
+    expect(targets).toEqual([{ tokenAddress: NVDA.address, percent: 40 }, { tokenAddress: MSFT.address, percent: 35 }, { tokenAddress: TSLA.address, percent: 25 }]);
+    expect(last()).toContain("Target mix saved");
+    expect(last()).toContain("*rebalance*");
+  });
+
+  it("refuses a mix that does not add up, and says what it adds up to", async () => {
+    await bot.tryHandle(PHONE, KE, "keep me 40% nvidia 35% microsoft 20% tesla");
+    expect(targets).toEqual([]);
+    expect(last()).toContain("add up to 95%");
+  });
+
+  it("refuses the same stock twice, and an unknown stock, without saving anything", async () => {
+    await bot.tryHandle(PHONE, KE, "keep me 50% nvidia 50% nvidia");
+    expect(last()).toContain("twice");
+    await bot.tryHandle(PHONE, KE, "keep me 50% nvidia 50% dogecoin");
+    expect(last()).toContain("couldn't find a stock called");
+    expect(targets).toEqual([]);
+  });
+
+  it("clears it", async () => {
+    targets = [{ tokenAddress: NVDA.address, percent: 100 }];
+    await bot.tryHandle(PHONE, KE, "clear my target");
+    expect(targets).toEqual([]);
+  });
+
+  it("shows the mix against the target, or explains there is none", async () => {
+    await bot.tryHandle(PHONE, KE, "show my target mix");
+    expect(last()).toContain("haven't set a target");
+    planReply = { status: "balanced", maxDrift: 1, total: 100, rows: [{ token: NVDA, targetPercent: 60, actualPercent: 58.5 }, { token: MSFT, targetPercent: 40, actualPercent: 41.5 }] };
+    await bot.tryHandle(PHONE, KE, "what is my target mix");
+    expect(last()).toContain("NVDA: 58.5% now, target 60%");
+  });
+});
+
+describe("rebalance", () => {
+  const rows = [{ token: NVDA, targetPercent: 40, actualPercent: 55 }, { token: MSFT, targetPercent: 60, actualPercent: 45 }];
+  const tradesPlan = () => ({
+    status: "trades", maxDrift: 15, total: 1000, rows,
+    trades: [{ side: "sell", token: NVDA, usd: 150, units: 3n * ONE }, { side: "buy", token: MSFT, usd: 147, cashAmount: 19_110 }],
+  });
+
+  it("proposes the trades and places NOTHING until the person says yes", async () => {
+    planReply = tradesPlan();
+    await bot.tryHandle(PHONE, KE, "rebalance my portfolio");
+    expect(last()).toContain("Sell about $150.00 of NVDA");
+    expect(last()).toContain("Buy KES 19,110 of MSFT");
+    expect(last()).toContain("Reply *YES*");
+    expect(placed).toEqual([]);
+    expect(session?.kind).toBe("rebalance");
+  });
+
+  it("on yes, sells first and then buys, each with its own fixed reference", async () => {
+    planReply = tradesPlan();
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    const snapshot = JSON.parse(JSON.stringify(session, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+    await bot.handleConfirm(PHONE, KE, snapshot, "yes");
+    expect(placed.map((p) => [p.kind, p.token.ticker])).toEqual([["sell", "NVDA"], ["buy", "MSFT"]]);
+    expect(placed[0].reference).toBe("stk:id1:0");
+    expect(placed[1].reference).toBe("stk:id1:1");
+    expect(placed[0].units).toBe(3n * ONE);
+    expect(last()).toContain("✓ Sold NVDA");
+    expect(last()).toContain("✓ Bought MSFT");
+    expect(session).toBeNull();
+  });
+
+  it("saying yes twice places the same references, never new orders", async () => {
+    planReply = tradesPlan();
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    const snapshot = JSON.parse(JSON.stringify(session));
+    await bot.handleConfirm(PHONE, KE, snapshot, "yes");
+    await bot.handleConfirm(PHONE, KE, snapshot, "yes");
+    expect(new Set(placed.map((p) => p.reference)).size).toBe(2);
+  });
+
+  it("no cancels it, and an expired quote asks again", async () => {
+    planReply = tradesPlan();
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    await bot.handleConfirm(PHONE, KE, JSON.parse(JSON.stringify(session)), "no");
+    expect(placed).toEqual([]);
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    now += CONFIRM_TTL_MS + 1;
+    await bot.handleConfirm(PHONE, KE, JSON.parse(JSON.stringify(session)), "yes");
+    expect(last()).toContain("expired");
+    expect(placed).toEqual([]);
+  });
+
+  it("one trade failing does not stop the other, and nothing internal leaks", async () => {
+    planReply = tradesPlan();
+    const b = makeBot({ orders: { ...(makeBotOrders()), placeSell: async () => { throw new Error("P1001 db.internal:5432"); } } as any });
+    await b.tryHandle(PHONE, KE, "rebalance");
+    await b.handleConfirm(PHONE, KE, JSON.parse(JSON.stringify(session)), "yes");
+    expect(last()).toContain("✗ NVDA: something went wrong");
+    expect(last()).toContain("✓ Bought MSFT");
+    expect(last()).not.toContain("5432");
+  });
+
+  it("says plainly when there is no target, nothing held, or the mix is already on target", async () => {
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    expect(last()).toContain("haven't set a target");
+    planReply = { status: "nothing_held", rows };
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    expect(last()).toContain("don't hold any of the stocks");
+    planReply = { status: "balanced", rows, maxDrift: 1, total: 100 };
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    expect(last()).toContain("You're on target");
+    expect(placed).toEqual([]);
+  });
+
+  it("will not check a mix it cannot price, and does not guess", async () => {
+    planReply = { status: "unpriced", missing: ["AAPL"] };
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    expect(last()).toContain("can't price AAPL");
+  });
+
+  it("a failing planner gives a plain message, not an error", async () => {
+    planReply = () => { throw new Error("boom"); };
+    await bot.tryHandle(PHONE, KE, "rebalance");
+    expect(last()).toBe("I couldn't price that right now. Please try again.");
+  });
+
+  it("a US number is refused before anything", async () => {
+    await bot.tryHandle("14155550100", KE, "rebalance");
+    expect(last()).toContain("United States");
+  });
+});
+
+describe("investing a share of sales", () => {
+  it("saves the rule for a named stock", async () => {
+    await bot.tryHandle(PHONE, KE, "invest 10% of my sales in nvidia");
+    expect(sweeps).toEqual([{ percent: 10, tokenAddress: NVDA.address }]);
+    expect(last()).toContain("10% of every paid invoice into NVIDIA Corporation (NVDA)");
+  });
+
+  it("with no stock named, follows the target mix; without a mix it asks which stock", async () => {
+    await bot.tryHandle(PHONE, KE, "invest 10% of my sales");
+    expect(sweeps).toEqual([]);
+    expect(last()).toContain("Which stock?");
+    targets = [{ tokenAddress: NVDA.address, percent: 60 }, { tokenAddress: MSFT.address, percent: 40 }];
+    await bot.tryHandle(PHONE, KE, "invest 10% of my sales");
+    expect(sweeps).toEqual([{ percent: 10, tokenAddress: null }]);
+    expect(last()).toContain("your target mix");
+  });
+
+  it("refuses an unreasonable share", async () => {
+    await bot.tryHandle(PHONE, KE, "invest 80% of my sales in nvidia");
+    expect(sweeps).toEqual([]);
+    expect(last()).toContain("between 1% and 50%");
+  });
+
+  it("stops it", async () => {
+    await bot.tryHandle(PHONE, KE, "invest 10% of my sales in nvidia");
+    await bot.tryHandle(PHONE, KE, "stop investing my sales");
+    expect(last()).toContain("stopped investing your sales");
+    await bot.tryHandle(PHONE, KE, "stop investing my sales");
+    expect(sweepsCleared).toBe(2);
+  });
+});
+
+function makeBotOrders() {
+  return {
+    previewBuy: async () => ({}) as any,
+    previewSell: async () => ({}) as any,
+    placeBuy: async (p: any) => (placed.push({ kind: "buy", ...p }), { state: "filled", side: "buy", tokenUnits: ONE, cashAmount: p.cashAmount, currency: p.currency }) as any,
+    placeSell: async (p: any) => (placed.push({ kind: "sell", ...p }), { state: "filled", side: "sell", tokenUnits: p.units, cashAmount: 1, currency: p.currency }) as any,
+    indicativePrice: async () => ({ usdPerShare: 1 }),
+    unitsForCash: async () => 0n,
+  };
 }
