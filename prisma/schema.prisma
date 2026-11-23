@@ -320,3 +320,42 @@ model RailCursor {
   value     String
   updatedAt DateTime @updatedAt
 }
+
+// ============================================
+// Stock positions (who owns how much of each tokenized stock)
+// The treasury holds the tokens in one wallet; these rows say whose they are.
+// Units are RAW token units (the token's own decimals), whole numbers, never floats.
+// A position is only ever changed by a PositionEntry, so the entries always explain it.
+// ============================================
+model StockPosition {
+  id           String   @id @default(uuid())
+  userId       String
+  tokenAddress String                      // lower-case 0x address: the identity
+  units        BigInt   @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  entries PositionEntry[]
+
+  @@unique([userId, tokenAddress])
+  @@index([userId])
+  @@index([tokenAddress])
+}
+
+model PositionEntry {
+  id             String        @id @default(uuid())
+  positionId     String
+  position       StockPosition @relation(fields: [positionId], references: [id])
+  direction      String                    // credit | debit
+  units          BigInt
+  runningUnits   BigInt                    // the position right after this entry
+  reference      String                    // the order this belongs to
+  description    String?
+  metadata       Json          @default("{}")
+  // Makes a posting happen at most once, enforced by the database.
+  idempotencyKey String?       @unique
+  createdAt      DateTime      @default(now())
+
+  @@index([positionId])
+  @@index([reference])
+}
