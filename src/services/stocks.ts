@@ -47,6 +47,8 @@ export interface StockToken {
   navPrice: number | null;
   navUpdatedAt: string | null;
   isin: string | null;
+  /** Tokens in existence (from the API). Used only as a rough size ranking, never as a price. */
+  totalSupply: number | null;
 }
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -80,6 +82,7 @@ export function normalizeStock(raw: any): StockToken | null {
   if (!symbol) return null;
 
   const nav = Number(pick(raw, ["nav_price", "navPrice"]));
+  const supply = Number(pick(raw, ["total_supply", "totalSupply"]));
   return {
     address: address.toLowerCase(),
     symbol,
@@ -91,6 +94,7 @@ export function normalizeStock(raw: any): StockToken | null {
     navPrice: Number.isFinite(nav) && nav > 0 ? nav : null,
     navUpdatedAt: (pick(raw, ["nav_price_updated_at", "navPriceUpdatedAt"]) as string | undefined) ?? null,
     isin: (pick(raw, ["isin"]) as string | undefined) ?? null,
+    totalSupply: Number.isFinite(supply) && supply > 0 ? supply : null,
   };
 }
 
@@ -133,7 +137,14 @@ export async function fetchAllStocks(fetcher: Fetcher = defaultFetch): Promise<S
  * The catalogue, cached for STOCKS_CACHE_SECONDS. If a refresh fails the last
  * good list keeps being served; with none at all this throws.
  */
+/** A stand-in catalogue for demos. When set, it replaces the live API. */
+let catalogueOverride: ((now: number) => StockToken[]) | null = null;
+export function setStockCatalogueOverride(fn: ((now: number) => StockToken[]) | null) {
+  catalogueOverride = fn;
+}
+
 export async function getStocks(fetcher?: Fetcher, now = Date.now()): Promise<StockToken[]> {
+  if (catalogueOverride) return catalogueOverride(now);
   const ttl = ((config as any).stocks?.cacheSeconds ?? 300) * 1000;
   if (cached && now - cached.at < ttl) return cached.stocks;
   try {

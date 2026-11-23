@@ -48,6 +48,8 @@ export const SESSION_STATE = {
   CASHOUT_CONFIRM: "cashout_confirm",
   // Add money to the balance
   TOPUP_AMOUNT: "topup_amount",
+  // A stock order waiting for the person to say yes
+  STOCK_CONFIRM: "stock_confirm",
 } as const;
 
 export type SessionState = (typeof SESSION_STATE)[keyof typeof SESSION_STATE];

@@ -65,6 +65,7 @@ export function makePositionDb() {
           .filter(
             (p) =>
               (!where?.userId || p.userId === where.userId) &&
+              (!where?.tokenAddress || p.tokenAddress === where.tokenAddress) &&
               (where?.units?.gt === undefined || p.units > where.units.gt) &&
               (where?.units?.lt === undefined || p.units < where.units.lt)
           )

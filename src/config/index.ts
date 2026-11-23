@@ -217,7 +217,44 @@ export const config = {
    *   STOCKS_NAV_MAX_AGE_SECONDS  a price older than this is shown as stale (default 86400:
    *                               feeds run 24/5 and hold their last value off-hours)
    */
+  /**
+   * The research assistant for stocks (an AI model that explains and suggests, never trades).
+   * Off unless an API key is set. Any OpenAI-compatible Chat Completions API works; the default
+   * is Meta's Model API. NEVER use a model SKU that trains on your inputs (Meta's "-contributor"
+   * SKUs): the client refuses to.
+   *   STOCKS_LLM_API_KEY (or MODEL_API_KEY)   keep it on the server only
+   *   STOCKS_LLM_BASE_URL   default https://api.meta.ai/v1
+   *   STOCKS_LLM_MODEL      default muse-spark-1.3
+   *   STOCKS_LLM_REASONING_EFFORT   optional: minimal | low | medium | high | xhigh (omitted if unset)
+   *   STOCKS_LLM_DAILY_LIMIT   questions per person per day (default 20)
+   */
+  llm: {
+    apiKey: process.env.STOCKS_LLM_API_KEY || process.env.MODEL_API_KEY || "",
+    baseUrl: (process.env.STOCKS_LLM_BASE_URL || "https://api.meta.ai/v1").replace(/\/$/, ""),
+    model: process.env.STOCKS_LLM_MODEL || "muse-spark-1.3",
+    reasoningEffort: process.env.STOCKS_LLM_REASONING_EFFORT || "",
+    dailyLimit: Number(process.env.STOCKS_LLM_DAILY_LIMIT || 20),
+  },
+
   stocks: {
+    /**
+     * The trading venue. Off unless STOCKS_VENUE=0x AND every one of STOCKS_0X_API_KEY and
+     * STOCKS_0X_ALLOWED_TARGETS (comma-separated contract addresses the treasury may call or
+     * approve, from 0x's documentation) is set, with the Privy treasury wallet configured.
+     */
+    venue: {
+      kind: process.env.STOCKS_VENUE || "",
+      zeroExApiKey: process.env.STOCKS_0X_API_KEY || "",
+      zeroExAllowedTargets: (process.env.STOCKS_0X_ALLOWED_TARGETS || "").split(",").map((a) => a.trim()).filter(Boolean),
+      zeroExBaseUrl: process.env.STOCKS_0X_BASE_URL || "https://api.0x.org",
+    },
+    /** Smallest and largest single order, in USD. */
+    minOrderUsd: Number(process.env.STOCKS_MIN_ORDER_USD || 5),
+    maxOrderUsd: Number(process.env.STOCKS_MAX_ORDER_USD || 500),
+    /** The price a buy may fill below its quote before the venue must refuse it, in basis points (100 = 1%). */
+    maxSlippageBps: Number(process.env.STOCKS_MAX_SLIPPAGE_BPS || 100),
+    /** An order whose quoted price impact is above this is refused before any money moves. */
+    maxPriceImpactBps: Number(process.env.STOCKS_MAX_PRICE_IMPACT_BPS || 150),
     apiUrl: process.env.STOCKS_API_URL || "https://api.coinbase.com/v1/tokenized-stocks",
     cacheSeconds: Number(process.env.STOCKS_CACHE_SECONDS || 300),
     navMaxAgeSeconds: Number(process.env.STOCKS_NAV_MAX_AGE_SECONDS || 86400),

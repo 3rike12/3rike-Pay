@@ -188,6 +188,13 @@ export class PositionLedger {
     return (await prisma.stockPosition.findMany({ where: { userId, units: { gt: 0n } } })) as PositionRow[];
   }
 
+  /** Everyone who holds some of a token. */
+  async holders(tokenAddress: string): Promise<Array<{ userId: string; units: bigint }>> {
+    if (!ADDRESS_RE.test(tokenAddress)) return [];
+    const rows = await prisma.stockPosition.findMany({ where: { tokenAddress: tokenAddress.toLowerCase(), units: { gt: 0n } } });
+    return rows.map((r) => ({ userId: r.userId, units: r.units }));
+  }
+
   /** What every user owns of each token together: what the treasury must hold. */
   async totals(): Promise<Array<{ tokenAddress: string; units: bigint }>> {
     const rows = await prisma.stockPosition.groupBy({ by: ["tokenAddress"], _sum: { units: true } });
