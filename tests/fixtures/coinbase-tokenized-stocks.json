@@ -1,0 +1,72 @@
+{
+  "tokens": [
+    {
+      "contract_address": "0xb20000000000000000000006f910a0e7BBD3c168",
+      "symbol": "APPc",
+      "name": "AppLovin Corporation",
+      "decimals": 8,
+      "icon_url": "https://metadata.coinbase.com/equity_icons/<redacted>.png",
+      "total_supply": 66.01157522,
+      "isin": "US03831W1080",
+      "multiplier": 1,
+      "description": "(trimmed: the real field is several paragraphs of legal text)",
+      "first_mint_date": "2026-10-23T14:02:09Z",
+      "adgm_isin": "AE000A4AXWZ9"
+    },
+    {
+      "contract_address": "0xB2000000000000000000000d8Ce462E99ee7A47B",
+      "symbol": "AMDc",
+      "name": "Advanced Micro Devices, Inc.",
+      "decimals": 8,
+      "icon_url": "https://metadata.coinbase.com/equity_icons/<redacted>.png",
+      "total_supply": 1414.16918337,
+      "isin": "US0079031078",
+      "multiplier": 1,
+      "description": "(trimmed: the real field is several paragraphs of legal text)",
+      "first_mint_date": "2026-09-28T13:52:51Z",
+      "adgm_isin": "AE000A4AXG24"
+    },
+    {
+      "contract_address": "0xb20000000000000000000016e38FD364d271Ba28",
+      "symbol": "ANTc",
+      "name": "Anthropic, PBC",
+      "decimals": 8,
+      "icon_url": "https://metadata.coinbase.com/equity_icons/<redacted>.png",
+      "total_supply": 14935.96406155,
+      "isin": "US03703U1079",
+      "multiplier": 1,
+      "nav_price": 89.43390271,
+      "nav_price_updated_at": "2026-11-23T02:32:12Z",
+      "description": "(trimmed: the real field is several paragraphs of legal text)",
+      "first_mint_date": "2026-11-19T16:52:08Z",
+      "adgm_isin": "AE000A4AYQY2"
+    },
+    {
+      "contract_address": "0xb20000000000000000000016f9dfe862feBA122b",
+      "symbol": "BEc",
+      "name": "Bloom Energy Corporation",
+      "decimals": 8,
+      "icon_url": "https://metadata.coinbase.com/equity_icons/<redacted>.png",
+      "total_supply": 1630.98802313,
+      "isin": "US0937121079",
+      "multiplier": 1,
+      "description": "(trimmed: the real field is several paragraphs of legal text)",
+      "first_mint_date": "2026-09-28T13:56:45Z",
+      "adgm_isin": "AE000A4AXG16"
+    },
+    {
+      "contract_address": "0xB20000000000000000000017BB66E9301E913A99",
+      "symbol": "SANc",
+      "name": "Banco Santander, S.A.",
+      "decimals": 8,
+      "icon_url": "https://metadata.coinbase.com/equity_icons/<redacted>.png",
+      "total_supply": 2491,
+      "isin": "US05964H1059",
+      "multiplier": 1.0105710788687274,
+      "description": "(trimmed: the real field is several paragraphs of legal text)",
+      "first_mint_date": "2026-10-09T19:00:57Z",
+      "adgm_isin": "AE000A4AXSB8"
+    }
+  ],
+  "next_page_token": "MHhiMjAwMDAwMDAwMDAwMDAwMDAwMDAwMTdiYjY2ZTkzMDFlOTEzYTk5"
+}

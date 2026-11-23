@@ -20,16 +20,25 @@ const logger = createLogger("stocks");
 //  - A price carries its timestamp. Feeds run 24/5 and hold their last value off
 //    hours, so a price is stale when it is older than STOCKS_NAV_MAX_AGE_SECONDS.
 //
-// NOTE: field names are read from Coinbase's documentation (address, symbol,
-// name, decimals, multiplier, nav_price, nav_price_updated_at, isin). They have
-// not yet been checked against a live response; normalizeStock accepts the
-// common alternatives and logs the keys it saw when it drops a record.
+// Shape, checked against a live response (2026-11-23): `{ tokens: [...],
+// next_page_token }`, each token with contract_address, symbol, name, decimals,
+// total_supply, isin, adgm_isin, multiplier, first_mint_date, icon_url,
+// description, and nav_price + nav_price_updated_at on SOME tokens only (a token
+// with no price has none until its feed publishes). Symbols carry a lowercase
+// "c" (APPc, AMDc): that is the token's symbol; the company ticker is without it.
+// Decimals are 8, not 18, which is why they are always read from the data.
+// normalizeStock also accepts a few alternative field names and logs the keys it
+// saw when it drops a record, so a future change shows up as an error, not as
+// wrong data.
 // ============================================
 
 export interface StockToken {
   /** Lower-case 0x address: the identity. */
   address: string;
+  /** The token's own symbol as published, e.g. "APPc". */
   symbol: string;
+  /** The company ticker people say: the symbol without the trailing "c", e.g. "APP". */
+  ticker: string;
   name: string;
   decimals: number;
   /** Shares per token. 1 until a dividend or split changes it. */
@@ -54,6 +63,12 @@ export function parseMultiplier(v: unknown): number | null {
   return n > 1e6 ? n / 1e18 : n;
 }
 
+/** "APPc" -> "APP". Only a trailing lowercase "c" after capitals is the token suffix. */
+export function tickerOf(symbol: string): string {
+  const m = symbol.match(/^([A-Z0-9.\-]+)c$/);
+  return m ? m[1] : symbol;
+}
+
 export function normalizeStock(raw: any): StockToken | null {
   const address = pick(raw, ["address", "contract_address", "token_address"]);
   const decimals = Number(pick(raw, ["decimals"]));
@@ -67,7 +82,8 @@ export function normalizeStock(raw: any): StockToken | null {
   const nav = Number(pick(raw, ["nav_price", "navPrice"]));
   return {
     address: address.toLowerCase(),
-    symbol: symbol.toUpperCase(),
+    symbol,
+    ticker: tickerOf(symbol),
     name: String(pick(raw, ["name"]) ?? symbol).trim(),
     decimals,
     // No multiplier given means none applied yet: 1.
@@ -101,7 +117,7 @@ export async function fetchAllStocks(fetcher: Fetcher = defaultFetch): Promise<S
     const res = await fetcher(url);
     if (!res.ok) throw new Error(`Stocks API failed (${res.status})`);
     const body = await res.json();
-    const records: any[] = Array.isArray(body) ? body : (body?.tokenized_stocks ?? body?.stocks ?? body?.data ?? body?.records ?? []);
+    const records: any[] = Array.isArray(body) ? body : (body?.tokens ?? body?.tokenized_stocks ?? body?.stocks ?? body?.data ?? body?.records ?? []);
     for (const r of records) {
       const s = normalizeStock(r);
       if (s) out.push(s);
@@ -159,7 +175,8 @@ export function findStock(stocks: StockToken[], query: string): Lookup {
     const hit = stocks.find((s) => s.address === query.trim().toLowerCase());
     return hit ? { kind: "found", stock: hit } : { kind: "none" };
   }
-  const bySymbol = stocks.filter((s) => norm(s.symbol) === q);
+  // By the token's symbol ("appc") or the company ticker ("app").
+  const bySymbol = stocks.filter((s) => norm(s.symbol) === q || norm(s.ticker) === q);
   if (bySymbol.length === 1) return { kind: "found", stock: bySymbol[0] };
   if (bySymbol.length > 1) return { kind: "ambiguous", matches: bySymbol };
 
