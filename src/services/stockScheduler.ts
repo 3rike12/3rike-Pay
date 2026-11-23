@@ -7,6 +7,7 @@ import { prismaAlertStore } from "@/services/stockAlertStore";
 import { getStocks } from "@/services/stocks";
 import { positions } from "@/services/positions";
 import { recordPrices, prismaPriceStore } from "@/services/priceHistory";
+import { runRebalanceChecks } from "@/services/rebalanceAlerts";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("stock-scheduler");
@@ -44,6 +45,13 @@ export async function runStockJobs(deps: SchedulerDeps): Promise<{ stuck: number
     } catch (error: any) {
       // A failing alert pass must never stop orders and schedules from being resolved.
       logger.error("Stock alerts failed", { error: error?.message });
+    }
+  }
+  if (deps.notifyUser) {
+    try {
+      alerted += (await runRebalanceChecks({ notify: deps.notifyUser })).sent;
+    } catch (error: any) {
+      logger.error("Rebalance checks failed", { error: error?.message });
     }
   }
   if (!getStockVenue()) return alerted ? { stuck: 0, ran: 0, alerted } : null;

@@ -526,3 +526,26 @@ model StockPricePoint {
   @@unique([tokenAddress, observedAt])
   @@index([tokenAddress, observedAt])
 }
+
+// ============================================
+// Target mix ("keep me 40% Nvidia, 35% Microsoft, 25% Apple") and the rule that
+// invests a share of each paid invoice. The agent proposes rebalances; the person
+// confirms. Nothing here trades by itself.
+// ============================================
+model StockTarget {
+  id           String   @id @default(uuid())
+  userId       String
+  tokenAddress String
+  percent      Float
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, tokenAddress])
+  @@index([userId])
+}
+
+model StockSweep {
+  userId       String   @id
+  percent      Float                       // share of each paid invoice to invest
+  tokenAddress String?                     // one stock; empty means follow the target mix
+  createdAt    DateTime @default(now())
+}

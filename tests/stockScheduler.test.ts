@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/config", () => ({ config: { logLevel: "silent" } }));
+vi.mock("@/services/rebalanceAlerts", () => ({ runRebalanceChecks: async () => ({ checked: 0, sent: 0 }) }));
 
 const lock = vi.hoisted(() => ({ held: false, acquired: 0, released: 0 }));
 vi.mock("@/utils/idempotency", () => ({
