@@ -322,7 +322,7 @@ model PaymentIntent {
   // Set while a direct USDC payment is open: the exact tagged amount that identifies it
   // (usdc-base:<units>). Unique, so two open payments can never share an amount. Cleared when final.
   openKey   String?  @unique
-  payload   Json     @default("{}")
+  payload   Json    
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -341,7 +341,7 @@ model RailEvent {
   providerStatus String
   dedupeKey      String        @default("")
   applied        Boolean       @default(true) // false: refused as a conflict, kept for audit
-  detail         Json          @default("{}")
+  detail         Json         
   receivedAt     DateTime      @default(now())
 
   @@unique([intentId, type, dedupeKey])

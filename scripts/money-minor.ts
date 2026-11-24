@@ -1,6 +1,8 @@
 // Minor-unit (integer money) migration tool.
 //   npm run money:minor                 check the ledgers (drift, negatives, stock positions, token cover); change nothing
 //   npm run money:minor -- --backfill   fill the minor columns on rows written before dual-writing
+//   npm run money:minor -- --opening    show what the opening-balance step would post (changes nothing)
+//   npm run money:minor -- --opening --apply   post it, so balances from before double-entry are explained
 //
 // Run the backfill, then the report, until it says "no drift". Only then is it
 // safe to set MONEY_READS=minor, which reads balances from the integer columns.
@@ -10,11 +12,19 @@ import { backfillMinor, findLedgerSumDrift, findTransactionDrift, findWalletDrif
 import { countLegacyEntries, findNegativeWallets, findPositionProblems, findUnbalancedJournals, findZeroSumBreaks } from "@/services/ledgerVerify";
 import { stockSolvency } from "@/services/stockSolvency";
 import { gatherTrialBalance } from "@/services/trialBalance";
+import { postOpeningBalances } from "@/services/ledgerOpening";
 
 (async () => {
   if (process.argv.includes("--backfill")) {
     const done = await backfillMinor();
     console.log(`Backfilled ${done.wallets} wallet(s), ${done.entries} ledger entr${done.entries === 1 ? "y" : "ies"} and ${done.transactions} transaction(s).`);
+  }
+
+  if (process.argv.includes("--opening")) {
+    const apply = process.argv.includes("--apply");
+    const r = await postOpeningBalances({ apply });
+    console.log(`${apply ? "Posted" : "Would post"} opening balances for ${r.wallets} wallet(s). Opening account by currency: ${JSON.stringify(r.byCurrency)}`);
+    if (!apply) console.log("Nothing was changed. Add --apply to post them.");
   }
 
   const wallets = await findWalletDrift();
