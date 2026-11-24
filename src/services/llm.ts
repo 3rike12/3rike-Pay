@@ -75,6 +75,10 @@ export interface OpenAiCompatibleOptions {
   reasoningEffort?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** How many times to try a request that fails in a way that often clears up. Default 3. */
+  attempts?: number;
+  /** Wait between tries; replaceable so tests need not wait. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** A model whose terms say it trains on what it is sent. Never allowed. */
@@ -108,9 +112,30 @@ export function createOpenAiCompatibleClient(o: OpenAiCompatibleOptions): LlmCli
     throw new Error(`Refusing to use "${o.model}": it trains on what it is sent. Use the non-contributor model.`);
   }
   const doFetch = o.fetchImpl ?? fetch;
+  const attempts = Math.max(1, o.attempts ?? 3);
+  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  /**
+   * A provider can answer "model not found" (404), rate-limit (429) or fail (5xx) for a moment and then be fine,
+   * and a request is safe to repeat (it only reads). So those are tried again after a short wait. A timeout is NOT
+   * retried (it is already slow), and neither is a bad request or a bad key.
+   */
+  async function request(messages: unknown[], maxTokens: number, tools?: ToolSpec[]): Promise<any> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await requestOnce(messages, maxTokens, tools);
+      } catch (error) {
+        const status = error instanceof LlmError ? error.status : undefined;
+        const transient = status === 404 || status === 429 || (status !== undefined && status >= 500);
+        if (!transient || attempt >= attempts) throw error;
+        logger.warn("Model request failed; trying again", { status, attempt, of: attempts });
+        await sleep(400 * 2 ** (attempt - 1));
+      }
+    }
+  }
 
   /** One request; returns the first choice. Shared by `complete` and `chat`. */
-  async function request(messages: unknown[], maxTokens: number, tools?: ToolSpec[]): Promise<any> {
+  async function requestOnce(messages: unknown[], maxTokens: number, tools?: ToolSpec[]): Promise<any> {
     const body: Record<string, unknown> = {
       model: o.model,
       messages,

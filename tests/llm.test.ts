@@ -193,3 +193,60 @@ describe("verifyConfiguredModel", () => {
     expect(await verifyConfiguredModel((async () => { throw new Error("net"); }) as any)).toBe("unchecked");
   });
 });
+
+describe("retrying what often clears up", () => {
+  const reply = (status: number) =>
+    status === 200
+      ? { ok: true, status, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "hi" } }] }) }
+      : { ok: false, status, json: async () => ({ error: { message: "The requested model was not found." } }) };
+  const sequence = (...statuses: number[]) => {
+    let i = 0;
+    return vi.fn(async () => reply(statuses[Math.min(i++, statuses.length - 1)])) as any;
+  };
+  const make = (fetchImpl: any, attempts?: number) =>
+    createOpenAiCompatibleClient({ apiKey: "k", baseUrl: "https://api.test/v1", model: "m", fetchImpl, attempts, sleep: async () => {} });
+  const ask = (c: any) => c.complete([{ role: "user", content: "q" }]);
+
+  it("a model-not-found that clears up on the next try gives the answer", async () => {
+    const f = sequence(404, 200);
+    expect(await ask(make(f))).toBe("hi");
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it("rate limits and server errors are tried again too", async () => {
+    expect(await ask(make(sequence(429, 503, 200)))).toBe("hi");
+  });
+
+  it("a real, lasting 404 still ends in the same error, after three tries and not more", async () => {
+    const f = sequence(404);
+    await expect(ask(make(f))).rejects.toThrow(/^Model returned 404$/);
+    expect(f).toHaveBeenCalledTimes(3);
+  });
+
+  it("a bad request, a bad key and a refusal are NOT retried", async () => {
+    for (const status of [400, 401, 403, 422]) {
+      const f = sequence(status);
+      await expect(ask(make(f))).rejects.toThrow(String(status));
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("a timeout is not retried, because it is already slow", async () => {
+    const f = vi.fn(async () => { throw Object.assign(new Error("t"), { name: "TimeoutError" }); }) as any;
+    await expect(ask(make(f))).rejects.toThrow("timed out");
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it("the number of tries can be set, including just one", async () => {
+    const f = sequence(404);
+    await expect(ask(make(f, 1))).rejects.toThrow("404");
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it("chat with tools retries the same way", async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce(reply(404))
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "done" } }] }) }) as any;
+    expect((await make(f).chat([{ role: "user", content: "q" }])).content).toBe("done");
+  });
+});
