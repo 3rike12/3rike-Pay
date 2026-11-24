@@ -51,6 +51,11 @@ export type StockRequest =
   /** "invest 10% of my sales in nvidia": put a share of every paid invoice into stocks. */
   | { intent: "set_sweep"; percent: number; query?: string }
   | { intent: "stop_sweep" }
+  /** "how do stocks work": explain what they can say. */
+  | { intent: "stocks_help" }
+  /** They want to buy or sell but did not say how much (or what): a nudge, never an order. */
+  | { intent: "buy_hint"; query?: string }
+  | { intent: "sell_hint"; query?: string }
   | { intent: "alerts_off" }
   | { intent: "alerts_on" }
   | { intent: "quote"; query: string }
@@ -61,7 +66,7 @@ const WEEKDAYS: Record<string, number> = {
 };
 
 /** Words that carry no meaning for finding the stock. */
-const FILLER = new Set([
+export const FILLER = new Set([
   "of", "in", "into", "on", "to", "for", "with", "from", "at", "the", "a", "an", "some", "my", "me", "i", "please", "pls",
   "stock", "stocks", "share", "shares", "worth", "now", "today", "balance", "using", "use", "it", "and", "then", "just",
   "can", "you", "could", "would", "want", "wanna", "need", "like", "lets", "let's", "us", "tokenized", "token",
@@ -74,7 +79,7 @@ const NUMBER_WORDS = new Set([
 ]);
 
 /** Pull a currency out of the text and remove the words that named it. */
-function takeCurrency(text: string): { text: string; currency?: NamedCurrency } {
+export function takeCurrency(text: string): { text: string; currency?: NamedCurrency } {
   let currency: NamedCurrency | undefined;
   const rules: Array<[RegExp, NamedCurrency]> = [
     [/\$|\busd\b|\bdollars?\b|\bbucks?\b/gi, "USD"],
@@ -133,7 +138,7 @@ function takeSchedule(text: string): { text: string; schedule?: Schedule } {
 }
 
 /** First money amount in the text, and the text with it removed. Handles 5000, 5,000, 5k, 1.5k and "five thousand". */
-function takeAmount(text: string): { text: string; amount?: number } {
+export function takeAmount(text: string): { text: string; amount?: number } {
   const numeric = text.match(/\d[\d,]*(?:\.\d+)?\s?(?:k|kay|m|mil|milla)?\b/i);
   if (numeric) {
     const amount = parseAmountFromText(numeric[0]);
@@ -150,7 +155,7 @@ function takeAmount(text: string): { text: string; amount?: number } {
   return { text };
 }
 
-function cleanQuery(text: string): string {
+export function cleanQuery(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9.\s]/g, " ")
@@ -163,13 +168,13 @@ function cleanQuery(text: string): string {
 /** Words that make a question a research question, and the words around a stock name that are not part of it. */
 const RESEARCH_RE = /\b(why (is|are|did|does|has|have|was|were)|explain|should i (buy|sell|hold|keep|get)|worth (buying|it|holding)|good (buy|investment|stock|time)|bad (buy|investment|stock)|how risky|risks?\b|risky|compare|versus|analy[sz]e|analysis|what do you think|is it (a )?(good|bad|safe)|is .{1,30} (a )?(good|bad|safe|worth))|\bvs\.?\b/i;
 const PLAN_RE = /\b(what|which|where)\b.{0,25}\bshould i (buy|invest|put|start|get)\b|\b(build|make|create|suggest|recommend|plan|draw up)\b.{0,25}\b(portfolio|plan)\b|\bi have (?:[$₦]|usd|ngn|kes|tzs)?\s?\d[\d,.]*\s?(k|m)?\b.{0,20}\b(a|per|each|every) (day|week|month)\b.{0,40}\b(buy|invest|put|stocks?)|\bwhat can i (buy|invest in) with\b/i;
-const RESEARCH_FILLER = new Set([
+export const RESEARCH_FILLER = new Set([
   "why", "is", "are", "did", "does", "has", "have", "was", "were", "up", "down", "going", "good", "bad", "worth", "buying", "holding", "hold", "keep", "buy", "sell",
   "get", "risk", "risks", "risky", "safe", "how", "compare", "versus", "vs", "explain", "analyze", "analyse", "analysis", "think", "about", "price", "prices", "time",
   "investment", "should", "what", "do", "you", "or", "than", "better", "move", "moved", "moving", "happening", "dropped", "fallen", "rising", "falling", "go", "went", "goes", "gone", "doing", "today", "lately", "so", "much", "wrong",
 ]);
 
-function researchQueries(raw: string): string[] {
+export function researchQueries(raw: string): string[] {
   // Numbers, emails and links a person pasted in are never part of a stock's name.
   const lower = raw
     .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, " ")
@@ -184,6 +189,13 @@ function researchQueries(raw: string): string[] {
   }
   return out.slice(0, 3);
 }
+
+/** Words for other parts of the app. "buy airtime for 500" is not a stock called airtime. */
+const NOT_A_STOCK = new Set([
+  "airtime", "data", "bundle", "bundles", "electricity", "cable", "tv", "bill", "bills", "invoice", "invoices", "product", "products",
+  "customer", "customers", "wallet", "bank", "account", "cashout", "withdraw", "withdrawal", "money", "funds", "usdc", "usdt", "crypto", "eth", "btc", "bitcoin",
+]);
+const notAStock = (query: string) => query.split(" ").every((w) => NOT_A_STOCK.has(w));
 
 const BUY = /\b(buy|buying|purchase|invest|investing|put)\b|\bget me\b|\bpick up\b|\bstack up on\b|\btop up my\b/i;
 const SELL = /\b(sell|selling|dump|exit)\b/i;
@@ -249,7 +261,7 @@ export function parseStockRequest(input: string): StockRequest | null {
   if (RESEARCH_RE.test(lower)) return { intent: "research", question: text, queries: researchQueries(lower) };
 
   // What do I own.
-  if (/\b(my (stocks?|portfolio|holdings|shares|investments?)|portfolio|holdings|what (do i|stocks do i) (own|have|hold))\b/.test(lower)) {
+  if (!SELL.test(lower) && !BUY.test(lower) && /\b(my (stocks?|portfolio|holdings|shares|investments?)|portfolio|holdings|what (do i|stocks do i) (own|have|hold))\b/.test(lower)) {
     return { intent: "holdings" };
   }
 
@@ -267,7 +279,7 @@ export function parseStockRequest(input: string): StockRequest | null {
           : undefined;
     const { text: rest, amount } = fraction ? { text: noSchedule, amount: undefined } : takeAmount(noSchedule);
     const query = cleanQuery(rest.replace(/\b(sell|selling|dump|exit|all|everything|entire|whole|half|quarter)\b/gi, " "));
-    if (!query) return null;
+    if (!query || notAStock(query)) return null;
     if (fraction === undefined && amount === undefined) return { intent: "sell", query }; // asks how much
     return { intent: "sell", query, ...(amount !== undefined ? { amount, ...(currency ? { currency } : {}) } : {}), ...(fraction !== undefined ? { fraction } : {}) };
   }
@@ -278,7 +290,7 @@ export function parseStockRequest(input: string): StockRequest | null {
     const query = cleanQuery(rest.replace(BUY, " ").replace(/\b(buy|buying|purchase|invest|investing|put|get me|pick up|stack up on|top up my)\b/gi, " "));
     // With no stock or no amount there is nothing safe to propose. Fall through
     // rather than give up: "what stocks can i buy" contains "buy" but is a list request.
-    if (query && amount !== undefined) {
+    if (query && !notAStock(query) && amount !== undefined) {
       if (schedule) return { intent: "recurring_buy", query, amount, ...(currency ? { currency } : {}), schedule };
       return { intent: "buy", query, amount, ...(currency ? { currency } : {}) };
     }
@@ -288,7 +300,7 @@ export function parseStockRequest(input: string): StockRequest | null {
   if (schedule) {
     const { text: rest, amount } = takeAmount(noSchedule);
     const query = cleanQuery(rest);
-    if (amount !== undefined && query) return { intent: "recurring_buy", query, amount, ...(currency ? { currency } : {}), schedule };
+    if (amount !== undefined && query && !notAStock(query)) return { intent: "recurring_buy", query, amount, ...(currency ? { currency } : {}), schedule };
     return null;
   }
 
@@ -296,7 +308,7 @@ export function parseStockRequest(input: string): StockRequest | null {
   const ask = lower.match(/\b(?:price (?:of|for)|how(?:'s| is| are| has| have)|what(?:'s| is) (?:the )?(?:price (?:of|for)|happening with|going on with)|tell me about|news (?:on|about)|update (?:on|about)|analy[sz]e|analysis (?:of|on)|thoughts on|is .+ (?:up|down))\b(.*)$/);
   if (ask) {
     const query = cleanQuery(ask[1].replace(/\b(doing|going|performing|trading|today|lately|this week|looking|up|down)\b/g, " "));
-    if (query) return { intent: "quote", query };
+    if (query && !notAStock(query)) return { intent: "quote", query };
   }
 
   // The bare list.

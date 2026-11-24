@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "@/config";
 import { createLogger } from "@/utils/logger";
+import { closeWords } from "@/nlp/fuzzy";
 
 const logger = createLogger("stocks");
 
@@ -235,7 +236,8 @@ const SUFFIXES = /\b(inc|incorporated|corp|corporation|co|company|plc|ltd|holdin
 const simpleName = (s: string) => norm(s).replace(SUFFIXES, "").replace(/\s+/g, " ").trim();
 
 export type Lookup =
-  | { kind: "found"; stock: StockToken }
+  /** `fuzzy` is set when we matched a misspelling, so the caller can say what it assumed. */
+  | { kind: "found"; stock: StockToken; fuzzy?: true }
   | { kind: "ambiguous"; matches: StockToken[] }
   | { kind: "none" };
 
@@ -268,7 +270,35 @@ export function findStock(stocks: StockToken[], query: string): Lookup {
   });
   if (partial.length === 1) return { kind: "found", stock: partial[0] };
   if (partial.length > 1) return { kind: "ambiguous", matches: partial };
+
+  // A misspelling: "nvdia", "teslaa". Only for words long enough to tell apart, and only if one stock is clearly closest.
+  const queryWords = simpleName(q).split(" ").filter((w) => w.length >= 4);
+  if (queryWords.length) {
+    const scored: Array<{ stock: StockToken; distance: number }> = [];
+    for (const s of stocks) {
+      const vocab = new Set([norm(s.ticker), norm(s.symbol), ...simpleName(s.name).split(" ")].filter((w) => w.length >= 4));
+      let best = Infinity;
+      for (const w of queryWords) for (const c of closeWords(w, vocab)) best = Math.min(best, c.distance);
+      if (best < Infinity) scored.push({ stock: s, distance: best });
+    }
+    const min = Math.min(...scored.map((x) => x.distance));
+    const nearest = scored.filter((x) => x.distance === min);
+    if (nearest.length === 1) return { kind: "found", stock: nearest[0].stock, fuzzy: true };
+    if (nearest.length > 1) return { kind: "ambiguous", matches: nearest.map((x) => x.stock) };
+  }
   return { kind: "none" };
+}
+
+let savedWords: string[] | null = null;
+const wordsOf = (list: StockToken[]) => list.flatMap((s) => [norm(s.ticker), ...simpleName(s.name).split(" ")]).filter(Boolean);
+
+/**
+ * Tickers and company words we know about, with no network: the live list if it has been fetched, else the
+ * saved copy on disk. Used to recognise a stock name in a message before anything is looked up.
+ */
+export function knownStockWords(): string[] {
+  if (cached?.stocks) return wordsOf(cached.stocks);
+  return (savedWords ??= wordsOf(loadSnapshot()));
 }
 
 /** Shares held for a raw on-chain balance: raw units / 10^decimals x multiplier (what balanceOfUI returns). */
