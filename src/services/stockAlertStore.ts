@@ -14,6 +14,9 @@ export const prismaAlertStore: AlertStore & { optOut(userId: string): Promise<vo
     await db().stockSnapshot.upsert({ where: { tokenAddress }, create: s, update: data });
   },
   async claim(key, userId, kind) {
+    // Look first: a claim that is already taken is the normal case (the same alert is considered on every pass),
+    // and a failed insert is logged by Prisma as an error even when we handle it.
+    if (await db().stockAlert.findUnique({ where: { key } })) return false;
     try {
       await db().stockAlert.create({ data: { key, userId, kind } });
       return true;

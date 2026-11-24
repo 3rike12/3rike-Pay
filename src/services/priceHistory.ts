@@ -112,13 +112,41 @@ export function computeStats(points: PricePoint[], now = new Date()): PriceStats
   };
 }
 
+/**
+ * Data points we already know are saved. The background pass runs every minute but a feed publishes a new
+ * price only now and then, so most attempts are repeats. Remembering them avoids even asking the database.
+ */
+const SEEN_LIMIT = 5000;
+const seen = new Set<string>();
+const remember = (key: string) => {
+  if (seen.size >= SEEN_LIMIT) seen.delete(seen.values().next().value as string); // oldest first
+  seen.add(key);
+};
+/** For tests. */
+export const forgetSeenPrices = () => seen.clear();
+
 export const prismaPriceStore: PriceStore = {
   async record(point) {
+    const key = `${point.tokenAddress}@${point.observedAt.getTime()}`;
+    if (seen.has(key)) return false;
+    const table = (prisma as any).stockPricePoint;
+    // Ask first rather than insert and catch the duplicate: Prisma writes every failed insert to the log as an
+    // error even when we handle it, which would bury real errors under one line per token per minute.
+    const where = { tokenAddress_observedAt: { tokenAddress: point.tokenAddress, observedAt: point.observedAt } };
+    if (await table.findUnique({ where })) {
+      remember(key);
+      return false;
+    }
     try {
-      await (prisma as any).stockPricePoint.create({ data: point });
+      await table.create({ data: point });
+      remember(key);
       return true;
     } catch (error) {
-      if ((error as { code?: string })?.code === "P2002") return false;
+      // Another instance saved it between the check and the insert: rare, and fine.
+      if ((error as { code?: string })?.code === "P2002") {
+        remember(key);
+        return false;
+      }
       throw error;
     }
   },
