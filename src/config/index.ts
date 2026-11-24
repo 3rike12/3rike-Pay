@@ -232,8 +232,14 @@ export const config = {
     apiKey: process.env.STOCKS_LLM_API_KEY || process.env.MODEL_API_KEY || "",
     baseUrl: (process.env.STOCKS_LLM_BASE_URL || "https://api.meta.ai/v1").replace(/\/$/, ""),
     model: process.env.STOCKS_LLM_MODEL || "muse-spark-1.3",
-    reasoningEffort: process.env.STOCKS_LLM_REASONING_EFFORT || "",
+    reasoningEffort: process.env.STOCKS_LLM_REASONING_EFFORT || "low", // the model thinks before answering and that counts against the token limit
     dailyLimit: Number(process.env.STOCKS_LLM_DAILY_LIMIT || 20),
+  },
+
+  /** Recent news and earnings for the research assistant (Finnhub). Off without a key; the assistant then says it cannot see news. */
+  research: {
+    newsApiKey: process.env.STOCKS_NEWS_API_KEY || "",
+    newsBaseUrl: (process.env.STOCKS_NEWS_BASE_URL || "https://finnhub.io/api/v1").replace(/\/$/, ""),
   },
 
   stocks: {
@@ -256,6 +262,8 @@ export const config = {
     /** An order whose quoted price impact is above this is refused before any money moves. */
     maxPriceImpactBps: Number(process.env.STOCKS_MAX_PRICE_IMPACT_BPS || 150),
     apiUrl: process.env.STOCKS_API_URL || "https://api.coinbase.com/v1/tokenized-stocks",
+    /** Where the last good stock list is kept, so the app still has stocks when Coinbase cannot be reached. Empty turns it off. */
+    snapshotPath: process.env.STOCKS_SNAPSHOT_PATH ?? "data/stocks.snapshot.json",
     cacheSeconds: Number(process.env.STOCKS_CACHE_SECONDS || 300),
     navMaxAgeSeconds: Number(process.env.STOCKS_NAV_MAX_AGE_SECONDS || 86400),
     blockUs: process.env.STOCKS_BLOCK_US !== "false",

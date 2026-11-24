@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { config } from "@/config";
 import { createLogger } from "@/utils/logger";
 
@@ -111,6 +113,60 @@ export function resetStockCache() {
   cached = null;
 }
 
+// --------------------------------------------
+// A copy on disk, for when the API cannot be reached
+//
+// Reference data only (address, name, ticker, decimals, multiplier). Prices are left out on
+// purpose: they go stale in minutes, and a price is only ever trusted with a fresh timestamp.
+// Written only when the list actually changes, so a committed copy does not churn.
+// --------------------------------------------
+
+export type SnapshotFs = Pick<typeof fs, "readFileSync" | "writeFileSync" | "renameSync" | "mkdirSync" | "existsSync">;
+
+const snapshotFile = (): string | null => {
+  const p = (config as any).stocks?.snapshotPath;
+  return typeof p === "string" && p ? path.resolve(process.cwd(), p) : null;
+};
+
+const ADDRESS = /^0x[0-9a-f]{40}$/;
+const forDisk = (s: StockToken): StockToken => ({ ...s, navPrice: null, navUpdatedAt: null });
+
+/** Keep a record only if it is still something we would have accepted from the API. */
+const usable = (r: any): r is StockToken =>
+  !!r && typeof r.address === "string" && ADDRESS.test(r.address) && Number.isInteger(r.decimals) && r.decimals >= 0 && r.decimals <= 36 &&
+  typeof r.ticker === "string" && r.ticker !== "" && typeof r.name === "string" && Number.isFinite(r.multiplier) && r.multiplier > 0;
+
+/** The saved list. Empty if there is no file, or it cannot be read. */
+export function loadSnapshot(fsImpl: SnapshotFs = fs, file: string | null = snapshotFile()): StockToken[] {
+  if (!file) return [];
+  try {
+    if (!fsImpl.existsSync(file)) return [];
+    const body = JSON.parse(String(fsImpl.readFileSync(file, "utf8")));
+    return (Array.isArray(body?.stocks) ? body.stocks : []).filter(usable).map(forDisk);
+  } catch (error: any) {
+    logger.warn("Could not read the saved stock list", { error: error?.message });
+    return [];
+  }
+}
+
+/** Save the list if it differs from what is saved. Returns true when it wrote. Never throws. */
+export function saveSnapshot(stocks: StockToken[], fsImpl: SnapshotFs = fs, file: string | null = snapshotFile()): boolean {
+  if (!file || stocks.length === 0) return false;
+  try {
+    const next = stocks.map(forDisk).sort((a, b) => a.address.localeCompare(b.address));
+    const current = loadSnapshot(fsImpl, file).sort((a, b) => a.address.localeCompare(b.address));
+    if (JSON.stringify(current) === JSON.stringify(next)) return false;
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    fsImpl.writeFileSync(tmp, JSON.stringify({ savedAt: new Date().toISOString(), stocks: next }, null, 2) + "\n");
+    fsImpl.renameSync(tmp, file);
+    return true;
+  } catch (error: any) {
+    logger.warn("Could not save the stock list", { error: error?.message });
+    return false;
+  }
+}
+
 /** Every page of the list, normalised. Throws if the API cannot be read. */
 export async function fetchAllStocks(fetcher: Fetcher = defaultFetch): Promise<StockToken[]> {
   const base = (config as any).stocks?.apiUrl ?? "https://api.coinbase.com/v1/tokenized-stocks";
@@ -149,13 +205,22 @@ export async function getStocks(fetcher?: Fetcher, now = Date.now()): Promise<St
   if (cached && now - cached.at < ttl) return cached.stocks;
   try {
     const stocks = await fetchAllStocks(fetcher);
-    if (stocks.length > 0) cached = { at: now, stocks };
-    else if (cached) return cached.stocks;
+    if (stocks.length > 0) {
+      cached = { at: now, stocks };
+      saveSnapshot(stocks);
+    } else if (cached) return cached.stocks;
     return stocks;
   } catch (error: any) {
     if (cached) {
       logger.warn("Stocks API failed; serving the last good list", { error: error?.message });
       return cached.stocks;
+    }
+    // Nothing in memory (just started): use the copy on disk, and look at the API again soon.
+    const saved = loadSnapshot();
+    if (saved.length > 0) {
+      logger.warn("Stocks API failed; serving the saved stock list", { error: error?.message, count: saved.length });
+      cached = { at: now - ttl + 60_000, stocks: saved };
+      return saved;
     }
     throw error;
   }
