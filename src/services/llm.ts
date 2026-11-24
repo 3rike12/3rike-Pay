@@ -62,7 +62,14 @@ export interface ChatModel {
 }
 
 export class LlmError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(
+    message: string,
+    readonly status?: number,
+    /** True when asking again is likely to work (a malformed tool call, say). */
+    readonly retryable = false,
+    /** How long the provider asked us to wait, if it said. */
+    readonly retryAfterMs?: number
+  ) {
     super(message);
     this.name = "LlmError";
   }
@@ -126,10 +133,12 @@ export function createOpenAiCompatibleClient(o: OpenAiCompatibleOptions): LlmCli
         return await requestOnce(messages, maxTokens, tools);
       } catch (error) {
         const status = error instanceof LlmError ? error.status : undefined;
-        const transient = status === 404 || status === 429 || (status !== undefined && status >= 500);
+        const transient = (error instanceof LlmError && error.retryable) || status === 404 || status === 429 || (status !== undefined && status >= 500);
         if (!transient || attempt >= attempts) throw error;
         logger.warn("Model request failed; trying again", { status, attempt, of: attempts });
-        await sleep(400 * 2 ** (attempt - 1));
+        // The provider's own "try again in N seconds" wins over our guess, within reason.
+        const asked = error instanceof LlmError ? error.retryAfterMs : undefined;
+        await sleep(Math.min(5000, Math.max(400 * 2 ** (attempt - 1), asked ?? 0)));
       }
     }
   }
@@ -156,6 +165,19 @@ export function createOpenAiCompatibleClient(o: OpenAiCompatibleOptions): LlmCli
       throw new LlmError(`Model request failed: ${error?.name === "TimeoutError" ? "timed out" : "network error"}`);
     }
     if (!res.ok) {
+      const header = Number(res.headers?.get?.("retry-after"));
+      const retryAfterMs = Number.isFinite(header) && header > 0 ? header * 1000 : undefined;
+      // Some models now and then write a tool call in a form the provider cannot parse and report it as a 400. It
+      // is the model's own slip, not our request, and the next try usually works. Only the error CODE is read.
+      if (res.status === 400) {
+        let code: unknown;
+        try {
+          code = ((await res.json()) as any)?.error?.code;
+        } catch {
+          /* not readable */
+        }
+        if (code === "tool_use_failed") throw new LlmError("Model returned 400", 400, true);
+      }
       // A response body can echo the prompt, so it is never logged in general. For access problems (bad key,
       // no permission, unknown model) the provider's short error message says what to fix and holds no prompt.
       let detail: string | undefined;
@@ -169,7 +191,7 @@ export function createOpenAiCompatibleClient(o: OpenAiCompatibleOptions): LlmCli
         }
       }
       logger.warn("Model returned an error", { status: res.status, model: o.model, host: safeHost(o.baseUrl), ...(detail ? { detail } : {}) });
-      throw new LlmError(`Model returned ${res.status}`, res.status);
+      throw new LlmError(`Model returned ${res.status}`, res.status, false, retryAfterMs);
     }
     let json: any;
     try {

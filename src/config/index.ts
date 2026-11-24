@@ -228,13 +228,25 @@ export const config = {
    *   STOCKS_LLM_REASONING_EFFORT   optional: minimal | low | medium | high | xhigh (omitted if unset)
    *   STOCKS_LLM_DAILY_LIMIT   questions per person per day (default 20)
    */
-  llm: {
-    apiKey: process.env.STOCKS_LLM_API_KEY || process.env.MODEL_API_KEY || "",
-    baseUrl: (process.env.STOCKS_LLM_BASE_URL || "https://api.meta.ai/v1").replace(/\/$/, ""),
-    model: process.env.STOCKS_LLM_MODEL || "muse-spark-1.3",
-    reasoningEffort: process.env.STOCKS_LLM_REASONING_EFFORT || "low", // the model thinks before answering and that counts against the token limit
-    dailyLimit: Number(process.env.STOCKS_LLM_DAILY_LIMIT || 20),
-  },
+  llm: ((): { provider: string; apiKey: string; baseUrl: string; model: string; reasoningEffort: string; dailyLimit: number } => {
+    // STOCKS_LLM_PROVIDER picks sensible defaults; every value can still be set on its own.
+    //   meta (default)  Meta's Model API. A reasoning model: "low" effort keeps its thinking within the token limit.
+    //   groq            Groq's OpenAI-compatible API. Most of its models reject reasoning_effort, so none is sent.
+    const presets: Record<string, { baseUrl: string; model: string; reasoningEffort: string }> = {
+      meta: { baseUrl: "https://api.meta.ai/v1", model: "muse-spark-1.3", reasoningEffort: "low" },
+      groq: { baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", reasoningEffort: "" },
+    };
+    const provider = (process.env.STOCKS_LLM_PROVIDER || "meta").toLowerCase();
+    const preset = presets[provider] ?? presets.meta;
+    return {
+      provider: presets[provider] ? provider : "meta",
+      apiKey: process.env.STOCKS_LLM_API_KEY || (provider === "groq" ? process.env.GROQ_API_KEY : "") || process.env.MODEL_API_KEY || "",
+      baseUrl: (process.env.STOCKS_LLM_BASE_URL || preset.baseUrl).replace(/\/$/, ""),
+      model: process.env.STOCKS_LLM_MODEL || preset.model,
+      reasoningEffort: process.env.STOCKS_LLM_REASONING_EFFORT ?? preset.reasoningEffort, // an explicit empty value turns it off
+      dailyLimit: Number(process.env.STOCKS_LLM_DAILY_LIMIT || 20),
+    };
+  })(),
 
   /** Recent news and earnings for the research assistant (Finnhub). Off without a key; the assistant then says it cannot see news. */
   research: {

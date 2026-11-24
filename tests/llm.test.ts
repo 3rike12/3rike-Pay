@@ -163,11 +163,11 @@ describe("telling a missing model from a bad key", () => {
     await expect(client(failing(404, { error: { message: "model not found: m-1" } })).complete([{ role: "user", content: "a private question" }])).rejects.toThrow(/^Model returned 404$/);
   });
 
-  it("a 400 body (which can echo the prompt) is never read", async () => {
-    const json = vi.fn(async () => ({ error: { message: "bad request: a private question" } }));
-    const f = vi.fn(async () => ({ ok: false, status: 400, json })) as any;
-    await expect(client(f).complete([{ role: "user", content: "a private question" }])).rejects.toThrow("400");
-    expect(json).not.toHaveBeenCalled();
+  it("a 400 never puts the provider's text, which can echo the prompt, into the error", async () => {
+    const f = vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ error: { code: "bad_request", message: "bad request: a private question" } }) })) as any;
+    const err = await client(f).complete([{ role: "user", content: "a private question" }]).catch((e) => e);
+    expect(err.message).toBe("Model returned 400");
+    expect(f).toHaveBeenCalledTimes(1); // and an ordinary 400 is not retried
   });
 });
 
@@ -248,5 +248,34 @@ describe("retrying what often clears up", () => {
       .mockResolvedValueOnce(reply(404))
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "done" } }] }) }) as any;
     expect((await make(f).chat([{ role: "user", content: "q" }])).content).toBe("done");
+  });
+});
+
+describe("provider quirks (Groq and similar)", () => {
+  const make = (fetchImpl: any, sleeps: number[] = []) =>
+    createOpenAiCompatibleClient({ apiKey: "k", baseUrl: "https://api.test/v1", model: "m", fetchImpl, sleep: async (ms) => void sleeps.push(ms) });
+  const ok = { ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "fine" } }] }) };
+
+  it("a malformed tool call (a 400 with code tool_use_failed) is tried again, without logging what the model wrote", async () => {
+    const bad = { ok: false, status: 400, json: async () => ({ error: { code: "tool_use_failed", message: "Failed to call a function", failed_generation: "<function=x>secret</function>" } }) };
+    const f = vi.fn().mockResolvedValueOnce(bad).mockResolvedValueOnce(ok) as any;
+    expect((await make(f).complete([{ role: "user", content: "q" }]))).toBe("fine");
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits as long as the provider asks after a rate limit, but never more than 5 seconds", async () => {
+    const limited = (secs: string) => ({ ok: false, status: 429, headers: { get: (h: string) => (h === "retry-after" ? secs : null) }, json: async () => ({}) });
+    const sleeps: number[] = [];
+    await make(vi.fn().mockResolvedValueOnce(limited("3")).mockResolvedValueOnce(ok) as any, sleeps).complete([{ role: "user", content: "q" }]);
+    expect(sleeps).toEqual([3000]);
+    const long: number[] = [];
+    await make(vi.fn().mockResolvedValueOnce(limited("60")).mockResolvedValueOnce(ok) as any, long).complete([{ role: "user", content: "q" }]);
+    expect(long).toEqual([5000]);
+  });
+
+  it("sends no reasoning_effort unless one is configured", async () => {
+    const f = vi.fn(async () => ok) as any;
+    await make(f).complete([{ role: "user", content: "q" }]);
+    expect(JSON.parse(f.mock.calls[0][1].body)).not.toHaveProperty("reasoning_effort");
   });
 });
