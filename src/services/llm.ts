@@ -78,6 +78,14 @@ export interface OpenAiCompatibleOptions {
 }
 
 /** A model whose terms say it trains on what it is sent. Never allowed. */
+const safeHost = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "invalid url";
+  }
+};
+
 export const trainsOnInputs = (model: string) => /-contributor\b/i.test(model);
 
 function toWire(m: ChatMessage): Record<string, unknown> {
@@ -123,8 +131,19 @@ export function createOpenAiCompatibleClient(o: OpenAiCompatibleOptions): LlmCli
       throw new LlmError(`Model request failed: ${error?.name === "TimeoutError" ? "timed out" : "network error"}`);
     }
     if (!res.ok) {
-      // Never include the response body: it can echo the prompt.
-      logger.warn("Model returned an error", { status: res.status });
+      // A response body can echo the prompt, so it is never logged in general. For access problems (bad key,
+      // no permission, unknown model) the provider's short error message says what to fix and holds no prompt.
+      let detail: string | undefined;
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        try {
+          const body: any = await res.json();
+          const m = body?.error?.message ?? body?.message;
+          if (typeof m === "string") detail = m.replace(/\s+/g, " ").slice(0, 200);
+        } catch {
+          /* no readable message */
+        }
+      }
+      logger.warn("Model returned an error", { status: res.status, model: o.model, host: safeHost(o.baseUrl), ...(detail ? { detail } : {}) });
       throw new LlmError(`Model returned ${res.status}`, res.status);
     }
     let json: any;
@@ -170,5 +189,33 @@ export function createConfiguredLlm(): (LlmClient & ChatModel) | null {
   } catch (error: any) {
     logger.error("Could not set up the model; the research assistant stays off", { error: error?.message });
     return null;
+  }
+}
+
+/**
+ * At startup, ask the provider which models this key can use and say so in the log if the configured one is
+ * not among them. Turns a puzzling 404 on the first question into a clear line at boot. Never throws and
+ * never blocks startup; it logs the model name and host only, never the key.
+ */
+export async function verifyConfiguredModel(fetchImpl: typeof fetch = fetch): Promise<"ok" | "missing" | "unchecked" | "off"> {
+  const c = (config as any).llm ?? {};
+  if (!c.apiKey) return "off";
+  try {
+    const res = await fetchImpl(`${c.baseUrl}/models`, { headers: { Authorization: `Bearer ${c.apiKey}` }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) {
+      logger.warn("Could not check the research model", { status: res.status, host: safeHost(c.baseUrl) });
+      return "unchecked";
+    }
+    const ids: string[] = ((await res.json()) as any)?.data?.map((m: any) => String(m?.id)) ?? [];
+    if (ids.length === 0) return "unchecked";
+    if (!ids.includes(c.model)) {
+      logger.error("The configured research model is not available to this API key", { model: c.model, host: safeHost(c.baseUrl), available: ids.slice(0, 12) });
+      return "missing";
+    }
+    logger.info("Research model is available", { model: c.model, host: safeHost(c.baseUrl) });
+    return "ok";
+  } catch (error: any) {
+    logger.warn("Could not check the research model", { error: error?.name === "TimeoutError" ? "timed out" : "network error" });
+    return "unchecked";
   }
 }

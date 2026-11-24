@@ -154,3 +154,42 @@ describe("chat with tools", () => {
     await expect(client(ok({ content: null }, "length")).chat([{ role: "user", content: "q" }])).rejects.toThrow("ran out of tokens");
   });
 });
+
+describe("telling a missing model from a bad key", () => {
+  const failing = (status: number, body: any) => vi.fn(async () => ({ ok: false, status, json: async () => body })) as any;
+  const client = (fetchImpl: any) => createOpenAiCompatibleClient({ apiKey: "k", baseUrl: "https://api.test/v1", model: "m-1", fetchImpl });
+
+  it("an access error still reads 'Model returned 404' to the caller, with nothing else in the message", async () => {
+    await expect(client(failing(404, { error: { message: "model not found: m-1" } })).complete([{ role: "user", content: "a private question" }])).rejects.toThrow(/^Model returned 404$/);
+  });
+
+  it("a 400 body (which can echo the prompt) is never read", async () => {
+    const json = vi.fn(async () => ({ error: { message: "bad request: a private question" } }));
+    const f = vi.fn(async () => ({ ok: false, status: 400, json })) as any;
+    await expect(client(f).complete([{ role: "user", content: "a private question" }])).rejects.toThrow("400");
+    expect(json).not.toHaveBeenCalled();
+  });
+});
+
+describe("verifyConfiguredModel", () => {
+  const models = (ids: string[], status = 200) => vi.fn(async () => ({ ok: status === 200, status, json: async () => ({ data: ids.map((id) => ({ id })) }) })) as any;
+
+  it("is off with no key, ok when the model is listed, 'missing' when it is not", async () => {
+    const { verifyConfiguredModel } = await import("@/services/llm");
+    const { config } = await import("@/config");
+    (config as any).llm = { apiKey: "", baseUrl: "https://api.test/v1", model: "muse-spark-1.3" };
+    expect(await verifyConfiguredModel(models(["muse-spark-1.3"]))).toBe("off");
+    (config as any).llm = { apiKey: "k", baseUrl: "https://api.test/v1", model: "muse-spark-1.3" };
+    expect(await verifyConfiguredModel(models(["a", "muse-spark-1.3"]))).toBe("ok");
+    expect(await verifyConfiguredModel(models(["a", "b"]))).toBe("missing");
+  });
+
+  it("never throws: an error status, an empty list or a network failure is just 'unchecked'", async () => {
+    const { verifyConfiguredModel } = await import("@/services/llm");
+    const { config } = await import("@/config");
+    (config as any).llm = { apiKey: "k", baseUrl: "https://api.test/v1", model: "m" };
+    expect(await verifyConfiguredModel(models([], 403))).toBe("unchecked");
+    expect(await verifyConfiguredModel(models([]))).toBe("unchecked");
+    expect(await verifyConfiguredModel((async () => { throw new Error("net"); }) as any)).toBe("unchecked");
+  });
+});

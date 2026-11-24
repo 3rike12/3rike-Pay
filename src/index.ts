@@ -6,6 +6,7 @@ import { setTreasurySigner } from "@/services/withdrawal";
 import { createPrivySigner } from "@/services/privySigner";
 import { startStockScheduler } from "@/services/stockScheduler";
 import { registerConfiguredVenue } from "@/services/stockVenueSetup";
+import { verifyConfiguredModel } from "@/services/llm";
 import { announceScheduledStockRun, sendStockAlert } from "@/bot";
 import express from "express";
 import path from "path";
@@ -162,6 +163,7 @@ async function main() {
 
   // Stocks need a trading venue; without a complete configuration they stay off.
   registerConfiguredVenue();
+  void verifyConfiguredModel(); // logs a clear line at boot if the research model is not available to the key
 
   // Recurring stock buys, and resolving any stock order left unfinished. Does nothing until a venue is configured.
   const stopStockScheduler = startStockScheduler({ notify: announceScheduledStockRun, notifyUser: sendStockAlert });
