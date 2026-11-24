@@ -19,6 +19,8 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
+    // Do not gzip every chunk just to print its size: with the wallet libraries that is real build time.
+    reportCompressedSize: false,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
