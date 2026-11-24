@@ -56,7 +56,7 @@ describe("the request", () => {
   it("defaults to a modest token cap", async () => {
     const fetchImpl = vi.fn(async () => ok("x"));
     await createOpenAiCompatibleClient(opts({ fetchImpl })).complete([{ role: "user", content: "hi" }]);
-    expect(JSON.parse((fetchImpl.mock.calls[0] as any)[1].body).max_tokens).toBe(700);
+    expect(JSON.parse((fetchImpl.mock.calls[0] as any)[1].body).max_tokens).toBe(2000);
   });
 });
 
@@ -111,5 +111,46 @@ describe("createConfiguredLlm", () => {
   it("is off when nothing is configured at all", () => {
     delete cfg.llm;
     expect(createConfiguredLlm()).toBeNull();
+  });
+});
+
+describe("a reasoning model that runs out of tokens", () => {
+  it("says so plainly instead of the vague 'no text'", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: "length", message: { content: null } }] }) })) as any;
+    const client = createOpenAiCompatibleClient({ apiKey: "k", baseUrl: "https://api.test/v1", model: "m", fetchImpl });
+    await expect(client.complete([{ role: "user", content: "hi" }])).rejects.toThrow("ran out of tokens");
+  });
+});
+
+describe("chat with tools", () => {
+  const ok = (message: any, finish = "stop") => vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: finish, message }] }) })) as any;
+  const client = (fetchImpl: any) => createOpenAiCompatibleClient({ apiKey: "k", baseUrl: "https://api.test/v1", model: "m", fetchImpl });
+
+  it("sends the tools, and reads the tool calls the model makes", async () => {
+    const f = ok({ content: "I'll look.", tool_calls: [{ id: "c1", type: "function", function: { name: "get_news", arguments: '{"ticker":"NVDA"}' } }] }, "tool_calls");
+    const reply = await client(f).chat([{ role: "user", content: "hi" }], { tools: [{ name: "get_news", description: "d", parameters: { type: "object", properties: {} } }] });
+    expect(reply).toEqual({ content: "I'll look.", toolCalls: [{ id: "c1", name: "get_news", arguments: '{"ticker":"NVDA"}' }], finishReason: "tool_calls" });
+    const sent = JSON.parse(f.mock.calls[0][1].body);
+    expect(sent.tools[0]).toEqual({ type: "function", function: { name: "get_news", description: "d", parameters: { type: "object", properties: {} } } });
+    expect(sent.tool_choice).toBe("auto");
+  });
+
+  it("sends tool results back in the wire format, with the call id", async () => {
+    const f = ok({ content: "Done." });
+    await client(f).chat([
+      { role: "user", content: "q" },
+      { role: "assistant", content: null, toolCalls: [{ id: "c1", name: "get_news", arguments: "{}" }] },
+      { role: "tool", toolCallId: "c1", content: "{}" },
+    ]);
+    const sent = JSON.parse(f.mock.calls[0][1].body);
+    expect(sent.messages[1]).toEqual({ role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "get_news", arguments: "{}" } }] });
+    expect(sent.messages[2]).toEqual({ role: "tool", tool_call_id: "c1", content: "{}" });
+    expect(sent.tools).toBeUndefined();
+  });
+
+  it("ignores malformed tool calls, and an answer with neither text nor calls is an error", async () => {
+    const r = await client(ok({ content: "x", tool_calls: [{ type: "function" }, { id: "a", type: "other", function: { name: "n" } }] })).chat([{ role: "user", content: "q" }]);
+    expect(r.toolCalls).toEqual([]);
+    await expect(client(ok({ content: null }, "length")).chat([{ role: "user", content: "q" }])).rejects.toThrow("ran out of tokens");
   });
 });

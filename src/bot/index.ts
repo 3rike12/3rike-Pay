@@ -48,6 +48,9 @@ import { buildPortfolioFacts } from "@/services/portfolioContext";
 import { buildPlans, type Plan } from "@/services/planBuilder";
 import { annotateImpact, loadFills, loadRecurring, venuePriceUsd } from "@/services/researchContext";
 import { getStockVenue } from "@/services/stockVenue";
+import { askAgent } from "@/services/agent/stockAgent";
+import type { ToolDeps } from "@/services/agent/stockTools";
+import { createFinnhubSource, gatherSources } from "@/services/researchSources";
 import { planRebalance, type PlanDeps } from "@/services/rebalancePlan";
 import { clearSweep, clearTargets, getTargets, setSweep, setTargets } from "@/services/stockTargets";
 import { createDailyLimiter } from "@/services/dailyLimit";
@@ -61,6 +64,10 @@ const logger = createLogger("bot");
 
 // The research assistant: an AI model that explains and suggests but never trades. Off without an API key.
 const researchModel = createConfiguredLlm();
+// Recent news and earnings. Off without STOCKS_NEWS_API_KEY.
+const newsSource = (config as any).research?.newsApiKey
+  ? createFinnhubSource({ apiKey: (config as any).research.newsApiKey, baseUrl: (config as any).research.newsBaseUrl })
+  : null;
 const researchLimiter = createDailyLimiter(config.llm?.dailyLimit ?? 20, { name: "research" });
 
 // What the rebalance planner needs: the person's target and holdings, venue prices, and FX.
@@ -71,6 +78,38 @@ const planDeps: PlanDeps = {
   tokenPriceUsd: (token) => venuePriceUsd(getStockVenue())(token),
   fromUsd: (usd, currency) => fromUsd(usd, currency),
 };
+
+// The agent's tools, built for one person: who they are is fixed here and the model never supplies it.
+function toolDepsFor(userId: string, currency: string): ToolDeps {
+  const portfolio = async () => {
+    const allStocks = await getStocks();
+    const [fills, recurring, held] = await Promise.all([loadFills(userId).catch(() => []), loadRecurring(userId).catch(() => []), positions.list(userId)]);
+    const holdings = held.map((h) => ({ token: allStocks.find((t) => t.address === h.tokenAddress), units: h.units })).filter((h): h is { token: StockToken; units: bigint } => !!h.token);
+    return buildPortfolioFacts({ holdings, fills, recurring, tokenPriceUsd: venuePriceUsd(getStockVenue()) });
+  };
+  return {
+    currency,
+    stocks: () => getStocks(),
+    source: newsSource,
+    priceStats: (address) => statsFor(address).catch(() => null),
+    portfolio,
+    rebalance: () => planRebalance(userId, currency, planDeps),
+    plans: async ({ budget, candidates }) => {
+      const held = await portfolio().catch(() => null);
+      const stats = await Promise.all(candidates.map((t) => statsFor(t.address).catch(() => null)));
+      const built = buildPlans({
+        budget,
+        minOrder: Math.ceil(fromUsd(config.stocks.minOrderUsd, currency)),
+        candidates: candidates.map((t, i) => ({
+          ticker: t.ticker,
+          volatility: stats[i]?.volatility ?? "unknown",
+          currentWeightPercent: held?.positions.find((p) => p.ticker === t.ticker)?.weightPercent ?? null,
+        })),
+      });
+      return annotateImpact(built, candidates, toUsd(1, currency), getStockVenue());
+    },
+  };
+}
 
 // Stocks: plain-language buying, selling and looking, with a confirm step before anything is charged.
 const stockBot = createStockBot({
@@ -85,52 +124,16 @@ const stockBot = createStockBot({
   orders: stockOrders,
   positions,
   research: {
-    async ask({ userId, question, stocks, budget }) {
+    async ask({ userId, question, stocks, budget, currency }) {
       if (!researchModel) return { kind: "off" };
-      const allStocks = await getStocks();
       if (!(await researchLimiter.allow(userId))) return { kind: "limit" };
-      // The model gets facts about the stocks and the person's holding in them: no name, phone or balance.
-      const venue = getStockVenue();
-      const [fills, recurring] = await Promise.all([loadFills(userId).catch(() => []), loadRecurring(userId).catch(() => [])]);
-      const allHeld = await positions.list(userId);
-      const heldTokens = allHeld.map((h) => ({ token: allStocks.find((t) => t.address === h.tokenAddress), units: h.units })).filter((h): h is { token: StockToken; units: bigint } => !!h.token);
-      const portfolio = await buildPortfolioFacts({ holdings: heldTokens, fills, recurring, tokenPriceUsd: venuePriceUsd(venue) });
-      const facts = await Promise.all(
-        stocks.map(async (t) =>
-          enrichFacts(
-            buildFacts(t, await prismaAlertStore.getSnapshot(t.address), await positions.get(userId, t.address)),
-            await statsFor(t.address).catch(() => null),
-            portfolio.positions.find((p) => p.ticker === t.ticker)
-          )
-        )
-      );
-
-      // "What should I buy": options are computed here, priced against the venue, and the model only chooses.
-      let plans: Plan[] | undefined;
-      if (budget) {
-        const usdPerUnit = toUsd(1, budget.currency);
-        const minOrder = Math.ceil(fromUsd(config.stocks.minOrderUsd, budget.currency));
-        const stats = await Promise.all(stocks.map((t) => statsFor(t.address).catch(() => null)));
-        const built = buildPlans({
-          budget: budget.amount,
-          minOrder,
-          candidates: stocks.map((t, i) => ({
-            ticker: t.ticker,
-            volatility: stats[i]?.volatility ?? "unknown",
-            currentWeightPercent: portfolio.positions.find((p) => p.ticker === t.ticker)?.weightPercent ?? null,
-          })),
-        });
-        plans = await annotateImpact(built, stocks, usdPerUnit, venue);
-      }
-      const result = await answerResearch(researchModel, {
+      const answer = await askAgent(researchModel, {
         question,
-        stocks: facts,
-        budget,
-        candidates: budget ? stocks.map((t) => ({ ticker: t.ticker, name: t.name })) : undefined,
-        plans,
+        hints: { tickers: stocks.map((t) => t.ticker), ...(budget ? { budget } : {}) },
+        deps: toolDepsFor(userId, currency),
       });
-      if (result.kind === "ok") return { kind: "text", text: renderResearch(result) };
-      if (result.kind === "fallback") return { kind: "text", text: result.text };
+      if (answer.kind === "ok") return { kind: "text", text: renderResearch(answer, answer.news) };
+      if (answer.kind === "fallback") return { kind: "text", text: answer.text };
       return { kind: "off" };
     },
   },

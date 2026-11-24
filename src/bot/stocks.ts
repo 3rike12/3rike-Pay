@@ -78,6 +78,8 @@ export interface StockBotDeps {
       question: string;
       stocks: StockToken[];
       budget?: { amount: number; currency: string; frequency?: "daily" | "weekly" | "monthly" };
+      /** The person's balance currency, which plan amounts are in. */
+      currency: string;
     }): Promise<{ kind: "text"; text: string } | { kind: "off" } | { kind: "limit" }>;
   };
   rebalance: {
@@ -237,7 +239,7 @@ export function createStockBot(deps: StockBotDeps) {
 
   async function ask(phone: string, user: any, question: string, tokens: StockToken[], budget?: { amount: number; currency: string; frequency?: "daily" | "weekly" | "monthly" }) {
     try {
-      const r = await deps.research.ask({ userId: user.id, question, stocks: tokens, budget });
+      const r = await deps.research.ask({ userId: user.id, question, stocks: tokens, budget, currency: deps.currencyFor(user) });
       if (r.kind === "off") return say(phone, "The research assistant isn't available yet.");
       if (r.kind === "limit") return say(phone, "You've asked a lot of questions today, so I'll pause there. Please try again tomorrow.");
       return say(phone, r.text);

@@ -6,9 +6,10 @@ const logger = createLogger("llm");
 // ============================================
 // A small client for any OpenAI-compatible chat model
 //
-// The rest of the app talks to `LlmClient`, so the provider can change without
-// touching it, and tests use a fake. This one speaks Chat Completions, which
-// Meta's Model API and most others accept.
+// The rest of the app talks to `LlmClient` (plain text in, text out) and `ChatModel`
+// (messages and tool calls), so the provider can change without touching it, and
+// tests use a fake. This one speaks Chat Completions, which Meta's Model API and
+// most others accept, including native tool calling.
 //
 // Rules it enforces:
 //  - It refuses a model that trains on your inputs. Meta labels those SKUs
@@ -27,6 +28,37 @@ export interface LlmMessage {
 export interface LlmClient {
   /** The model's text reply. Throws LlmError if the model cannot be reached or answers badly. */
   complete(messages: LlmMessage[], options?: { maxTokens?: number }): Promise<string>;
+}
+
+// ----- chat with tools -----
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  /** The arguments exactly as the model wrote them: a JSON string, not yet trusted. */
+  arguments: string;
+}
+
+export type ChatMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string | null; toolCalls?: ToolCall[] }
+  | { role: "tool"; toolCallId: string; content: string };
+
+/** A tool the model may ask for. `parameters` is a JSON Schema object. */
+export interface ToolSpec {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ChatReply {
+  content: string | null;
+  toolCalls: ToolCall[];
+  finishReason: string;
+}
+
+export interface ChatModel {
+  chat(messages: ChatMessage[], options?: { tools?: ToolSpec[]; maxTokens?: number }): Promise<ChatReply>;
 }
 
 export class LlmError extends Error {
@@ -48,7 +80,19 @@ export interface OpenAiCompatibleOptions {
 /** A model whose terms say it trains on what it is sent. Never allowed. */
 export const trainsOnInputs = (model: string) => /-contributor\b/i.test(model);
 
-export function createOpenAiCompatibleClient(o: OpenAiCompatibleOptions): LlmClient {
+function toWire(m: ChatMessage): Record<string, unknown> {
+  if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
+  if (m.role === "assistant") {
+    return {
+      role: "assistant",
+      content: m.content,
+      ...(m.toolCalls?.length ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } })) } : {}),
+    };
+  }
+  return { role: m.role, content: m.content };
+}
+
+export function createOpenAiCompatibleClient(o: OpenAiCompatibleOptions): LlmClient & ChatModel {
   if (!o.apiKey) throw new Error("The model client needs an API key");
   if (!/^https:\/\//i.test(o.baseUrl)) throw new Error("The model base URL must be https");
   if (!o.model) throw new Error("The model client needs a model name");
@@ -57,46 +101,68 @@ export function createOpenAiCompatibleClient(o: OpenAiCompatibleOptions): LlmCli
   }
   const doFetch = o.fetchImpl ?? fetch;
 
+  /** One request; returns the first choice. Shared by `complete` and `chat`. */
+  async function request(messages: unknown[], maxTokens: number, tools?: ToolSpec[]): Promise<any> {
+    const body: Record<string, unknown> = {
+      model: o.model,
+      messages,
+      max_tokens: maxTokens,
+      temperature: 0.2,
+      ...(o.reasoningEffort ? { reasoning_effort: o.reasoningEffort } : {}),
+      ...(tools?.length ? { tools: tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })), tool_choice: "auto" } : {}),
+    };
+    let res: Response;
+    try {
+      res = await doFetch(`${o.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${o.apiKey}` },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(o.timeoutMs ?? 30_000),
+      });
+    } catch (error: any) {
+      throw new LlmError(`Model request failed: ${error?.name === "TimeoutError" ? "timed out" : "network error"}`);
+    }
+    if (!res.ok) {
+      // Never include the response body: it can echo the prompt.
+      logger.warn("Model returned an error", { status: res.status });
+      throw new LlmError(`Model returned ${res.status}`, res.status);
+    }
+    let json: any;
+    try {
+      json = await res.json();
+    } catch {
+      throw new LlmError("Model reply was not JSON");
+    }
+    return json?.choices?.[0];
+  }
+
+  const outOfTokens = (choice: any) =>
+    new LlmError(choice?.finish_reason === "length" ? "Model ran out of tokens before answering (raise the limit or lower the reasoning effort)" : "Model reply had no text");
+
   return {
     async complete(messages, options = {}) {
-      const body: Record<string, unknown> = {
-        model: o.model,
-        messages,
-        max_tokens: options.maxTokens ?? 700,
-        temperature: 0.2,
-        ...(o.reasoningEffort ? { reasoning_effort: o.reasoningEffort } : {}),
-      };
-      let res: Response;
-      try {
-        res = await doFetch(`${o.baseUrl}/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${o.apiKey}` },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(o.timeoutMs ?? 30_000),
-        });
-      } catch (error: any) {
-        throw new LlmError(`Model request failed: ${error?.name === "TimeoutError" ? "timed out" : "network error"}`);
-      }
-      if (!res.ok) {
-        // Never include the response body: it can echo the prompt.
-        logger.warn("Model returned an error", { status: res.status });
-        throw new LlmError(`Model returned ${res.status}`, res.status);
-      }
-      let json: any;
-      try {
-        json = await res.json();
-      } catch {
-        throw new LlmError("Model reply was not JSON");
-      }
-      const text = json?.choices?.[0]?.message?.content;
-      if (typeof text !== "string" || !text.trim()) throw new LlmError("Model reply had no text");
+      const choice = await request(messages, options.maxTokens ?? 2000);
+      const text = choice?.message?.content;
+      // A reasoning model spends its token budget thinking first; running out leaves no answer at all.
+      if (typeof text !== "string" || !text.trim()) throw outOfTokens(choice);
       return text;
+    },
+
+    async chat(messages, options = {}) {
+      const choice = await request(messages.map(toWire), options.maxTokens ?? 3000, options.tools);
+      const message = choice?.message;
+      const calls: ToolCall[] = (Array.isArray(message?.tool_calls) ? message.tool_calls : [])
+        .filter((c: any) => c?.type === "function" && typeof c?.function?.name === "string")
+        .map((c: any) => ({ id: String(c.id ?? ""), name: c.function.name, arguments: typeof c.function.arguments === "string" ? c.function.arguments : JSON.stringify(c.function.arguments ?? {}) }));
+      const content = typeof message?.content === "string" && message.content.trim() ? message.content : null;
+      if (content === null && calls.length === 0) throw outOfTokens(choice);
+      return { content, toolCalls: calls, finishReason: String(choice?.finish_reason ?? "") };
     },
   };
 }
 
 /** The configured model, or null when no key is set (the research assistant is then simply off). */
-export function createConfiguredLlm(): LlmClient | null {
+export function createConfiguredLlm(): (LlmClient & ChatModel) | null {
   const c = (config as any).llm ?? {};
   if (!c.apiKey) return null;
   try {
