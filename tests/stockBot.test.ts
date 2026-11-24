@@ -427,8 +427,10 @@ describe("selling", () => {
 });
 
 describe("commands", () => {
-  it("/stocks lists, /stock X quotes, /portfolio shows holdings", async () => {
+  it("/stocks explains how to use stocks, /stock X quotes, /portfolio shows holdings, and 'list stocks' lists", async () => {
     expect(await bot.handleCommand(PHONE, KE, "stocks", "")).toBe(true);
+    expect(last()).toContain("confirm before anything is bought");
+    await bot.tryHandle(PHONE, KE, "list stocks");
     expect(last()).toContain("Stocks you can buy");
     expect(await bot.handleCommand(PHONE, KE, "stock", "nvda")).toBe(true);
     expect(last()).toContain("NVIDIA Corporation (NVDA)");
@@ -931,3 +933,53 @@ function makeBotOrders() {
     unitsForCash: async () => 0n,
   };
 }
+
+describe("everyday wording, understood locally", () => {
+  it("explains how stocks work, and /stocks does the same", async () => {
+    await bot.tryHandle(PHONE, KE, "how do stocks work here");
+    expect(last()).toContain("*Stocks*");
+    expect(last()).toContain("buy 5000 of Nvidia");
+    sent = [];
+    await bot.handleCommand(PHONE, KE, "stocks", "");
+    expect(last()).toContain("confirm before anything is bought");
+  });
+
+  it("a loose 'I want to buy' gets a nudge on how to say it, and NEVER an order", async () => {
+    await bot.tryHandle(PHONE, KE, "i wanna buy some nvidia");
+    expect(last()).toContain("How much NVIDIA Corporation (NVDA)");
+    expect(last()).toContain("buy 5000 of NVDA");
+    expect(placed).toEqual([]);
+    expect(session).toBeNull();
+    await bot.tryHandle(PHONE, KE, "i want to buy stocks");
+    expect(last()).toContain("Which stock, and how much?");
+    expect(placed).toEqual([]);
+  });
+
+  it("a loose 'sell' gets a nudge too, and sells nothing", async () => {
+    held.set(TSLA.address, ONE);
+    await bot.tryHandle(PHONE, KE, "sell my shares");
+    expect(last()).toContain("Which stock, and how much?");
+    await bot.tryHandle(PHONE, KE, "i would like to sell some tesla");
+    expect(last()).toMatch(/How much TSLA would you like to sell|how much/i);
+    expect(placed).toEqual([]);
+  });
+
+  it("a misspelled stock is understood, and the bot says what it assumed", async () => {
+    await bot.tryHandle(PHONE, KE, "nvdia price");
+    expect(sent.some((m) => m.includes("Assuming you mean NVIDIA Corporation (NVDA)"))).toBe(true);
+    expect(last()).toContain("NVIDIA Corporation");
+  });
+
+  it("a price question does not call the research assistant (the big model)", async () => {
+    await bot.tryHandle(PHONE, KE, "whats the price of tesla");
+    await bot.tryHandle(PHONE, KE, "tesl price");
+    expect(asked).toEqual([]);
+  });
+
+  it("leaves every other part of the app alone", async () => {
+    for (const text of ["balance", "hello", "cash out", "top up 5000", "create invoice", "buy airtime for 500", "show my invoices", "help", "i have a problem with my payment"]) {
+      expect(await bot.tryHandle(PHONE, KE, text), text).toBe(false);
+    }
+    expect(sent).toEqual([]);
+  });
+});

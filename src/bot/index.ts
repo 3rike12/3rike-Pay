@@ -42,15 +42,15 @@ import * as stockSchedules from "@/services/stockSchedules";
 import { prismaAlertStore } from "@/services/stockAlertStore";
 import { Undeliverable } from "@/services/stockAlerts";
 import { createConfiguredLlm } from "@/services/llm";
-import { answerResearch, buildFacts, enrichFacts, renderResearch } from "@/services/stockResearch";
+import { renderResearch } from "@/services/stockResearch";
 import { statsFor } from "@/services/priceHistory";
 import { buildPortfolioFacts } from "@/services/portfolioContext";
-import { buildPlans, type Plan } from "@/services/planBuilder";
+import { buildPlans } from "@/services/planBuilder";
 import { annotateImpact, loadFills, loadRecurring, venuePriceUsd } from "@/services/researchContext";
 import { getStockVenue } from "@/services/stockVenue";
 import { askAgent } from "@/services/agent/stockAgent";
 import type { ToolDeps } from "@/services/agent/stockTools";
-import { createFinnhubSource, gatherSources } from "@/services/researchSources";
+import { createFinnhubSource } from "@/services/researchSources";
 import { planRebalance, type PlanDeps } from "@/services/rebalancePlan";
 import { clearSweep, clearTargets, getTargets, setSweep, setTargets } from "@/services/stockTargets";
 import { createDailyLimiter } from "@/services/dailyLimit";
@@ -1522,6 +1522,10 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
     return whatsapp.sendTextMessage(phone, MESSAGES.BUY_AIRTIME.COMING_SOON);
   }
 
+  if (action === "stocks") {
+    await stockBot.handleCommand(phone, user, "stocks", "");
+    return;
+  }
   if (action === "top_up") {
     return askTopUpAmount(phone, user);
   }
@@ -2365,6 +2369,8 @@ async function sendMainMenu(phone: string, user?: any) {
     title: s.title,
     rows: s.rows.filter((r) => config.features.legacyBanking || !LEGACY_MENU_ROWS.has(r.id)),
   })).filter((s) => s.rows.length > 0);
+  // WhatsApp lists hold at most 10 rows: add the stocks entry only if there is room for it.
+  if (sections.reduce((n, s) => n + s.rows.length, 0) < 10) sections.push({ title: "Invest", rows: [{ id: "stocks", title: "Stocks" } as any] });
 
   return whatsapp.sendListMessage(
     phone,

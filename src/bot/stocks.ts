@@ -1,4 +1,5 @@
 import { parseStockRequest, type StockRequest, type NamedCurrency } from "@/utils/stockNlu";
+import { parseStockRequestSmart } from "@/nlp/stockIntents";
 import { findStock, type StockToken } from "@/services/stocks";
 import { checkStockEligibility, eligibilityMessage } from "@/services/stockEligibility";
 import type { BuyPreview, SellPreview, StockOrderRow } from "@/services/stockOrders";
@@ -26,6 +27,23 @@ import { MAX_SWEEP_PERCENT } from "@/services/stockSweep";
 // Everything it needs from the outside is passed in, so it can be tested without
 // WhatsApp or a database.
 // ============================================
+
+/** What people can say. Shown by /stocks, "how do stocks work", and the menu. */
+export const STOCKS_HELP = [
+  "*Stocks*",
+  "Buy tokenized stocks from your balance, in your own words:",
+  "",
+  "• *buy 5000 of Nvidia*: a one-off buy",
+  "• *buy 2000 of Apple every Friday*: a recurring buy",
+  "• *my stocks*: what you hold",
+  "• *price of Tesla*: check a price",
+  "• *why is Nvidia up?*: ask the research assistant",
+  "• *I have 5000 a week, what should I buy?*: get a plan",
+  "• *keep me 40% Nvidia, 60% Apple*, then *rebalance*",
+  "• *invest 10% of my sales in Nvidia*",
+  "",
+  "You always see the details and confirm before anything is bought.",
+].join("\n");
 
 export const CONFIRM_TTL_MS = 5 * 60_000;
 /** How many failed runs in a row pause a recurring buy (kept in step with stockSchedules). */
@@ -135,7 +153,11 @@ export function createStockBot(deps: StockBotDeps) {
 
   async function resolve(phone: string, stocks: StockToken[], query: string): Promise<StockToken | null> {
     const hit = findStock(stocks, query);
-    if (hit.kind === "found") return hit.stock;
+    if (hit.kind === "found") {
+      // A misspelling was matched: say what we took it to mean, so a wrong guess is never silent.
+      if (hit.fuzzy) await say(phone, `Assuming you mean ${hit.stock.name} (${hit.stock.ticker}).`);
+      return hit.stock;
+    }
     if (hit.kind === "ambiguous") {
       const options = hit.matches.slice(0, 5).map((s) => `• ${s.ticker}: ${s.name}`).join("\n");
       await say(phone, `That could be more than one stock:\n\n${options}\n\nSend the ticker you mean, e.g. *buy 5000 of ${hit.matches[0].ticker}*.`);
@@ -395,7 +417,7 @@ export function createStockBot(deps: StockBotDeps) {
    * caller carries on with its other handlers.
    */
   async function tryHandle(phone: string, user: any, text: string): Promise<boolean> {
-    const req = parseStockRequest(text);
+    const req = parseStockRequestSmart(text);
     if (!req) return false;
 
     const eligibility = checkStockEligibility({ phone, country: user?.business?.country });
@@ -463,6 +485,22 @@ export function createStockBot(deps: StockBotDeps) {
         const currency = deps.currencyFor(user);
         const amount = inUserCurrency(req.budget, req.currency, currency);
         await ask(phone, user, req.question, stocks.slice(0, 5), { amount, currency, frequency: req.frequency });
+        return true;
+      }
+      case "stocks_help":
+        await say(phone, STOCKS_HELP);
+        return true;
+      case "buy_hint": {
+        // They want to buy but did not say how much: show how, never guess an order.
+        const hit = req.query ? findStock(stocks, req.query) : null;
+        const t = hit?.kind === "found" ? hit.stock : null;
+        await say(phone, t ? `How much ${t.name} (${t.ticker}) would you like to buy? For example: *buy 5000 of ${t.ticker}*.` : "Which stock, and how much? For example: *buy 5000 of Nvidia*. Send *stocks* to see how it works.");
+        return true;
+      }
+      case "sell_hint": {
+        const hit = req.query ? findStock(stocks, req.query) : null;
+        const t = hit?.kind === "found" ? hit.stock : null;
+        await say(phone, t ? `How much ${t.ticker} would you like to sell? For example: *sell half my ${t.ticker}* or *sell all my ${t.ticker}*.` : "Which stock, and how much? For example: *sell half my Tesla*. Send *my stocks* to see what you hold.");
         return true;
       }
       case "set_target":
@@ -616,6 +654,10 @@ export function createStockBot(deps: StockBotDeps) {
   /** `/stocks`, `/stock TSLA` and `/portfolio`. */
   async function handleCommand(phone: string, user: any, command: string, args: string): Promise<boolean> {
     const a = args.trim();
+    if (command === "stocks" && !a) {
+      await say(phone, STOCKS_HELP);
+      return true;
+    }
     const text = command === "portfolio" || command === "holdings" ? "my stocks" : command === "stock" && a ? `price of ${a}` : "list stocks";
     return tryHandle(phone, user, text);
   }

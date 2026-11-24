@@ -174,7 +174,7 @@ describe("stocks through the real bot", () => {
   });
 
   it("/stocks, /stock and /portfolio are registered commands", async () => {
-    expect(await say("/stocks")).toContain("Stocks you can buy");
+    expect(await say("/stocks")).toContain("confirm before anything is bought");
     expect(await say("/stock tsla")).toContain("$412.34 per share");
     expect(await say("/portfolio")).toContain("don't hold any stocks yet");
   });
