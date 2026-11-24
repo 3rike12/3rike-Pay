@@ -45,9 +45,9 @@ import { postOpeningBalances } from "@/services/ledgerOpening";
   for (const d of sums) {
     console.log(`Ledger ${d.walletId}: entries add up to ${d.fromEntriesMinor}, balance is ${d.balanceMinor}`);
   }
-  const unbalanced = await findUnbalancedJournals();
-  if (unbalanced.length === 0) console.log("Journals: every journal balances.");
-  for (const d of unbalanced) console.log(`UNBALANCED journal ${d.journalId} (${d.currency}): credits ${d.creditsMinor}, debits ${d.debitsMinor}`);
+  const unbalancedJournals = await findUnbalancedJournals();
+  if (unbalancedJournals.length === 0) console.log("Journals: every journal balances.");
+  for (const d of unbalancedJournals) console.log(`UNBALANCED journal ${d.journalId} (${d.currency}): credits ${d.creditsMinor}, debits ${d.debitsMinor}`);
   const breaks = await findZeroSumBreaks();
   if (breaks.length === 0) console.log("Books: all accounts add up to exactly zero in every currency.");
   for (const d of breaks) console.log(`BOOKS DO NOT ADD UP in ${d.currency}: total ${d.totalMinor} (should be 0)`);
@@ -91,7 +91,7 @@ import { postOpeningBalances } from "@/services/ledgerOpening";
     console.log(`Trial balance: could not be built (${error?.message}).`);
   }
 
-  if (wallets.length || sums.length || txs.length || negatives.length || positions.length || uncovered || unbalanced) {
+  if (wallets.length || sums.length || txs.length || negatives.length || positions.length || uncovered || unbalanced || unbalancedJournals.length || breaks.length) {
     console.log("\nDo not switch reads to the minor columns while any of the above remains unexplained.");
     process.exitCode = 1;
   }
