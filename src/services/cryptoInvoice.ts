@@ -19,6 +19,7 @@ import {
   markPendingPayment,
   settleInvoicePayment,
   failInvoicePayment,
+  isTopUpInvoice,
 } from "@/services/invoice";
 import { createLogger } from "@/utils/logger";
 
@@ -138,6 +139,12 @@ export async function createCryptoPayment(params: {
       : []);
   if (prior.length >= MAX_QUOTES_PER_INVOICE) {
     throw new Error("Too many payment changes for this invoice. Please reload the page and keep your current choice.");
+  }
+
+  // While invoicing is paused the only thing that can be paid is a top-up (an invoice you pay yourself). This is a second
+  // lock behind the bot, so a pay link for a merchant invoice cannot be turned into a payment.
+  if (!(config as any).features?.invoicingEnabled && !isTopUpInvoice(invoice.items)) {
+    throw new Error("Invoices are paused for now.");
   }
 
   const deadline = new Date(Date.now() + INVOICE_TTL_MINUTES * 60 * 1000);

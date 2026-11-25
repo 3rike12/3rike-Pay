@@ -511,6 +511,7 @@ async function handleBusinessCommand(phone: string, user: any) {
  * "Add Product" row and the "product" trigger in idle.
  */
 async function handleProductCommand(phone: string, user: any, args: string) {
+  if (invoicingPaused()) return sayInvoicingPaused(phone, user);
   const input = args.trim();
 
   const parsed = input ? parseProductCreateRequest(input, false) : null;
@@ -530,6 +531,7 @@ async function handleProductCommand(phone: string, user: any, args: string) {
 }
 
 async function handleListProducts(phone: string, user: any) {
+  if (invoicingPaused()) return sayInvoicingPaused(phone, user);
   try {
     const products = await listProducts(user.id);
     if (products.length === 0) {
@@ -577,6 +579,7 @@ function invoiceItemsLabel(items: unknown): string {
 }
 
 async function handleInvoicesList(phone: string, user: any, offset: number) {
+  if (invoicingPaused()) return sayInvoicingPaused(phone, user);
   try {
     // One extra row: if it comes back we know there is a next page without
     // having to count the whole table.
@@ -628,6 +631,7 @@ async function handleInvoicesList(phone: string, user: any, offset: number) {
 }
 
 async function handleInvoiceDetail(phone: string, user: any, invoiceId: string) {
+  if (invoicingPaused()) return sayInvoicingPaused(phone, user);
   try {
     const invoice = await prisma.invoice.findFirst({
       where: { id: invoiceId, merchantId: user.id },
@@ -744,25 +748,6 @@ async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft)
  */
 async function issueCryptoInvoice(phone: string, user: any, draft: InvoiceDraft, choice: string) {
   try {
-    // A crypto payment has a floor (1Click's minimum). Say so now, not after a link that cannot be paid has been sent.
-    const currency = merchantCurrency(user);
-    const total = draft.items.reduce((n, i) => n + Number(i.qty || 1) * Number(i.unitPrice || 0), 0);
-    const fit = checkLimits("in", { kind: "swap", usd: toUsd(total, currency) });
-    if (!fit.ok && fit.reason === "below_min") {
-      await resetSession(user.id);
-      return whatsapp.sendTextMessage(
-        phone,
-        `This invoice is ${formatCurrency(total, currency)}, which is below the minimum for a crypto payment: ${formatUsdThreshold(fit.minUsd, currency)}. Create a new invoice for at least that amount.`
-      );
-    }
-    if (!fit.ok && fit.reason === "above_max") {
-      await resetSession(user.id);
-      return whatsapp.sendTextMessage(
-        phone,
-        `This invoice is ${formatCurrency(total, currency)}, which is above the maximum for a crypto payment: ${formatUsdThreshold(fit.maxUsd, currency)}. Split it into smaller invoices.`
-      );
-    }
-
     const [, sym, chain] = choice.split(/\s+/);
     let originAsset: string | undefined;
     let originLabel: string | undefined;
@@ -866,7 +851,33 @@ function invoiceItemsPrompt(): string {
     : MESSAGES.BUSINESS.INVOICE.PROMPT_ITEMS_LINK;
 }
 
+/** The help text, without the invoice, product and payments-received commands while invoicing is paused. */
+function helpText(): string {
+  const base = MESSAGES.HELP.TEXT;
+  if (!invoicingPaused()) return base;
+  const lines = base.split("\n").filter((l) => !/^•\s*\/(invoice|invoices|product|products|payments)\b/.test(l));
+  const how = lines.findIndex((l) => l.startsWith("*How it works:*"));
+  const head = how >= 0 ? lines.slice(0, how) : lines;
+  return head.join("\n").trimEnd() + "\n\n*How it works:*\nAdd money to your balance with /topup, then buy and track stocks with /stocks.";
+}
+
+/** The "I didn't catch that" hint, without the invoice and product suggestions while invoicing is paused. */
+function unknownText(): string {
+  const base = MESSAGES.HELP.UNKNOWN_TEXT;
+  if (!invoicingPaused()) return base;
+  return base.split("\n").filter((l) => !/^•\s*\/(invoice|product)\b/.test(l)).join("\n");
+}
+
+/** Invoicing is paused: top-ups still work, invoices and products do not. See features.invoicingEnabled. */
+const invoicingPaused = () => !(config as any).features?.invoicingEnabled;
+const INVOICING_PAUSED_TEXT = "Invoicing is paused for now. You can add money to your balance any time: send */topup*.";
+async function sayInvoicingPaused(phone: string, user?: any) {
+  if (user?.id) await resetSession(user.id).catch(() => undefined); // nobody is left halfway through an invoice
+  return whatsapp.sendTextMessage(phone, INVOICING_PAUSED_TEXT);
+}
+
 async function handleInvoiceCommand(phone: string, user: any, args: string) {
+  if (invoicingPaused()) return sayInvoicingPaused(phone, user);
   await expireStaleInvoices(user.id).catch(() => {});
 
   // An invoice carries the shop's details, so a merchant with no profile is
@@ -1224,7 +1235,7 @@ const SLASH_COMMANDS: Record<string, SlashHandler> = {
   bal: handleCheckBalance,
   start: sendMenuForUser,
   menu: sendMenuForUser,
-  help: (phone) => whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT),
+  help: (phone) => whatsapp.sendTextMessage(phone, helpText()),
   send: startSendMoneyCommand,
   transfer: startSendMoneyCommand,
   sendmoney: startSendMoneyCommand,
@@ -1363,7 +1374,7 @@ export async function handleMessage(
     const args = raw.slice(first.length).trim();
     const handler = SLASH_COMMANDS[cmd];
     if (!handler) {
-      return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
+      return whatsapp.sendTextMessage(phone, helpText());
     }
     await resetSession(user.id);
     return handler(phone, user, args);
@@ -1474,7 +1485,7 @@ export async function handleMessage(
   }
 
   if (matchesTrigger(TRIGGERS.HELP, lower)) {
-    return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
+    return whatsapp.sendTextMessage(phone, helpText());
   }
 
   // ---- State machine ----
@@ -1500,14 +1511,19 @@ export async function handleMessage(
       case SESSION_STATE.BUY_AIRTIME_CONFIRM:
         return await handleBuyAirtimeConfirm(phone, user);
       case SESSION_STATE.PRODUCT_CREATE:
+        if (invoicingPaused()) return await sayInvoicingPaused(phone, user);
         return await handleProductCreate(phone, user, flowData, messageText);
       case SESSION_STATE.INVOICE_ITEMS:
+        if (invoicingPaused()) return await sayInvoicingPaused(phone, user);
         return await handleInvoiceItems(phone, user, flowData, messageText);
       case SESSION_STATE.INVOICE_PRICE:
+        if (invoicingPaused()) return await sayInvoicingPaused(phone, user);
         return await handleInvoicePrice(phone, user, flowData, messageText);
       case SESSION_STATE.INVOICE_PHONE:
+        if (invoicingPaused()) return await sayInvoicingPaused(phone, user);
         return await handleInvoicePhone(phone, user, flowData, messageText);
       case SESSION_STATE.INVOICE_CONFIRM:
+        if (invoicingPaused()) return await sayInvoicingPaused(phone, user);
         return await handleInvoiceConfirm(phone, user, flowData, action, messageText);
       case SESSION_STATE.TOPUP_AMOUNT:
         return await handleTopUpAmount(phone, user, messageText);
@@ -1639,7 +1655,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   }
 
   if (action === "btn_help") {
-    return whatsapp.sendTextMessage(phone, MESSAGES.HELP.TEXT);
+    return whatsapp.sendTextMessage(phone, helpText());
   }
 
   if (action === "btn_menu") {
@@ -1649,6 +1665,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   // Invoice / product come before SEND_MONEY: "payment request" contains
   // "pay", which SEND_MONEY matches on.
   if (TRIGGERS.INVOICE.some((kw) => t.includes(kw))) {
+    if (invoicingPaused()) return sayInvoicingPaused(phone, user);
     // Same gate as /invoice: no profile yet means setup first.
     if (!user.business) {
       return openBusinessSetup(phone, user, MESSAGES.BUSINESS.PROFILE.REQUIRED);
@@ -1705,7 +1722,7 @@ async function handleIdle(phone: string, user: any, action?: string, text?: stri
   // whole menu. An unmatched button tap still gets the menu back, so anyone
   // reopening an old menu message lands somewhere useful.
   if (!action && t.trim()) {
-    return whatsapp.sendTextMessage(phone, MESSAGES.HELP.UNKNOWN_TEXT);
+    return whatsapp.sendTextMessage(phone, unknownText());
   }
 
   return sendMenuForUser(phone, user);
@@ -2176,7 +2193,7 @@ async function sendWalletBalance(phone: string, user: any) {
     amount > 0 ? MESSAGES.CHECK_BALANCE.WALLET_TEXT(wallet) : MESSAGES.CHECK_BALANCE.WALLET_EMPTY(wallet),
     [
       { id: "top_up", title: "Add money" },
-      { id: "create_invoice", title: "Request payment" },
+      ...(invoicingPaused() ? [] : [{ id: "create_invoice", title: "Request payment" }]),
       { id: "cash_out", title: "Cash out" },
     ]
   );
@@ -2450,13 +2467,15 @@ async function sendNoAccountPrompt(phone: string, user: any) {
 }
 
 /** Menu rows that belong to the legacy Nigerian-banking features. */
+/** Menu rows hidden while invoicing is paused. */
+const INVOICING_MENU_ROWS = new Set(["create_invoice", "invoices", "create_product"]);
 const LEGACY_MENU_ROWS = new Set(["send_money", "buy_airtime", "buy_data"]);
 
 async function sendMainMenu(phone: string, user?: any) {
   const shop = user?.business?.name;
   const sections = MESSAGES.MAIN_MENU.SECTIONS.map((s) => ({
     title: s.title,
-    rows: s.rows.filter((r) => config.features.legacyBanking || !LEGACY_MENU_ROWS.has(r.id)),
+    rows: s.rows.filter((r) => (config.features.legacyBanking || !LEGACY_MENU_ROWS.has(r.id)) && !(invoicingPaused() && INVOICING_MENU_ROWS.has(r.id))),
   })).filter((s) => s.rows.length > 0);
   // WhatsApp lists hold at most 10 rows: add the stocks entry only if there is room for it.
   if (sections.reduce((n, s) => n + s.rows.length, 0) < 10) sections.push({ title: "Invest", rows: [{ id: "stocks", title: "Stocks" } as any] });

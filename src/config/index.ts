@@ -378,6 +378,13 @@ export const config = {
      */
     mobileMoneyEnabled: false as boolean,
     /**
+     * Merchant invoicing (/invoice, products, the invoice list, and paying someone else's invoice) is PAUSED for now:
+     * users can add money to their own balance (a top-up is an invoice you pay yourself, and keeps working), and
+     * that is the only way crypto comes in. No environment variable turns it back on; restore it by changing this
+     * line. Payments already made to an existing invoice still settle.
+     */
+    invoicingEnabled: false as boolean,
+    /**
      * The original Nigerian-banking features: BVN/NIN KYC, bank sub-accounts,
      * send-money-to-bank, airtime. OFF by default - the product now starts at
      * "set up your shop" and goes straight to invoicing. Set

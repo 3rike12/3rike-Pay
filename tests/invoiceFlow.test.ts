@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/config", () => ({
   config: {
-    features: { dryRun: false, mobileMoneyEnabled: true },
+    // These tests are about how invoices behave, so invoicing is on here; the pause has its own tests (tests/invoicingPaused.test.ts).
+    features: { dryRun: false, mobileMoneyEnabled: true, invoicingEnabled: true },
     logLevel: "debug",
     whatsapp: { verifyToken: "test-verify-token" },
     nearIntents: {},
@@ -462,52 +463,6 @@ describe("invoice conversation", () => {
       );
     } finally {
       (config.features as any).mobileMoneyEnabled = true;
-    }
-  });
-
-  it("tells the merchant, when they confirm, that a crypto invoice below the minimum is too small, in their own currency", async () => {
-    const { config } = await import("@/config");
-    (config.features as any).mobileMoneyEnabled = false;
-    (config as any).app = { baseUrl: "https://pay.example" };
-    h.nearEnabled = true;
-    try {
-      h.createDraftInvoice.mockClear();
-      setSession(SESSION_STATE.INVOICE_CONFIRM, { items: [{ name: "mandazi", qty: 2, unitPrice: 50 }] }); // KES 100, under $1
-
-      await say("yes");
-
-      const text = String(h.sendTextMessage.mock.calls.at(-1)?.[1] ?? "");
-      expect(text).toContain("KES 100"); // what they typed
-      expect(text).toContain("below the minimum for a crypto payment");
-      expect(text).toContain("5 USD (KES)"); // the minimum, converted to their currency by the shared helper
-      expect(h.createDraftInvoice).not.toHaveBeenCalled(); // no invoice, no link that cannot be paid
-      expect(h.session.state).toBe("idle");
-    } finally {
-      (config.features as any).mobileMoneyEnabled = true;
-      delete (config as any).app;
-      h.nearEnabled = false;
-    }
-  });
-
-  it("lets an invoice at or above the minimum through to a pay link", async () => {
-    const { config } = await import("@/config");
-    (config.features as any).mobileMoneyEnabled = false;
-    (config as any).app = { baseUrl: "https://pay.example" };
-    h.nearEnabled = true;
-    h.createDraftInvoice.mockResolvedValue({ id: "inv_ok" });
-    h.issueInvoice.mockResolvedValue({ id: "inv_ok", reference: "3RIKE-OK-1" });
-    h.createDefaultCryptoPayment.mockResolvedValue({});
-    try {
-      setSession(SESSION_STATE.INVOICE_CONFIRM, { items: [{ name: "batteries", qty: 1, unitPrice: 650 }] }); // KES 650, just over $5
-
-      await say("yes");
-
-      expect(h.createDraftInvoice).toHaveBeenCalled();
-      expect(String(h.sendTextMessage.mock.calls.at(-1)?.[1] ?? "")).not.toContain("below the minimum");
-    } finally {
-      (config.features as any).mobileMoneyEnabled = true;
-      delete (config as any).app;
-      h.nearEnabled = false;
     }
   });
 
@@ -1137,3 +1092,114 @@ describe("main menu", () => {
     }
   });
 });
+
+describe("invoicing is paused: only top-ups remain", () => {
+  const lastText = () => String(h.sendTextMessage.mock.calls.at(-1)?.[1] ?? "");
+  const rowsOfLastMenu = () => {
+    const call = vi.mocked(whatsapp.sendListMessage).mock.calls.at(-1)!;
+    return (call[3] as any[]).flatMap((sec) => sec.rows.map((r: any) => r.id));
+  };
+
+  beforeEach(async () => {
+    const { config } = await import("@/config");
+    (config.features as any).invoicingEnabled = false;
+    (config as any).app = { baseUrl: "https://pay.example" };
+    (config as any).treasury = { maxWithdrawUsd: 2000 };
+    h.nearEnabled = true;
+    h.createDraftInvoice.mockResolvedValue({ id: "inv_top" });
+    h.issueInvoice.mockResolvedValue({ id: "inv_top", reference: "3RIKE-TOP-1" });
+    h.createDefaultCryptoPayment.mockResolvedValue({});
+  });
+  afterEach(async () => {
+    const { config } = await import("@/config");
+    (config.features as any).invoicingEnabled = true;
+    delete (config as any).app;
+    delete (config as any).treasury;
+    h.nearEnabled = false;
+  });
+
+  it("every way in to invoices and products gets a short pause message, and starts nothing", async () => {
+    const doors: Array<() => Promise<unknown>> = [
+      () => say("/invoice"),
+      () => say("/invoice 3 batteries at 1000"),
+      () => say("/invoices"),
+      () => say("/product"),
+      () => say("/product batteries 1000"),
+      () => say("/products"),
+      () => say("/catalogue"),
+      () => say("", "create_invoice"),
+      () => say("", "invoices"),
+      () => say("", "invoices:10"),
+      () => say("", "invoice:abc"),
+      () => say("", "create_product"),
+      () => say("payment request 2 waters at 1500"),
+    ];
+    for (const door of doors) {
+      h.createDraftInvoice.mockClear();
+      await door();
+      expect(lastText()).toContain("Invoicing is paused for now");
+      expect(lastText()).toContain("/topup");
+      expect(h.session.state).toBe("idle");
+      expect(h.createDraftInvoice).not.toHaveBeenCalled();
+    }
+  });
+
+  it("someone who was halfway through an invoice is told, and not carried on to a payment link", async () => {
+    for (const state of [SESSION_STATE.INVOICE_ITEMS, SESSION_STATE.INVOICE_PRICE, SESSION_STATE.INVOICE_PHONE, SESSION_STATE.INVOICE_CONFIRM, SESSION_STATE.PRODUCT_CREATE]) {
+      setSession(state, { items: [{ name: "batteries", qty: 3, unitPrice: 1000 }], buyerPhone: "0781234567" });
+      h.createDraftInvoice.mockClear();
+      h.chargeInvoice.mockClear();
+      await say("yes");
+      expect(lastText(), state).toContain("Invoicing is paused for now");
+      expect(h.session.state, state).toBe("idle");
+      expect(h.createDraftInvoice, state).not.toHaveBeenCalled();
+      expect(h.chargeInvoice, state).not.toHaveBeenCalled();
+    }
+  });
+
+  it("adding money still works, from /topup", async () => {
+    await say("/topup 13000");
+    expect(h.createDraftInvoice).toHaveBeenCalledWith({ merchantId: "user_1", currency: "KES", items: [{ name: "Wallet top-up", qty: 1, unitPrice: 13000 }] });
+    expect(lastText()).toContain("https://pay.example/pay/3RIKE-TOP-1");
+  });
+
+  it("the top-up minimum is still enforced, in the user's currency", async () => {
+    expect(await say("/topup 100")).toContain("minimum top-up");
+    expect(h.createDraftInvoice).not.toHaveBeenCalled();
+  });
+
+  it("the main menu drops the invoice and product rows and keeps the rest", async () => {
+    await say("/menu");
+    const rows = rowsOfLastMenu();
+    expect(rows).not.toContain("create_invoice");
+    expect(rows).not.toContain("invoices");
+    expect(rows).not.toContain("create_product");
+    expect(rows).toEqual(expect.arrayContaining(["top_up", "check_balance", "transactions", "cash_out", "business_profile", "set_currency"]));
+  });
+
+  it("the balance screen no longer offers 'Request payment'", async () => {
+    h.listBalances.mockResolvedValue([{ currency: "KES", balance: 12500 }]);
+    await say("/balance");
+    expect(h.sendButtonsMessage.mock.calls.at(-1)?.[2]).toEqual([
+      { id: "top_up", title: "Add money" },
+      { id: "cash_out", title: "Cash out" },
+    ]);
+  });
+
+  it("help no longer lists invoice, product or payments-received commands, and says how it works now", async () => {
+    await say("/help");
+    const help = lastText();
+    expect(help).not.toMatch(/\/invoice|\/product|\/payments|payment link|pay link/i);
+    expect(help).toContain("/topup");
+    expect(help).toContain("/stocks");
+    expect(help).toContain("*How it works:*");
+    expect(help).toContain("Add money to your balance with /topup");
+  });
+
+  it("the 'I didn't catch that' hint stops suggesting invoices and products", async () => {
+    await say("xqzv blorp");
+    expect(lastText()).not.toMatch(/\/invoice|\/product/);
+    expect(lastText()).toContain("/help");
+  });
+});
+

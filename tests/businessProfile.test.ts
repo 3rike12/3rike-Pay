@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/config", () => ({
   config: {
-    features: { dryRun: false },
+    features: { dryRun: false, invoicingEnabled: true }, // these tests are about the profile gate on invoicing, so invoicing is on
     logLevel: "debug",
     whatsapp: { verifyToken: "test-verify-token" },
   },

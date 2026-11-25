@@ -4,6 +4,8 @@ vi.mock("@/config", () => ({
   config: {
     logLevel: "debug",
     redis: {},
+    // Most tests here are about payments in general, so invoicing is on; the pause has its own tests below.
+    features: { invoicingEnabled: true },
     nearIntents: { originAsset: "nep141:usdc-base", fxRates: { RWF: 1450 } },
     treasury: { address: "0x2527D02599Ba641c19FEa793cD0F167589a0f10D", tokenDecimals: 6 },
   },
@@ -40,6 +42,7 @@ vi.mock("@/services/invoice", () => ({
   markPendingPayment: vi.fn(async () => ({ id: "inv1" })),
   settleInvoicePayment: (...a: any[]) => settle(...a),
   failInvoicePayment: (...a: any[]) => fail(...a),
+  isTopUpInvoice: (items: any) => Array.isArray(items) && items.length === 1 && items[0]?.name === "Wallet top-up",
 }));
 
 const txFind = vi.fn();
@@ -227,6 +230,65 @@ describe("createCryptoPayment quote history", () => {
     txFind.mockResolvedValue({ id: "tx1", metadata: meta(8) });
     await expect(createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" })).rejects.toThrow(/Too many/);
     expect(requestQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("while invoicing is paused, only a top-up can be paid", () => {
+  const withInvoicing = async (on: boolean, run: () => Promise<void>) => {
+    const { config } = await import("@/config");
+    const saved = (config as any).features;
+    (config as any).features = { invoicingEnabled: on };
+    try {
+      await run();
+    } finally {
+      (config as any).features = saved;
+    }
+  };
+  const setup = (items: unknown) => {
+    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 10000, currency: "RWF", items });
+    txFind.mockResolvedValue({ id: "tx1", metadata: {} });
+    requestQuote.mockResolvedValue({ quote: { depositAddress: "0xDEP", amountIn: "100", amountOut: "1" } });
+    requestQuote.mockClear();
+    txUpdate.mockClear();
+  };
+
+  it("refuses to pay a merchant's invoice, before any quote is requested or anything is written", async () => {
+    await withInvoicing(false, async () => {
+      setup([{ name: "Batteries", qty: 3, unitPrice: 1000 }]);
+      await expect(createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" })).rejects.toThrow("Invoices are paused for now.");
+      expect(requestQuote).not.toHaveBeenCalled();
+      expect(txUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  it("refuses an invoice with no items recorded, rather than guessing it is a top-up", async () => {
+    await withInvoicing(false, async () => {
+      setup(undefined);
+      await expect(createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" })).rejects.toThrow("paused");
+    });
+  });
+
+  it("a top-up still works", async () => {
+    await withInvoicing(false, async () => {
+      setup([{ name: "Wallet top-up", qty: 1, unitPrice: 10000 }]);
+      await createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" });
+      expect(requestQuote).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("an invoice that merely has a top-up among other items is not a top-up", async () => {
+    await withInvoicing(false, async () => {
+      setup([{ name: "Wallet top-up", qty: 1, unitPrice: 5000 }, { name: "Batteries", qty: 1, unitPrice: 5000 }]);
+      await expect(createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" })).rejects.toThrow("paused");
+    });
+  });
+
+  it("with invoicing on, an ordinary invoice is paid as before", async () => {
+    await withInvoicing(true, async () => {
+      setup([{ name: "Batteries", qty: 3, unitPrice: 1000 }]);
+      await createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" });
+      expect(requestQuote).toHaveBeenCalledOnce();
+    });
   });
 });
 

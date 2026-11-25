@@ -18,3 +18,20 @@ describe("mobile money collection is switched off, and the environment cannot tu
     });
   }
 });
+
+describe("invoicing is paused, and the environment cannot turn it on", () => {
+  const saved = process.env.INVOICING_ENABLED;
+  beforeEach(() => vi.resetModules());
+  afterEach(() => (saved === undefined ? delete process.env.INVOICING_ENABLED : (process.env.INVOICING_ENABLED = saved)));
+
+  for (const value of [undefined, "false", "true", "TRUE", "1"]) {
+    it(`INVOICING_ENABLED=${value ?? "(unset)"} -> off`, async () => {
+      if (value === undefined) delete process.env.INVOICING_ENABLED;
+      else process.env.INVOICING_ENABLED = value;
+      vi.resetModules();
+      const { config } = (await import("@/config")) as any;
+      expect(config.features.invoicingEnabled).toBe(false);
+    });
+  }
+});
+
