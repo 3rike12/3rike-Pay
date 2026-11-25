@@ -412,4 +412,6 @@ export const config = {
   },
 
   logLevel: process.env.LOG_LEVEL || "debug",
+  /** Include what people type in the "Incoming message" log line. Off by default: it is their financial questions. */
+  logMessageText: process.env.LOG_MESSAGE_TEXT === "true",
 } as const;

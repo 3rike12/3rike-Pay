@@ -51,6 +51,7 @@ import { getStockVenue } from "@/services/stockVenue";
 import { askAgent } from "@/services/agent/stockAgent";
 import type { ToolDeps } from "@/services/agent/stockTools";
 import { createFinnhubSource } from "@/services/researchSources";
+import { incomingMessageFields } from "@/utils/requestLog";
 import { planRebalance, type PlanDeps } from "@/services/rebalancePlan";
 import { clearSweep, clearTargets, getTargets, setSweep, setTargets } from "@/services/stockTargets";
 import { createDailyLimiter } from "@/services/dailyLimit";
@@ -1222,7 +1223,7 @@ export async function handleMessage(
   const state = session.state;
   const flowData = (session.flowData as FlowData) || {};
 
-  logger.info("Incoming message", { phone: redactPhone(phone), state, text: redactForLog(state, messageText) });
+  logger.info("Incoming message", incomingMessageFields({ phone, state, text: messageText, action: buttonReply?.id || listReply?.id, includeText: (config as any).logMessageText === true, redactText: redactForLog }));
 
   const action = buttonReply?.id || listReply?.id;
   const lower = messageText.toLowerCase().trim();
