@@ -465,6 +465,52 @@ describe("invoice conversation", () => {
     }
   });
 
+  it("tells the merchant, when they confirm, that a crypto invoice below the minimum is too small, in their own currency", async () => {
+    const { config } = await import("@/config");
+    (config.features as any).mobileMoneyEnabled = false;
+    (config as any).app = { baseUrl: "https://pay.example" };
+    h.nearEnabled = true;
+    try {
+      h.createDraftInvoice.mockClear();
+      setSession(SESSION_STATE.INVOICE_CONFIRM, { items: [{ name: "mandazi", qty: 2, unitPrice: 50 }] }); // KES 100, under $1
+
+      await say("yes");
+
+      const text = String(h.sendTextMessage.mock.calls.at(-1)?.[1] ?? "");
+      expect(text).toContain("KES 100"); // what they typed
+      expect(text).toContain("below the minimum for a crypto payment");
+      expect(text).toContain("5 USD (KES)"); // the minimum, converted to their currency by the shared helper
+      expect(h.createDraftInvoice).not.toHaveBeenCalled(); // no invoice, no link that cannot be paid
+      expect(h.session.state).toBe("idle");
+    } finally {
+      (config.features as any).mobileMoneyEnabled = true;
+      delete (config as any).app;
+      h.nearEnabled = false;
+    }
+  });
+
+  it("lets an invoice at or above the minimum through to a pay link", async () => {
+    const { config } = await import("@/config");
+    (config.features as any).mobileMoneyEnabled = false;
+    (config as any).app = { baseUrl: "https://pay.example" };
+    h.nearEnabled = true;
+    h.createDraftInvoice.mockResolvedValue({ id: "inv_ok" });
+    h.issueInvoice.mockResolvedValue({ id: "inv_ok", reference: "3RIKE-OK-1" });
+    h.createDefaultCryptoPayment.mockResolvedValue({});
+    try {
+      setSession(SESSION_STATE.INVOICE_CONFIRM, { items: [{ name: "batteries", qty: 1, unitPrice: 650 }] }); // KES 650, just over $5
+
+      await say("yes");
+
+      expect(h.createDraftInvoice).toHaveBeenCalled();
+      expect(String(h.sendTextMessage.mock.calls.at(-1)?.[1] ?? "")).not.toContain("below the minimum");
+    } finally {
+      (config.features as any).mobileMoneyEnabled = true;
+      delete (config as any).app;
+      h.nearEnabled = false;
+    }
+  });
+
   it("charges on yes and schedules verification", async () => {
     setSession(SESSION_STATE.INVOICE_CONFIRM, {
       items: [{ name: "batteries", qty: 3, unitPrice: 1000 }],

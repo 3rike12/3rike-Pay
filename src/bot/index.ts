@@ -744,6 +744,25 @@ async function showInvoiceConfirm(phone: string, user: any, draft: InvoiceDraft)
  */
 async function issueCryptoInvoice(phone: string, user: any, draft: InvoiceDraft, choice: string) {
   try {
+    // A crypto payment has a floor (1Click's minimum). Say so now, not after a link that cannot be paid has been sent.
+    const currency = merchantCurrency(user);
+    const total = draft.items.reduce((n, i) => n + Number(i.qty || 1) * Number(i.unitPrice || 0), 0);
+    const fit = checkLimits("in", { kind: "swap", usd: toUsd(total, currency) });
+    if (!fit.ok && fit.reason === "below_min") {
+      await resetSession(user.id);
+      return whatsapp.sendTextMessage(
+        phone,
+        `This invoice is ${formatCurrency(total, currency)}, which is below the minimum for a crypto payment: ${formatUsdThreshold(fit.minUsd, currency)}. Create a new invoice for at least that amount.`
+      );
+    }
+    if (!fit.ok && fit.reason === "above_max") {
+      await resetSession(user.id);
+      return whatsapp.sendTextMessage(
+        phone,
+        `This invoice is ${formatCurrency(total, currency)}, which is above the maximum for a crypto payment: ${formatUsdThreshold(fit.maxUsd, currency)}. Split it into smaller invoices.`
+      );
+    }
+
     const [, sym, chain] = choice.split(/\s+/);
     let originAsset: string | undefined;
     let originLabel: string | undefined;

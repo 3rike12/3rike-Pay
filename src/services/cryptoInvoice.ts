@@ -4,6 +4,9 @@ import { prisma } from "@/db/prisma";
 import { nearIntents, evmChainIdFor, prettyOrigin, type PayableToken } from "@/services/nearIntents";
 import { oneClickEvent, summariseQuoteStatuses } from "@/rails/oneClick";
 import { initiateOn, pickRail } from "@/rails/router";
+import { checkLimits } from "@/rails/limits";
+import { formatUsdThreshold } from "@/services/treasury";
+import { formatCurrency } from "@/utils/helpers";
 import { staticFx } from "@/services/fx";
 import { recordRailEvent } from "@/rails/settlement";
 import type { RailEventInput } from "@/rails/types";
@@ -139,6 +142,24 @@ export async function createCryptoPayment(params: {
 
   const deadline = new Date(Date.now() + INVOICE_TTL_MINUTES * 60 * 1000);
   const amountOut = nearIntents.fiatToDestinationUnits(invoice.amount, invoice.currency);
+  // 1Click does not make small swaps worth quoting (its minimum is $5 unless configured otherwise). Refuse here, with a
+  // plain reason, rather than let the payer reach a quote that fails. Every route that creates a payment passes through.
+  const usd = Number(amountOut) / 10 ** (config.treasury?.tokenDecimals ?? 6);
+  const limits = checkLimits("in", { kind: "swap", usd });
+  // Said in the invoice's own currency (the dollar figure follows in brackets), falling back to dollars with no FX rate.
+  const inLocal = (limitUsd: number) => {
+    try {
+      return formatUsdThreshold(limitUsd, invoice.currency);
+    } catch {
+      return `$${limitUsd}`;
+    }
+  };
+  if (!limits.ok && limits.reason === "below_min") {
+    throw new Error(`Crypto payments start at ${inLocal(limits.minUsd)}. This one is ${formatCurrency(invoice.amount, invoice.currency)}, which is too small to send.`);
+  }
+  if (!limits.ok && limits.reason === "above_max") {
+    throw new Error(`Crypto payments are limited to ${inLocal(limits.maxUsd)} each. This one is ${formatCurrency(invoice.amount, invoice.currency)}.`);
+  }
   // The rail mints the deposit address; this flow does not know which provider it is.
   const instruction = await initiateOn(pickRail("in", { kind: "swap" }), {
     kind: "swap",

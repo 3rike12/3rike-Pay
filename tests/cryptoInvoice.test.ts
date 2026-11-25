@@ -4,7 +4,7 @@ vi.mock("@/config", () => ({
   config: {
     logLevel: "debug",
     redis: {},
-    nearIntents: { originAsset: "nep141:usdc-base" },
+    nearIntents: { originAsset: "nep141:usdc-base", fxRates: { RWF: 1450 } },
     treasury: { address: "0x2527D02599Ba641c19FEa793cD0F167589a0f10D", tokenDecimals: 6 },
   },
 }));
@@ -22,7 +22,8 @@ vi.mock("@/services/nearIntents", () => ({
     getStatus: (...a: any[]) => getStatus(...a),
     requestQuote: (...a: any[]) => requestQuote(...a),
     isNearIntentsEnabled: () => true,
-    fiatToDestinationUnits: () => "3448276",
+    // The real conversion, at the test config's rate of 1,450 RWF to the dollar, in 6-decimal USDC units.
+    fiatToDestinationUnits: (amount: number) => String(Math.round((amount / 1450) * 1e6)),
   },
 }));
 
@@ -210,7 +211,7 @@ describe("createCryptoPayment quote history", () => {
   const meta = (n: number) => ({ nearQuotes: Array.from({ length: n }, (_, i) => ({ depositAddress: `0x${i}` })) });
 
   it("appends a new quote instead of overwriting the earlier ones", async () => {
-    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 5000, currency: "RWF" });
+    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 10000, currency: "RWF" });
     txFind.mockResolvedValue({ id: "tx1", metadata: meta(1) });
     requestQuote.mockResolvedValue({ quote: { depositAddress: "0xNEW", amountIn: "1", amountOut: "2" } });
 
@@ -222,10 +223,45 @@ describe("createCryptoPayment quote history", () => {
   });
 
   it("refuses to mint more than 8 quotes for one invoice", async () => {
-    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 5000, currency: "RWF" });
+    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 10000, currency: "RWF" });
     txFind.mockResolvedValue({ id: "tx1", metadata: meta(8) });
     await expect(createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" })).rejects.toThrow(/Too many/);
     expect(requestQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("the 1Click minimum, said in the invoice's own currency", () => {
+  const invoiceOf = (amount: number) => ({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount, currency: "RWF" });
+  const quote = () => requestQuote.mockResolvedValue({ quote: { depositAddress: "0xDEP", amountIn: "100", amountOut: "1" } });
+
+  it("refuses an invoice below $5, says so in RWF with the dollar figure in brackets, and quotes and writes nothing", async () => {
+    getInvoiceById.mockResolvedValue(invoiceOf(7000)); // about $4.83
+    txFind.mockResolvedValue({ id: "tx1", metadata: {} });
+    const err = await createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" }).catch((e) => e);
+    expect(err.message).toContain("RWF 7,250"); // the minimum, in the invoice's currency
+    expect(err.message).toContain("$5 USD");
+    expect(err.message).toContain("RWF 7,000"); // what this invoice is
+    expect(err.message).not.toMatch(/\$4\.83/); // no stray dollar amount as the headline
+    expect(requestQuote).not.toHaveBeenCalled();
+    expect(txUpdate).not.toHaveBeenCalled();
+  });
+
+  it("accepts exactly the minimum, and anything above it", async () => {
+    quote();
+    for (const amount of [7250, 7251, 100_000]) {
+      requestQuote.mockClear();
+      getInvoiceById.mockResolvedValue(invoiceOf(amount));
+      txFind.mockResolvedValue({ id: "tx1", metadata: {} });
+      await createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" });
+      expect(requestQuote, String(amount)).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("falls back to dollars if the currency has no FX rate, rather than failing with a confusing error", async () => {
+    getInvoiceById.mockResolvedValue({ ...invoiceOf(100), currency: "XYZ" });
+    txFind.mockResolvedValue({ id: "tx1", metadata: {} });
+    const err = await createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" }).catch((e) => e);
+    expect(err.message).toContain("start at $5");
   });
 });
 
@@ -239,7 +275,7 @@ describe("every crypto payment goes through 1Click", () => {
   });
 
   it("a new payment is a swap quote, labelled as 1Click", async () => {
-    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 5000, currency: "RWF" });
+    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 10000, currency: "RWF" });
     txFind.mockResolvedValue({ id: "tx1", metadata: {} });
     requestQuote.mockResolvedValue({ quote: { depositAddress: "0xDEP", amountIn: "100", amountOut: "3448276" } });
     const out: any = await createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:other" });
