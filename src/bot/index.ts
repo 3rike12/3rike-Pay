@@ -52,6 +52,7 @@ import { askAgent } from "@/services/agent/stockAgent";
 import { askAgentLangGraph } from "@/services/agent/lgAgent";
 import { createChatModel } from "@/services/agent/chatModel";
 import { createAgentMemory, type AgentMemory } from "@/services/agent/memory";
+import { resolveAgentEngine } from "@/services/agent/engine";
 import type { ToolDeps } from "@/services/agent/stockTools";
 import { createFinnhubSource } from "@/services/researchSources";
 import { incomingMessageFields } from "@/utils/requestLog";
@@ -68,9 +69,9 @@ const logger = createLogger("bot");
 
 // The research assistant: an AI model that explains and suggests but never trades. Off without an API key.
 const researchModel = createConfiguredLlm();
-// Which agent answers research questions. "langgraph" runs the same agent on LangGraph with per-person conversation memory;
-// anything else is the original hand-written loop. Both go through the same tool limits and the same answer checks.
-const agentEngine: "custom" | "langgraph" = process.env.STOCKS_AGENT_ENGINE === "langgraph" ? "langgraph" : "custom";
+// Which agent answers research questions. LangGraph (the default) runs the agent with per-person conversation memory;
+// STOCKS_AGENT_ENGINE=custom is the original hand-written loop. Both go through the same tool limits and answer checks.
+const agentEngine = resolveAgentEngine(process.env.STOCKS_AGENT_ENGINE);
 let langGraph: Promise<{ model: ReturnType<typeof createChatModel> | null; memory: AgentMemory }> | null = null;
 const getLangGraph = () =>
   (langGraph ??= (async () => {
@@ -86,9 +87,14 @@ const getLangGraph = () =>
     return { model, memory: await createAgentMemory({ connectionString: process.env.AGENT_DB_URL }) };
   })());
 
-/** Hourly: delete agent conversations idle for a day. A no-op unless the LangGraph engine is on. Returns a stop function. */
+/**
+ * At startup: begin connecting to the agent's memory database now (so the first question does not wait for it, and
+ * the log says at boot which memory is in use), then each hour delete conversations idle for a day. A no-op unless the
+ * LangGraph engine is on. Returns a stop function.
+ */
 export function startAgentMemoryMaintenance(): () => void {
   if (agentEngine !== "langgraph") return () => undefined;
+  void getLangGraph().catch(() => undefined);
   const timer = setInterval(() => void getLangGraph().then(({ memory }) => memory.purgeIdle(24)).catch(() => undefined), 60 * 60_000);
   timer.unref();
   return () => clearInterval(timer);

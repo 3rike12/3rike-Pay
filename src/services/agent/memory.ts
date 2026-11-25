@@ -49,6 +49,12 @@ export interface AgentMemory {
 export interface AgentMemoryOptions {
   /** Postgres connection string for the memory database. Empty means in-memory. */
   connectionString?: string;
+  /** How many times to try reaching the database before using in-memory instead. Default 10. */
+  connectAttempts?: number;
+  /** Wait between tries. Default 2 seconds. A fresh database container can take a few seconds to accept connections. */
+  retryDelayMs?: number;
+  /** Replaceable so a test can stand in for the database. */
+  connect?: (connectionString: string) => Promise<{ saver: BaseCheckpointSaver; pool: Pool }>;
   /** How long a conversation may be quiet before the next message starts a new one. Default 30 minutes. */
   idleMs?: number;
   now?: () => number;
@@ -63,18 +69,36 @@ export async function createAgentMemory(options: AgentMemoryOptions = {}): Promi
   let pool: Pool | null = null;
 
   if (options.connectionString) {
-    try {
-      pool = new Pool({ connectionString: options.connectionString, max: 4, connectionTimeoutMillis: 5000 });
-      const pg = new PostgresSaver(pool);
-      await pg.setup(); // creates its tables in this database (and only this one) on first use
-      saver = pg;
-      kind = "postgres";
-      logger.info("Agent memory is using its own Postgres database");
-    } catch (error: any) {
-      logger.error("Agent memory could not reach its Postgres database; using in-memory instead", { error: error?.message });
-      await pool?.end().catch(() => undefined);
-      pool = null;
+    const attempts = Math.max(1, options.connectAttempts ?? 10);
+    const delay = options.retryDelayMs ?? 2000;
+    const connect =
+      options.connect ??
+      (async (url: string) => {
+        const p = new Pool({ connectionString: url, max: 4, connectionTimeoutMillis: 5000 });
+        try {
+          const pg = new PostgresSaver(p);
+          await pg.setup(); // creates its tables in this database (and only this one) on first use
+          return { saver: pg as BaseCheckpointSaver, pool: p };
+        } catch (error) {
+          await p.end().catch(() => undefined);
+          throw error;
+        }
+      });
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const c = await connect(options.connectionString);
+        saver = c.saver;
+        pool = c.pool;
+        kind = "postgres";
+        logger.info("Agent memory is using its own Postgres database", { attempt });
+        break;
+      } catch (error: any) {
+        if (attempt === attempts) logger.error("Agent memory could not reach its Postgres database; using in-memory instead", { error: error?.message, attempts });
+        else await new Promise((r) => setTimeout(r, delay));
+      }
     }
+  } else {
+    logger.info("Agent memory is in-memory (AGENT_DB_URL is not set): conversations are forgotten on restart");
   }
 
   return {

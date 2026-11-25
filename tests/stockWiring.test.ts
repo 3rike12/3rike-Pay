@@ -7,6 +7,11 @@ vi.mock("@/config", () => ({
   config: { features: { dryRun: false, mobileMoneyEnabled: true }, logLevel: "silent", whatsapp: { verifyToken: "t" }, nearIntents: {}, stocks: { blockUs: true, minOrderUsd: 5 } },
 }));
 
+// These tests script the original agent's model; LangGraph is the default engine, so pin this file to the original.
+vi.hoisted(() => {
+  process.env.STOCKS_AGENT_ENGINE = "custom";
+});
+
 const ONE = 100_000_000n;
 const NVDA = { address: "0x" + "2".repeat(40), symbol: "NVDAc", ticker: "NVDA", name: "NVIDIA Corp", decimals: 8, multiplier: 1, navPrice: null, navUpdatedAt: null, isin: null, totalSupply: null };
 const h = vi.hoisted(() => {

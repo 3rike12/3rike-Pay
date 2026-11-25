@@ -51,13 +51,15 @@ services:
   # The research agent's conversation memory (LangGraph's Postgres checkpointer). A database used ONLY for this,
   # apart from the ledger: no published port, so only the app can reach it, and its own volume. It holds short chats
   # and what the agent's tools returned for them (for example a person's holdings), and the app deletes
-  # conversations idle for more than a day. It is only used when STOCKS_AGENT_ENGINE=langgraph.
+  # conversations idle for more than a day. Used by the default research agent (LangGraph); nothing to configure.
   agent-db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: agent
-      POSTGRES_PASSWORD: ${AGENT_DB_PASSWORD:-change-me-agent-memory}
+      # Coolify generates SERVICE_PASSWORD_AGENTDB for you; anywhere else a built-in value is used. The database is not
+      # reachable from outside this stack, so nothing needs setting.
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_AGENTDB:-${AGENT_DB_PASSWORD:-change-me-agent-memory}}
       POSTGRES_DB: agent_memory
     volumes:
       - agentdata:/var/lib/postgresql/data
@@ -105,8 +107,10 @@ services:
       PORT: 3000
       # Always this stack's Redis; this also turns on the BullMQ payment queue.
       REDIS_URL: redis://redis:6379
-      # The agent's own memory database (see agent-db above). Unused unless STOCKS_AGENT_ENGINE=langgraph.
-      AGENT_DB_URL: postgresql://agent:${AGENT_DB_PASSWORD:-change-me-agent-memory}@agent-db:5432/agent_memory
+      # The agent's own memory database (see agent-db above).
+      AGENT_DB_URL: postgresql://agent:${SERVICE_PASSWORD_AGENTDB:-${AGENT_DB_PASSWORD:-change-me-agent-memory}}@agent-db:5432/agent_memory
+      # The research agent runs on LangGraph with conversation memory by default. Set STOCKS_AGENT_ENGINE=custom to go back.
+      STOCKS_AGENT_ENGINE: ${STOCKS_AGENT_ENGINE:-langgraph}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1"]
       interval: 30s
