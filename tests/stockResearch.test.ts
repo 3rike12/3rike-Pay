@@ -294,7 +294,7 @@ describe("renderResearch", () => {
 // ---------------------------------------------------------------------------
 // Better facts, and plans chosen from code-computed options
 // ---------------------------------------------------------------------------
-import { enrichFacts, planPhrases } from "@/services/stockResearch";
+import { enrichFacts, planPhrases, makesPromise } from "@/services/stockResearch";
 import { buildPlans } from "@/services/planBuilder";
 
 describe("richer facts and plans", () => {
@@ -362,3 +362,28 @@ describe("richer facts and plans", () => {
     expect(bad.kind).toBe("fallback");
   });
 });
+
+describe("promises: refused, but a plain 'nobody can know' is not one", () => {
+  it("refuses a sentence that really promises an outcome", () => {
+    for (const s of ["It will definitely go up.", "Guaranteed to double.", "This is risk-free.", "It will rise tomorrow.", "You can't lose with this one.", "A sure thing.", "It will go up. Buy now!"]) {
+      expect(makesPromise(s), s).toBe(true);
+    }
+  });
+
+  it("allows honest uncertainty, even though it names the outcome", () => {
+    for (const s of ["Nobody can know whether it will go up.", "I can't guarantee it will rise.", "No one can say it will definitely go up.", "It might go up, or it might not.", "I cannot say if it will fall.", "That is not guaranteed.", "It is not risk-free.", "There is no way to know if it will crash."]) {
+      expect(makesPromise(s), s).toBe(false);
+    }
+  });
+
+  it("judges sentence by sentence: an honest line does not excuse a promise in the next", () => {
+    expect(makesPromise("Nobody can know the future. It will definitely go up.")).toBe(true);
+    expect(makesPromise("It will definitely go up.\nNobody can really know though.")).toBe(true);
+    expect(makesPromise("Nobody can know. It has dropped 5% this week and news may be related.")).toBe(false);
+  });
+
+  it("an empty answer promises nothing", () => {
+    expect(makesPromise("")).toBe(false);
+  });
+});
+

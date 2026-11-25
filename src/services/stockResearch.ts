@@ -211,14 +211,25 @@ export function unknownNumbers(answer: string, allowed: number[]): number[] {
   return found;
 }
 
-const PROMISE_RE = /guarantee|risk[- ]?free|can'?t lose|cannot lose|will (definitely |certainly |surely )?(go up|rise|double|moon|rally|crash|fall)|sure thing|get rich|no risk|will make you/i;
+/** Always a promise, whatever surrounds it. */
+const ALWAYS_PROMISE_RE = /can'?t lose|cannot lose|sure thing|get rich|no risk|will make you/i;
+/** A promise unless the sentence hedges or denies it ("I can't guarantee...", "nobody can say it will go up"). */
+const OUTCOME_PROMISE_RE = /guarantee|risk[- ]?free|will (definitely |certainly |surely )?(go up|rise|double|moon|rally|crash|fall)/i;
+/** Words that make a sentence a denial or a hedge: "nobody can say it will go up" is the opposite of a promise. */
+const HEDGE_RE = /\b(can'?t|cannot|can not|couldn'?t|no one|nobody|don'?t|doesn'?t|do not|does not|unable|not|isn'?t|aren'?t|impossible|no way|whether|if|might|may|could|uncertain|unknown|never)\b/i;
+
+/** Does any sentence PROMISE an outcome? A hedged or denying sentence is not a promise, however it mentions one. */
+export function makesPromise(answer: string): boolean {
+  return answer.split(/(?<=[.!?])\s+|\n+/).some((sentence) => ALWAYS_PROMISE_RE.test(sentence) || (OUTCOME_PROMISE_RE.test(sentence) && !HEDGE_RE.test(sentence)));
+}
+
 const LINK_RE = /https?:\/\/|www\./i;
 
 /** Does the answer break a rule? Returns the rule, or null when it is fine. */
 export function violation(answer: string, allowed: number[]): string | null {
   if (!answer || !answer.trim()) return "empty";
   if (LINK_RE.test(answer)) return "link";
-  if (PROMISE_RE.test(answer)) return "promise";
+  if (makesPromise(answer)) return "promise";
   if (unknownNumbers(answer, allowed).length) return "unknown_number";
   return null;
 }
