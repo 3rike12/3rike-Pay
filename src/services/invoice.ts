@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { config } from "@/config";
 import { prisma } from "@/db/prisma";
 import { flutterwave } from "@/services/flutterwave";
 import { SYSTEM_ACCOUNTS, ledger } from "@/services/ledger";
@@ -358,6 +359,11 @@ export async function chargeInvoice(params: {
   invoiceId: string;
   redirectUrl?: string;
 }) {
+  // A second lock behind the bot's own check: while mobile money is switched off, nothing in the system can ask
+  // Flutterwave to push a payment prompt to a customer's phone, whatever code path got here.
+  if (!(config as any).features?.mobileMoneyEnabled) {
+    throw new Error("Mobile money payments are switched off. Pay with crypto instead.");
+  }
   const invoice = await getInvoiceById(params.invoiceId, params.merchantId);
   if (!invoice) {
     throw new Error("Invoice not found.");

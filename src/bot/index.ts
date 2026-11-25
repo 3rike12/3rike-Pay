@@ -2051,7 +2051,7 @@ async function handleInvoiceConfirm(
   }
 
   // Mobile money is switched off: "Yes" issues the invoice through the crypto
-  // rail instead (default token). Flip MOBILE_MONEY_ENABLED=true to restore it.
+  // rail instead (default token). It is restored in src/config/index.ts (features.mobileMoneyEnabled).
   if (!config.features.mobileMoneyEnabled) {
     if (!nearIntents.isNearIntentsEnabled()) {
       return whatsapp.sendTextMessage(

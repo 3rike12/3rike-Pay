@@ -390,11 +390,12 @@ export const config = {
      */
     dryRun: process.env.DRY_RUN === "true" || process.env.KYC_DRY_RUN === "true",
     /**
-     * Mobile money (Flutterwave) invoice collection. OFF by default: new
-     * invoices are issued as crypto payments instead. Flutterwave webhooks
-     * stay live regardless, so charges already in flight still settle.
+     * Mobile money (Flutterwave) invoice collection. SWITCHED OFF for now, and no environment variable turns it
+     * back on: new invoices are issued as crypto payments instead. The code is kept so it can be restored by
+     * reading MOBILE_MONEY_ENABLED here again. Flutterwave webhooks stay live regardless, so charges already in
+     * flight still settle.
      */
-    mobileMoneyEnabled: process.env.MOBILE_MONEY_ENABLED === "true",
+    mobileMoneyEnabled: false as boolean,
     /**
      * The original Nigerian-banking features: BVN/NIN KYC, bank sub-accounts,
      * send-money-to-bank, airtime. OFF by default - the product now starts at

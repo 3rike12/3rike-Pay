@@ -5,6 +5,8 @@ vi.mock("@/config", () => ({
     logLevel: "debug",
     redis: {},
     flutterwave: {},
+    // The charge tests below run with mobile money switched ON, to test the charge; the lock has its own tests.
+    features: { mobileMoneyEnabled: true },
   },
 }));
 
@@ -159,6 +161,35 @@ beforeEach(() => {
   extractPushNote.mockReturnValue(null);
   retrievePushCharge.mockResolvedValue(null as any);
   seedInvoice();
+});
+
+describe("chargeInvoice while mobile money is switched off", () => {
+  it("refuses, and never asks Flutterwave to charge anyone or writes anything", async () => {
+    const { config: cfg } = await import("@/config");
+    (cfg as any).features.mobileMoneyEnabled = false;
+    try {
+      charge.mockClear();
+      const before = callOrder.length;
+      await expect(chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" })).rejects.toThrow("Mobile money payments are switched off");
+      expect(charge).not.toHaveBeenCalled();
+      expect(callOrder.length).toBe(before); // no transaction row, no invoice update
+    } finally {
+      (cfg as any).features.mobileMoneyEnabled = true;
+    }
+  });
+
+  it("refuses when the setting is missing altogether, rather than defaulting to charging", async () => {
+    const { config: cfg } = await import("@/config");
+    const saved = (cfg as any).features;
+    delete (cfg as any).features;
+    try {
+      charge.mockClear();
+      await expect(chargeInvoice({ merchantId: "merch_1", invoiceId: "inv_1" })).rejects.toThrow("switched off");
+      expect(charge).not.toHaveBeenCalled();
+    } finally {
+      (cfg as any).features = saved;
+    }
+  });
 });
 
 describe("chargeInvoice", () => {
