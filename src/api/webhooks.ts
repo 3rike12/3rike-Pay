@@ -197,11 +197,6 @@ router.post("/autoramp", async (req: Request, res: Response) => {
       case "account.created":
         await handleAccountCreated(data);
         break;
-      case "onramp.completed":
-      case "onramp.updated":
-      case "onramp.failed":
-        await handleOnrampEvent(event, data);
-        break;
       case "offramp.completed":
       case "offramp.updated":
       case "offramp.failed":
@@ -403,43 +398,6 @@ function normalizeStatus(event: string, data: any): string {
   if (event.endsWith(".completed")) return "completed";
   if (event.endsWith(".failed")) return "failed";
   return "processing";
-}
-
-async function handleOnrampEvent(event: string, data: any) {
-  logger.info("Onramp event", { event, reference: data.reference, status: data.status });
-
-  if (data.reference) {
-    const transaction = await prisma.transaction.findFirst({
-      where: { reference: data.reference },
-    });
-
-    if (transaction) {
-      const newStatus = normalizeStatus(event, data);
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: newStatus,
-          metadata: { ...((transaction.metadata as any) || {}), autorampData: data },
-        },
-      });
-
-      // Notify user via WhatsApp
-      if (transaction.recipientPhone) {
-        const { whatsapp } = await import("../services/whatsapp");
-        if (newStatus === "completed") {
-          await whatsapp.sendTextMessage(
-            transaction.recipientPhone,
-            `Your payment of ${formatAmount(transaction.amount)} has been completed!`
-          );
-        } else if (newStatus === "failed") {
-          await whatsapp.sendTextMessage(
-            transaction.recipientPhone,
-            `Your payment could not be processed. Please try again or contact support.`
-          );
-        }
-      }
-    }
-  }
 }
 
 async function handleOfframpEvent(event: string, data: any) {

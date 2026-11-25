@@ -264,30 +264,6 @@ class AutoRampService {
     }
   }
 
-  // ------- On-Ramp (Fiat -> Crypto) -------
-
-  async initializeOnRamp(params: {
-    network: "base" | "bsc";
-    amount: number;
-    destinationAddress: string;
-  }) {
-    try {
-      const { data } = await this.client.post("/ramp/onramp", {
-        type: "on",
-        network: params.network,
-        amount: params.amount,
-        destination: { address: params.destinationAddress },
-      });
-      logger.info("On-ramp initialized", { reference: data.reference });
-      return data;
-    } catch (error: any) {
-      logger.error("On-ramp initialization failed", {
-        error: error.response?.data || error.message,
-      });
-      throw error;
-    }
-  }
-
   // ------- Off-Ramp (Crypto -> Fiat) -------
 
   async initializeOffRamp(params: {

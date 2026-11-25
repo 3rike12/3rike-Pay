@@ -240,25 +240,17 @@ describe("AutoRamp webhook", () => {
       });
     });
 
-    it("onramp.completed updates the transaction and sends a text message", async () => {
-      findTxn.mockResolvedValue({
-        id: "t1",
-        userId: "u1",
-        amount: 5000,
-        reference: "ref-1",
-        recipientPhone: "0801",
-        metadata: {},
-      } as any);
+    it("an onramp event (AutoRamp's on-ramp is no longer used) is acknowledged and acted on in no way", async () => {
+      findTxn.mockResolvedValue({ id: "t1", userId: "u1", amount: 5000, reference: "ref-1", recipientPhone: "0801", metadata: {} } as any);
+      updateTxn.mockClear();
+      sendText.mockClear();
 
       const res = await postAutoramp(buildApp(), { event: "onramp.completed", data: { reference: "ref-1" } }, "sig");
 
       expect(res.status).toBe(200);
-      await vi.waitFor(() => {
-        expect(updateTxn).toHaveBeenCalledWith(
-          expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) })
-        );
-        expect(sendText).toHaveBeenCalled();
-      });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(updateTxn).not.toHaveBeenCalled();
+      expect(sendText).not.toHaveBeenCalled();
     });
 
     it("subaccount.inflow notifies the account holder of a deposit", async () => {
