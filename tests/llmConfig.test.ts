@@ -29,9 +29,9 @@ describe("the model provider settings", () => {
     expect(await load({ STOCKS_LLM_API_KEY: "k" })).toMatchObject({ provider: "meta", baseUrl: "https://api.meta.ai/v1", model: "muse-spark-1.3", reasoningEffort: "low", apiKey: "k" });
   });
 
-  it("STOCKS_LLM_PROVIDER=groq points at Groq with a model that accepts no reasoning effort", async () => {
+  it("STOCKS_LLM_PROVIDER=groq points at Groq with gpt-oss (Llama 3.3 was retired there) and low reasoning effort", async () => {
     const c = await load({ STOCKS_LLM_PROVIDER: "groq", STOCKS_LLM_API_KEY: "gk" });
-    expect(c).toMatchObject({ provider: "groq", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", reasoningEffort: "", apiKey: "gk" });
+    expect(c).toMatchObject({ provider: "groq", baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", reasoningEffort: "low", apiKey: "gk" });
   });
 
   it("Groq also reads GROQ_API_KEY, and Meta does not", async () => {

@@ -231,10 +231,12 @@ export const config = {
   llm: ((): { provider: string; apiKey: string; baseUrl: string; model: string; reasoningEffort: string; dailyLimit: number } => {
     // STOCKS_LLM_PROVIDER picks sensible defaults; every value can still be set on its own.
     //   meta (default)  Meta's Model API. A reasoning model: "low" effort keeps its thinking within the token limit.
-    //   groq            Groq's OpenAI-compatible API. Most of its models reject reasoning_effort, so none is sent.
+    //   groq            Groq's OpenAI-compatible API. gpt-oss is a reasoning model, so "low" effort keeps its thinking within the
+    //                   token limit. Groq retires models often (Llama 3.3 70B went on 2026-08-16): if you see a 404 "does not
+    //                   exist", set STOCKS_LLM_MODEL to one from the startup log's list of available models.
     const presets: Record<string, { baseUrl: string; model: string; reasoningEffort: string }> = {
       meta: { baseUrl: "https://api.meta.ai/v1", model: "muse-spark-1.3", reasoningEffort: "low" },
-      groq: { baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", reasoningEffort: "" },
+      groq: { baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", reasoningEffort: "low" },
     };
     const provider = (process.env.STOCKS_LLM_PROVIDER || "meta").toLowerCase();
     const preset = presets[provider] ?? presets.meta;
