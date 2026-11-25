@@ -1064,3 +1064,57 @@ describe("answers that read well", () => {
   });
 });
 
+describe("a conversation, not a list of commands", () => {
+  it("'can it go up' right after a price is a question about that stock", async () => {
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    expect(await bot.tryHandle(PHONE, KE, "Can it go up")).toBe(true);
+    expect(asked).toHaveLength(1);
+    expect(asked[0].question).toBe("Can it go up");
+    expect(asked[0].stocks.map((s: StockToken) => s.ticker)).toEqual(["TSLA"]);
+  });
+
+  it("with no stock in the conversation it is not claimed, so the app's usual reply applies", async () => {
+    expect(await bot.tryHandle(PHONE, KE, "Can it go up")).toBe(false);
+    expect(asked).toEqual([]);
+  });
+
+  it("each line of a two-line message is answered, in order: the price, then the question", async () => {
+    await bot.tryHandle(PHONE, KE, "How about TSLA stocks what's the current price\n\nAnd can it go up");
+    expect(sent[0]).toContain("*Tesla, Inc. (TSLA)*");
+    expect(asked).toHaveLength(1);
+    expect(asked[0].question).toBe("And can it go up");
+    expect(asked[0].stocks.map((s: StockToken) => s.ticker)).toEqual(["TSLA"]);
+    expect(last()).toBe("Tesla is up 6% recently.");
+  });
+
+  it("carries on with 'and Nvidia?' and 'why?'", async () => {
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    await bot.tryHandle(PHONE, KE, "what about nvidia");
+    expect(asked[0].stocks.map((s: StockToken) => s.ticker)).toEqual(["NVDA"]);
+    await bot.tryHandle(PHONE, KE, "why?");
+    expect(asked).toHaveLength(2);
+    expect(asked[1].stocks.map((s: StockToken) => s.ticker)).toEqual(["NVDA"]); // the one just discussed
+  });
+
+  it("never steals a message meant for another part of the app, even mid-conversation", async () => {
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    sent.length = 0;
+    for (const text of ["is my invoice paid", "what is my balance", "can i cash out", "thanks", "ok", "how do i top up", "hello", "/invoice"]) {
+      expect(await bot.tryHandle(PHONE, KE, text), text).toBe(false);
+    }
+    expect(asked).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it("a multi-line message that is not all about stocks is left whole for the rest of the app", async () => {
+    expect(await bot.tryHandle(PHONE, KE, "hello there\nmy invoice is not paid")).toBe(false);
+    expect(await bot.tryHandle(PHONE, KE, "create invoice\n5000 for shoes")).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  it("each person has their own thread of conversation", async () => {
+    await bot.tryHandle(PHONE, { ...KE, id: "u1" }, "price of tesla");
+    expect(await bot.tryHandle(PHONE, { ...KE, id: "u2" }, "can it go up")).toBe(false);
+  });
+});
+

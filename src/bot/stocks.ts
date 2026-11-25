@@ -1,5 +1,5 @@
 import { parseStockRequest, type StockRequest, type NamedCurrency } from "@/utils/stockNlu";
-import { parseStockRequestSmart } from "@/nlp/stockIntents";
+import { parseStockRequestSmart, looksLikeFollowUp } from "@/nlp/stockIntents";
 import { findStock, type StockToken } from "@/services/stocks";
 import { checkStockEligibility, eligibilityMessage } from "@/services/stockEligibility";
 import type { BuyPreview, SellPreview, StockOrderRow } from "@/services/stockOrders";
@@ -433,8 +433,29 @@ export function createStockBot(deps: StockBotDeps) {
    * Handle a message if it is about stocks. Returns false when it is not, so the
    * caller carries on with its other handlers.
    */
+  /**
+   * A message, or each line of a multi-line one ("how about TSLA, what's the price?" then "and can it go up?").
+   * A multi-line message is split only when EVERY line is about stocks (a stock request, or after the first line a
+   * follow-up); anything else is treated as one message, exactly as before, so other parts of the app are never
+   * cut up or claimed.
+   */
   async function tryHandle(phone: string, user: any, text: string): Promise<boolean> {
-    const req = parseStockRequestSmart(text);
+    const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 1 && lines.length <= 4) {
+      const talking = !!deps.recent.get(user.id);
+      const allAboutStocks = lines.every((l, i) => parseStockRequestSmart(l) !== null || ((i > 0 || talking) && looksLikeFollowUp(l)));
+      if (allAboutStocks) {
+        for (const line of lines) await handleOne(phone, user, line);
+        return true;
+      }
+    }
+    return handleOne(phone, user, text.trim());
+  }
+
+  async function handleOne(phone: string, user: any, text: string): Promise<boolean> {
+    let req = parseStockRequestSmart(text);
+    // "Can it go up?" means nothing alone, but right after talking about a stock it is a question about that stock.
+    if (!req && deps.recent.get(user.id) && looksLikeFollowUp(text)) req = { intent: "research", question: text, queries: [] };
     if (!req) return false;
 
     const eligibility = checkStockEligibility({ phone, country: user?.business?.country });

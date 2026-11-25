@@ -108,3 +108,25 @@ export function parseStockRequestSmart(input: string, extraWords: string[] = kno
       return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Follow-ups in a conversation
+//
+// "Can it go up?" means nothing alone but a lot right after talking about Tesla. When a stock conversation is
+// active, a message that refers back ("it", "that"), carries on ("and...", "what about...", "why?") or is a very
+// short question is a follow-up. It must not steal a message meant for another part of the app, so anything
+// about invoices, balances, top-ups and the like is never a follow-up.
+// ---------------------------------------------------------------------------
+
+const REFERS_BACK = /\b(it|its|it's|that|this|those|them|they|the stock|the price|the company|that one|this one)\b/i;
+const CONTINUES = /^(and|but|so|then|also|what about|how about|what if|why|how come|really)\b/i;
+const OTHER_TOPIC = /\b(invoice|invoices|balance|top ?up|cash ?out|withdraw\w*|payment|payments|paid|product|products|shop|business|currency|verify|verification|kyc|bank|airtime|pin|password|transfer|receipt|support)\b/i;
+
+export function looksLikeFollowUp(text: string): boolean {
+  const t = (text || "").trim();
+  if (!t || t.startsWith("/") || t.length > 200) return false;
+  if (OTHER_TOPIC.test(t)) return false;
+  const words = t.split(/\s+/).length;
+  return REFERS_BACK.test(t) || CONTINUES.test(t) || (words <= 3 && /\?\s*$/.test(t));
+}
+

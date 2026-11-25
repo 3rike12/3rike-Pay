@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@/config", () => ({ config: { logLevel: "silent" } }));
 
 import { trainClassifier, features, normalise } from "@/nlp/classifier";
-import { parseStockRequestSmart, stockWords } from "@/nlp/stockIntents";
+import { parseStockRequestSmart, stockWords, looksLikeFollowUp } from "@/nlp/stockIntents";
 import { STOCK_TRAINING } from "@/nlp/stockTrainingData";
 
 describe("the classifier", () => {
@@ -135,3 +135,24 @@ describe("how the layers combine", () => {
     expect(r).toMatchObject({ intent: "plan", budget: 3000 });
   });
 });
+
+describe("is this a follow-up to a stock conversation?", () => {
+  it("yes when it refers back, carries on, or is a very short question", () => {
+    for (const t of ["Can it go up", "will it recover?", "is that a good price", "and Nvidia?", "what about meta", "how about the other one", "why?", "so should I wait", "what if it drops", "is it risky"]) {
+      expect(looksLikeFollowUp(t), t).toBe(true);
+    }
+  });
+
+  it("no when it is about another part of the app, however it is phrased", () => {
+    for (const t of ["is my invoice paid", "what is my balance", "can i cash out", "how do i top up", "can it send a payment", "verify my account", "my bank account", "reset my pin", "contact support"]) {
+      expect(looksLikeFollowUp(t), t).toBe(false);
+    }
+  });
+
+  it("no for plain statements, thanks, greetings, slash commands, empty and very long text", () => {
+    for (const t of ["thanks", "ok", "hello", "good morning", "I like tesla", "/stocks", "", "   ", "x ".repeat(150)]) {
+      expect(looksLikeFollowUp(t), JSON.stringify(t.slice(0, 20))).toBe(false);
+    }
+  });
+});
+
