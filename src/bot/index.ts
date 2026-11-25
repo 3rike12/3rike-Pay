@@ -49,6 +49,9 @@ import { buildPlans } from "@/services/planBuilder";
 import { annotateImpact, loadFills, loadRecurring, venuePriceUsd } from "@/services/researchContext";
 import { getStockVenue } from "@/services/stockVenue";
 import { askAgent } from "@/services/agent/stockAgent";
+import { askAgentLangGraph } from "@/services/agent/lgAgent";
+import { createChatModel } from "@/services/agent/chatModel";
+import { createAgentMemory, type AgentMemory } from "@/services/agent/memory";
 import type { ToolDeps } from "@/services/agent/stockTools";
 import { createFinnhubSource } from "@/services/researchSources";
 import { incomingMessageFields } from "@/utils/requestLog";
@@ -65,6 +68,32 @@ const logger = createLogger("bot");
 
 // The research assistant: an AI model that explains and suggests but never trades. Off without an API key.
 const researchModel = createConfiguredLlm();
+// Which agent answers research questions. "langgraph" runs the same agent on LangGraph with per-person conversation memory;
+// anything else is the original hand-written loop. Both go through the same tool limits and the same answer checks.
+const agentEngine: "custom" | "langgraph" = process.env.STOCKS_AGENT_ENGINE === "langgraph" ? "langgraph" : "custom";
+let langGraph: Promise<{ model: ReturnType<typeof createChatModel> | null; memory: AgentMemory }> | null = null;
+const getLangGraph = () =>
+  (langGraph ??= (async () => {
+    const c = (config as any).llm ?? {};
+    let model: ReturnType<typeof createChatModel> | null = null;
+    if (c.apiKey) {
+      try {
+        model = createChatModel({ apiKey: c.apiKey, baseUrl: c.baseUrl, model: c.model, reasoningEffort: c.reasoningEffort || undefined });
+      } catch (error: any) {
+        logger.error("Could not set up the agent's model; the research assistant stays off", { error: error?.message });
+      }
+    }
+    return { model, memory: await createAgentMemory({ connectionString: process.env.AGENT_DB_URL }) };
+  })());
+
+/** Hourly: delete agent conversations idle for a day. A no-op unless the LangGraph engine is on. Returns a stop function. */
+export function startAgentMemoryMaintenance(): () => void {
+  if (agentEngine !== "langgraph") return () => undefined;
+  const timer = setInterval(() => void getLangGraph().then(({ memory }) => memory.purgeIdle(24)).catch(() => undefined), 60 * 60_000);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 // Recent news and earnings. Off without STOCKS_NEWS_API_KEY.
 const newsSource = (config as any).research?.newsApiKey
   ? createFinnhubSource({ apiKey: (config as any).research.newsApiKey, baseUrl: (config as any).research.newsBaseUrl })
@@ -160,11 +189,13 @@ const stockBot = createStockBot({
     async ask({ userId, question, stocks, budget, currency }) {
       if (!researchModel) return { kind: "off" };
       if (!(await researchLimiter.allow(userId))) return { kind: "limit" };
-      const answer = await askAgent(researchModel, {
+      const request = {
+        userId,
         question,
         hints: { tickers: stocks.map((t) => t.ticker), ...(budget ? { budget } : {}) },
         deps: toolDepsFor(userId, currency),
-      });
+      };
+      const answer = agentEngine === "langgraph" ? await askAgentLangGraph(await getLangGraph(), request) : await askAgent(researchModel, request);
       if (answer.kind === "ok") return { kind: "text", text: renderResearch(answer, answer.news) };
       if (answer.kind === "fallback") return { kind: "text", text: answer.text };
       return { kind: "off" };

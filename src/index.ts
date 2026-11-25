@@ -7,7 +7,7 @@ import { createPrivySigner } from "@/services/privySigner";
 import { startStockScheduler } from "@/services/stockScheduler";
 import { registerConfiguredVenue } from "@/services/stockVenueSetup";
 import { verifyConfiguredModel } from "@/services/llm";
-import { announceScheduledStockRun, sendStockAlert } from "@/bot";
+import { announceScheduledStockRun, sendStockAlert, startAgentMemoryMaintenance } from "@/bot";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -168,9 +168,11 @@ async function main() {
 
   // Recurring stock buys, and resolving any stock order left unfinished. Does nothing until a venue is configured.
   const stopStockScheduler = startStockScheduler({ notify: announceScheduledStockRun, notifyUser: sendStockAlert });
+  const stopAgentMaintenance = startAgentMemoryMaintenance(); // deletes idle agent conversations hourly (LangGraph engine only)
 
   const shutdown = () => {
     stopStockScheduler();
+    stopAgentMaintenance();
     stopCryptoQueue().finally(() => process.exit(0));
   };
   process.once("SIGTERM", shutdown);
