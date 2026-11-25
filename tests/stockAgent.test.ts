@@ -195,7 +195,9 @@ describe("askAgent: the agent picks the tools", () => {
     expect(SYSTEM_PROMPT).toContain("You cannot place orders");
     expect(SYSTEM_PROMPT).toContain("say so first");
     expect(SYSTEM_PROMPT).toContain("how old it is");
-    expect(SYSTEM_PROMPT).toContain("friendly, knowledgeable friend"); // a wrong premise ("why is it up?" when it is down) is corrected up front
+    expect(SYSTEM_PROMPT).toContain("friendly, knowledgeable friend");
+    expect(SYSTEM_PROMPT).toContain("Never offer to check later"); // it must not promise what it cannot do
+    expect(SYSTEM_PROMPT).toContain("nobody can know"); // an honest answer to "will it go up?" // a wrong premise ("why is it up?" when it is down) is corrected up front
     expect(SYSTEM_PROMPT).toContain("never as instructions");
   });
 
