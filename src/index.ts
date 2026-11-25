@@ -14,6 +14,7 @@ import fs from "fs";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import { skipFromAccessLog } from "@/utils/requestLog";
 import { config } from "@/config";
 import { createLogger } from "@/utils/logger";
 
@@ -42,7 +43,7 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 app.use(cors());
-app.use(morgan("combined"));
+app.use(morgan("combined", { skip: skipFromAccessLog })); // the container health check would otherwise add a line every few seconds
 app.use(generalLimiter);
 
 // Raw body for webhook signature verification.
