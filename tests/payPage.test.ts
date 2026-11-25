@@ -137,17 +137,13 @@ describe("pay API: cross-origin use from a separately hosted page", () => {
   });
 });
 
-describe("pay API: direct USDC on Base", () => {
+describe("pay API: payment options", () => {
   const TREASURY = "0x2527D02599Ba641c19FEa793cD0F167589a0f10D";
   const invoice = {
     reference: "3RIKE-TEST-1", merchantId: "m1", id: "inv1", amount: 5000, currency: "RWF", items: [], status: "pending_payment",
     expiresAt: new Date(Date.now() + 600_000), createdAt: new Date(), paidAt: null, merchant: { name: "Shop", business: null },
   };
   const app = () => { const a = express(); a.use(express.json()); a.use("/api/pay", payApiRouter); return a; };
-  const enable = (on: boolean) => {
-    (config as any).directUsdc = { enabled: on };
-    (config as any).treasury = { address: TREASURY, tokenContract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", tokenDecimals: 6 };
-  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -155,57 +151,24 @@ describe("pay API: direct USDC on Base", () => {
     txFind.mockResolvedValue(null);
     getInvoiceByReference.mockResolvedValue(invoice);
     resolveOriginAsset.mockResolvedValue({ assetId: "nep141:usdt", symbol: "USDT", blockchain: "base" });
-    enable(true);
+    (config as any).treasury = { address: TREASURY, tokenContract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", tokenDecimals: 6 };
   });
   afterEach(() => {
-    delete (config as any).directUsdc;
     delete (config as any).treasury;
   });
 
-  it("offers USDC on Base first, which 1Click cannot, when enabled", async () => {
-    const res = await request(app()).get("/api/pay/3RIKE-TEST-1");
-    expect(res.body.tokens[0]).toEqual({ symbol: "USDC", chain: "base", label: "USDC on base" });
-    expect(res.body.tokens.map((t: any) => `${t.symbol}/${t.chain}`)).toEqual(["USDC/base", "USDT/base", "USDC/arb"]);
-  });
-
-  it("does not offer it when disabled", async () => {
-    enable(false);
+  it("offers exactly the tokens 1Click can swap: no special USDC-on-Base entry", async () => {
     const res = await request(app()).get("/api/pay/3RIKE-TEST-1");
     expect(res.body.tokens.map((t: any) => `${t.symbol}/${t.chain}`)).toEqual(["USDT/base", "USDC/arb"]);
   });
 
-  it("creates a direct payment, not a swap, when the customer picks USDC on Base", async () => {
-    const res = await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDC", chain: "base" });
-    expect(res.status).toBe(200);
-    expect(resolveOriginAsset).not.toHaveBeenCalled(); // 1Click would have refused: it is the destination asset
-    expect(createCryptoPayment).toHaveBeenCalledWith(expect.objectContaining({
-      direct: true, originAsset: "direct:usdc-base", merchantId: "m1", invoiceId: "inv1",
-      originMeta: expect.objectContaining({ symbol: "USDC", chain: "base", tokenAddress: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", decimals: 6 }),
-    }));
-  });
-
-  it("still swaps for every other token", async () => {
-    await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDT", chain: "base" });
-    expect(resolveOriginAsset).toHaveBeenCalledWith("USDT", "base");
+  it("every token, USDC on Base included, is handed to 1Click as a swap (1Click decides what it supports)", async () => {
+    for (const [symbol, chain] of [["USDT", "base"], ["USDC", "arb"], ["USDC", "base"]]) {
+      resolveOriginAsset.mockClear();
+      await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol, chain });
+      expect(resolveOriginAsset).toHaveBeenCalledWith(symbol, chain);
+    }
     expect(createCryptoPayment).toHaveBeenCalledWith(expect.not.objectContaining({ direct: true }));
-  });
-
-  it("USDC on Arbitrum is a swap, not a direct payment", async () => {
-    await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDC", chain: "arb" });
-    expect(resolveOriginAsset).toHaveBeenCalledWith("USDC", "arb");
-  });
-
-  it("with it disabled, USDC on Base goes to 1Click as before", async () => {
-    enable(false);
-    await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDC", chain: "base" });
-    expect(resolveOriginAsset).toHaveBeenCalledWith("USDC", "base");
-  });
-
-  it("does not tell 1Click about a direct payment's transaction", async () => {
-    txFind.mockResolvedValue({ metadata: { nearIntents: { depositAddress: TREASURY, provider: "direct-usdc" } } });
-    const res = await request(app()).post("/api/pay/3RIKE-TEST-1/submit").send({ txHash: "0x" + "a".repeat(64) });
-    expect(res.body).toEqual({ ok: true });
-    expect(submitDepositTx).not.toHaveBeenCalled();
   });
 
   it("still tells 1Click about a swap payment's transaction", async () => {

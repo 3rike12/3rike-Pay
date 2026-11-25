@@ -26,9 +26,6 @@ export function configuredLimits(railId: string): Limits {
         // The testnet demo network (Tidepool) is not capped.
         maxUsd: c.nearIntents?.network === "tidepool" ? undefined : (num(own.maxUsd) ?? num(treasury.maxWithdrawUsd)),
       };
-    case "direct-usdc":
-      // No swap, so no swap floor. A cap if one is set, else the same ceiling as other inbound money.
-      return { minUsd: num(own.minUsd), maxUsd: num(own.maxUsd) ?? num(treasury.maxWithdrawUsd) };
     case "1click-payout":
     case "autoramp":
       return {

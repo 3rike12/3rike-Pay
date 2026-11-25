@@ -11,7 +11,6 @@ import {
   scheduleCryptoVerification,
 } from "@/services/cryptoInvoice";
 import { getInvoiceByReference } from "@/services/invoice";
-import { DIRECT_ASSET, DIRECT_CHAIN, DIRECT_SYMBOL, directToken, isDirectUsdcEnabled } from "@/services/directUsdc";
 import { paymentQrPng } from "@/utils/qr";
 import { createLogger } from "@/utils/logger";
 
@@ -144,11 +143,6 @@ payApiRouter.get("/:reference", limiter, async (req: Request, res: Response) => 
     } catch (error: any) {
       logger.warn("Could not load token list", { error: error?.message });
     }
-    // Customers who already hold USDC on Base can pay the treasury directly: no swap, so
-    // no 1Click fee or minimum. 1Click cannot offer this one (it refuses same-asset swaps).
-    if (isDirectUsdcEnabled()) {
-      tokens = [{ symbol: DIRECT_SYMBOL, chain: DIRECT_CHAIN, label: `${DIRECT_SYMBOL} on ${DIRECT_CHAIN}` }, ...tokens.filter((t) => !(t.symbol === DIRECT_SYMBOL && t.chain === DIRECT_CHAIN))];
-    }
     res.json({
       ...view,
       tokens,
@@ -173,21 +167,6 @@ payApiRouter.post("/:reference/quote", limiter, async (req: Request, res: Respon
 
     const symbol = String(req.body?.symbol || "");
     const chain = req.body?.chain ? String(req.body.chain) : undefined;
-
-    // USDC on Base goes straight to the treasury (when enabled), never through a swap.
-    if (isDirectUsdcEnabled() && symbol.toUpperCase() === DIRECT_SYMBOL && (chain ?? DIRECT_CHAIN).toLowerCase() === DIRECT_CHAIN) {
-      const token = directToken();
-      await createCryptoPayment({
-        merchantId: invoice.merchantId,
-        invoiceId: invoice.id,
-        originAsset: DIRECT_ASSET,
-        originLabel: `${token.symbol} on ${token.blockchain}`,
-        originMeta: originMetaFor(token),
-        direct: true,
-      });
-      scheduleCryptoVerification(invoice.reference);
-      return res.json(await publicView(invoice.reference));
-    }
 
     const token = await nearIntents.resolveOriginAsset(symbol, chain);
     if (!token) return res.status(400).json({ error: "That token isn't supported." });
@@ -227,8 +206,6 @@ payApiRouter.post("/:reference/submit", limiter, async (req: Request, res: Respo
     const tx = await prisma.transaction.findUnique({ where: { reference: req.params.reference } });
     const quote = (tx?.metadata as any)?.nearIntents;
     if (!quote?.depositAddress) return res.status(404).json({ error: "No payment in progress" });
-    // A direct USDC payment is found by watching the chain; there is nothing to tell 1Click.
-    if (quote.provider === "direct-usdc") return res.json({ ok: true });
 
     await nearIntents
       .submitDepositTx({ txHash, depositAddress: quote.depositAddress, depositMemo: quote.depositMemo ?? undefined })

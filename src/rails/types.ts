@@ -87,17 +87,7 @@ export interface BankPayoutRequest {
   accountNumber: string;
 }
 
-/** A plain token transfer to the treasury, with no swap (direct USDC). The rail tags the amount so the transfer can be recognised. */
-export interface DirectTransferRequest {
-  kind: "direct_transfer";
-  /** The invoice this pays. */
-  reference: string;
-  userId?: string;
-  /** The untagged amount, in the token's base units. */
-  baseUnits: string;
-}
-
-export type RailRequest = SwapRequest | BankPayoutRequest | DirectTransferRequest;
+export type RailRequest = SwapRequest | BankPayoutRequest;
 
 /** A price, with nothing created at the provider. */
 export interface RailQuote {

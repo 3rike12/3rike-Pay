@@ -303,7 +303,7 @@ export const config = {
    * RAIL_1CLICK_PAYOUT_MIN_USD).
    */
   rails: Object.fromEntries(
-    ["1click", "1click-payout", "autoramp", "direct-usdc"].map((id) => {
+    ["1click", "1click-payout", "autoramp"].map((id) => {
       const key = `RAIL_${id.toUpperCase().replace(/-/g, "_")}`;
       const read = (suffix: string) => {
         const raw = process.env[`${key}_${suffix}`];
@@ -312,25 +312,6 @@ export const config = {
       return [id, { minUsd: read("MIN_USD"), maxUsd: read("MAX_USD") }];
     })
   ) as Record<string, { minUsd?: number; maxUsd?: number }>,
-
-  /**
-   * Direct USDC on Base: a customer who already holds USDC sends it straight to
-   * the treasury with no swap, so there is no 1Click fee or minimum. A payment
-   * is recognised by its exact amount (a unique tag in the last micro-USDC), so
-   * it is OFF until DIRECT_USDC_ENABLED=true and needs TREASURY_ADDRESS to be
-   * an EVM address you control.
-   */
-  directUsdc: {
-    enabled: process.env.DIRECT_USDC_ENABLED === "true",
-    /** Blocks to wait before trusting a transfer (Base blocks are about 2s). */
-    confirmations: parseInt(process.env.DIRECT_USDC_CONFIRMATIONS || "3", 10),
-    /** Blocks per eth_getLogs call; public RPCs cap the range. */
-    chunkBlocks: parseInt(process.env.DIRECT_USDC_CHUNK_BLOCKS || "2000", 10),
-    /** On first run, how far back to look (about an hour at 2s blocks). */
-    lookbackBlocks: parseInt(process.env.DIRECT_USDC_LOOKBACK_BLOCKS || "1800", 10),
-    /** Tags run 1..maxTag micro-USDC. Keep it under ~500 so a tagged amount cannot equal another invoice's untagged one. */
-    maxTag: parseInt(process.env.DIRECT_USDC_MAX_TAG || "499", 10),
-  },
 
   app: {
     name: process.env.APP_NAME || "3rike Pay",

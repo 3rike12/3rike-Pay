@@ -5,7 +5,6 @@ import { nearIntents, evmChainIdFor, prettyOrigin, type PayableToken } from "@/s
 import { oneClickEvent, summariseQuoteStatuses } from "@/rails/oneClick";
 import { initiateOn, pickRail } from "@/rails/router";
 import { staticFx } from "@/services/fx";
-import { scanDirectUsdc } from "@/services/directUsdc";
 import { recordRailEvent } from "@/rails/settlement";
 import type { RailEventInput } from "@/rails/types";
 import {
@@ -86,8 +85,6 @@ export async function createCryptoPayment(params: {
   refundTo?: string;
   /** Token/chain details a wallet needs to build the transfer. */
   originMeta?: Record<string, unknown>;
-  /** Pay with USDC straight to the treasury (no swap) instead of through 1Click. */
-  direct?: boolean;
 }) {
   if (!nearIntents.isNearIntentsEnabled()) {
     throw new Error("Crypto payments are not enabled yet.");
@@ -143,24 +140,17 @@ export async function createCryptoPayment(params: {
   const deadline = new Date(Date.now() + INVOICE_TTL_MINUTES * 60 * 1000);
   const amountOut = nearIntents.fiatToDestinationUnits(invoice.amount, invoice.currency);
   // The rail mints the deposit address; this flow does not know which provider it is.
-  const instruction = params.direct
-    ? await initiateOn(pickRail("in", { kind: "direct_transfer" }), {
-        kind: "direct_transfer",
-        reference: invoice.reference,
-        userId: invoice.merchantId,
-        baseUnits: amountOut,
-      })
-    : await initiateOn(pickRail("in", { kind: "swap" }), {
-        kind: "swap",
-        swapType: "EXACT_OUTPUT",
-        amount: amountOut,
-        originAsset: params.originAsset,
-        refundTo: params.refundTo,
-        deadline,
-      });
+  const instruction = await initiateOn(pickRail("in", { kind: "swap" }), {
+    kind: "swap",
+    swapType: "EXACT_OUTPUT",
+    amount: amountOut,
+    originAsset: params.originAsset,
+    refundTo: params.refundTo,
+    deadline,
+  });
 
   const details = {
-    provider: params.direct ? "direct-usdc" : "1click",
+    provider: "1click",
     depositAddress: instruction.depositAddress,
     depositMemo: instruction.depositMemo ?? null,
     amountIn: instruction.amountIn,
@@ -282,15 +272,7 @@ export async function getCryptoPaymentState(
   const allQuotes: QuoteEntry[] = meta.nearQuotes ?? (meta.nearIntents?.depositAddress ? [meta.nearIntents] : []);
   if (allQuotes.length === 0) return { state: "unknown" };
 
-  // A direct USDC payment has no 1Click deposit address to poll: it is found by
-  // reading transfers to the treasury, and settles the invoice from there.
-  const hasDirect = allQuotes.some((q) => q.provider === "direct-usdc");
-  const quotes = allQuotes.filter((q) => q.provider !== "direct-usdc");
-  if (hasDirect) {
-    await scanDirectUsdc().catch((error: any) => logger.warn("Direct USDC scan failed", { reference, error: error?.message }));
-    const after = await getInvoiceByReference(reference);
-    if (after?.status === INVOICE_STATUS.PAID) return { state: "paid" };
-  }
+  const quotes = allQuotes;
 
   // Poll every 1Click deposit address this invoice ever minted: the customer
   // may have paid an earlier one before changing their selection.
@@ -299,11 +281,7 @@ export async function getCryptoPaymentState(
   );
   const statuses = results.map((r) => (r.status === "fulfilled" ? r.value : null));
   // What the payment's deposit addresses say, together, in canonical terms.
-  let summary: ReturnType<typeof summariseQuoteStatuses> = quotes.length
-    ? summariseQuoteStatuses(statuses)
-    : { state: "awaiting_funds" };
-  // Every swap quote being dead must not fail an invoice that can still be paid directly.
-  if (hasDirect && (summary.state === "refunded" || summary.state === "failed")) summary = { state: "awaiting_funds" };
+  const summary: ReturnType<typeof summariseQuoteStatuses> = summariseQuoteStatuses(statuses);
 
   if (summary.state === "settled") {
     const successIdx = summary.paidIndex!;

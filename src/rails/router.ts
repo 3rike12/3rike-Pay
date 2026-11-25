@@ -1,7 +1,6 @@
 import { registerRail, getRail, listRails, selectRails } from "@/rails/registry";
 import { oneClickPayoutRail, oneClickRail } from "@/rails/oneClick";
 import { autoRampOfframpRail } from "@/rails/autoRamp";
-import { directUsdcRail } from "@/rails/directUsdc";
 import type { Rail, RailDirection, RailInstruction, RailNeed, RailRequest } from "@/rails/types";
 
 // ============================================
@@ -17,7 +16,7 @@ let registered = false;
 export function ensureRails(): void {
   if (registered) return;
   registered = true;
-  for (const rail of [oneClickRail, oneClickPayoutRail, autoRampOfframpRail, directUsdcRail]) {
+  for (const rail of [oneClickRail, oneClickPayoutRail, autoRampOfframpRail]) {
     if (!getRail(rail.id)) registerRail(rail);
   }
 }
