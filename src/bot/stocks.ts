@@ -86,6 +86,15 @@ export interface StockBotDeps {
     list(userId: string): Promise<Array<{ tokenAddress: string; units: bigint }>>;
     get(userId: string, tokenAddress: string): Promise<bigint>;
   };
+  /** The stock each person last talked about, so "why is it up?" has something to be about. */
+  recent: {
+    get(userId: string): string | null;
+    set(userId: string, tokenAddress: string): void;
+  };
+  /** A market quote for the company's shares (not the trading venue). Null when there is none. */
+  market: {
+    quote(ticker: string): Promise<{ price: number; changePercent: number; asOf: string } | null>;
+  };
   research: {
     /**
      * Put a question to the research assistant. It is given the stocks (never anything about the person), and
@@ -151,9 +160,10 @@ export function createStockBot(deps: StockBotDeps) {
   const inUserCurrency = (amount: number, named: NamedCurrency | undefined, userCurrency: string) =>
     named && named !== userCurrency ? deps.convert(amount, named, userCurrency) : amount;
 
-  async function resolve(phone: string, stocks: StockToken[], query: string): Promise<StockToken | null> {
+  async function resolve(phone: string, stocks: StockToken[], query: string, userId?: string): Promise<StockToken | null> {
     const hit = findStock(stocks, query);
     if (hit.kind === "found") {
+      if (userId) deps.recent.set(userId, hit.stock.address); // remembered for "why is it up?"
       // A misspelling was matched: say what we took it to mean, so a wrong guess is never silent.
       if (hit.fuzzy) await say(phone, `Assuming you mean ${hit.stock.name} (${hit.stock.ticker}).`);
       return hit.stock;
@@ -192,10 +202,17 @@ export function createStockBot(deps: StockBotDeps) {
   }
 
   async function quote(phone: string, token: StockToken) {
-    const price = await deps.orders.indicativePrice(token);
+    // The market price first (what the share trades at), then what buying it here would cost, if a venue is set up.
+    const [market, venue] = await Promise.all([deps.market.quote(token.ticker).catch(() => null), deps.orders.indicativePrice(token).catch(() => null)]);
     const multiplier = token.multiplier !== 1 ? `\n1 token = ${token.multiplier.toFixed(4)} shares (this changes with dividends).` : "";
-    const priceLine = price ? `Price: about $${price.usdPerShare.toFixed(2)} per share (what you'd actually pay right now).` : "Price: not available right now.";
-    return say(phone, `*${label(token)}*\n\n${priceLine}${multiplier}\n\nTo buy: *buy 5000 of ${token.ticker}*`);
+    const lines: string[] = [];
+    if (market) {
+      const move = market.changePercent === 0 ? "unchanged" : `${market.changePercent > 0 ? "up" : "down"} ${Math.abs(market.changePercent)}%`;
+      lines.push(`Price: $${market.price.toFixed(2)} per share, ${move} since the previous close (as of ${market.asOf}).`);
+    }
+    if (venue) lines.push(market ? `You'd pay about $${venue.usdPerShare.toFixed(2)} per share to buy here right now.` : `Price: about $${venue.usdPerShare.toFixed(2)} per share (what you'd actually pay right now).`);
+    if (lines.length === 0) lines.push("Price: not available right now.");
+    return say(phone, `*${label(token)}*\n\n${lines.join("\n")}${multiplier}\n\nTo buy: *buy 5000 of ${token.ticker}*\nTo see why it moved: *why is ${token.ticker} up?*`);
   }
 
   // ----- buying and selling -----
@@ -279,7 +296,7 @@ export function createStockBot(deps: StockBotDeps) {
     if (entries.length > 6) return say(phone, "That's a lot of stocks to keep in balance. Please use six or fewer.");
     const rows: Array<{ tokenAddress: string; percent: number; token: StockToken }> = [];
     for (const e of entries) {
-      const token = await resolve(phone, stocks, e.query);
+      const token = await resolve(phone, stocks, e.query, user.id);
       if (!token) return;
       if (rows.some((r) => r.tokenAddress === token.address)) return say(phone, "You named " + token.ticker + " twice. Please list each stock once.");
       rows.push({ tokenAddress: token.address, percent: e.percent, token });
@@ -364,7 +381,7 @@ export function createStockBot(deps: StockBotDeps) {
     let tokenAddress: string | null = null;
     let where: string;
     if (query) {
-      const token = await resolve(phone, stocks, query);
+      const token = await resolve(phone, stocks, query, user.id);
       if (!token) return;
       tokenAddress = token.address;
       where = label(token);
@@ -402,7 +419,7 @@ export function createStockBot(deps: StockBotDeps) {
   async function cancel(phone: string, user: any, stocks: StockToken[], query?: string) {
     let token: StockToken | null = null;
     if (query) {
-      token = await resolve(phone, stocks, query);
+      token = await resolve(phone, stocks, query, user.id);
       if (!token) return;
     }
     const stopped = await deps.schedules.cancel(user.id, token?.address);
@@ -442,29 +459,35 @@ export function createStockBot(deps: StockBotDeps) {
         await holdings(phone, user, stocks);
         return true;
       case "quote": {
-        const token = await resolve(phone, stocks, req.query);
+        const token = await resolve(phone, stocks, req.query, user.id);
         if (token) await quote(phone, token);
         return true;
       }
       case "buy": {
-        const token = await resolve(phone, stocks, req.query);
+        const token = await resolve(phone, stocks, req.query, user.id);
         if (token) await buy(phone, user, token, req.amount, req.currency);
         return true;
       }
       case "sell": {
-        const token = await resolve(phone, stocks, req.query);
+        const token = await resolve(phone, stocks, req.query, user.id);
         if (token) await sell(phone, user, token, req);
         return true;
       }
       case "research": {
         const tokens: StockToken[] = [];
         for (const q of req.queries) {
-          const token = await resolve(phone, stocks, q);
+          const token = await resolve(phone, stocks, q, user.id);
           if (!token) return true; // resolve() has already said what is wrong
           tokens.push(token);
         }
         if (tokens.length === 0) {
-          // No stock named: use what they hold, so "should I sell?" has something to be about.
+          // No stock named ("why is it up?"): the one they were just talking about.
+          const last = deps.recent.get(user.id);
+          const t = last ? stocks.find((x) => x.address === last) : undefined;
+          if (t) tokens.push(t);
+        }
+        if (tokens.length === 0) {
+          // Otherwise what they hold, so "should I sell?" has something to be about.
           for (const h of (await deps.positions.list(user.id)).slice(0, 3)) {
             const t = stocks.find((x) => x.address === h.tokenAddress);
             if (t) tokens.push(t);
@@ -531,7 +554,7 @@ export function createStockBot(deps: StockBotDeps) {
         await say(phone, "Stock alerts are on. I'll tell you when a stock you hold has a change to its share count, or a big price move. Say *stop stock alerts* to turn them off.");
         return true;
       case "recurring_buy": {
-        const token = await resolve(phone, stocks, req.query);
+        const token = await resolve(phone, stocks, req.query, user.id);
         if (token) await recurring(phone, user, token, req.amount, req.currency, req.schedule);
         return true;
       }

@@ -72,6 +72,8 @@ function makeBot(over: Partial<StockBotDeps> = {}) {
       clear: async () => sweepsCleared++ >= 0 && sweeps.length > 0,
     },
     alerts: { optOut: async (u) => void optedOut.push(u), optIn: async (u) => void optedIn.push(u) },
+    recent: { get: (u) => recentMap.get(u) ?? null, set: (u, a) => void recentMap.set(u, a) },
+    market: { quote: async () => (typeof marketReply === "function" ? marketReply() : marketReply) },
     research: { ask: async (p) => (asked.push(p), typeof researchReply === "function" ? researchReply(p) : researchReply) },
     newId: () => `id${++nextId}`,
     now: () => now,
@@ -80,6 +82,8 @@ function makeBot(over: Partial<StockBotDeps> = {}) {
   return createStockBot(deps);
 }
 
+let recentMap: Map<string, string>;
+let marketReply: any;
 let targets: Array<{ tokenAddress: string; percent: number }>;
 let planReply: any;
 let sweeps: Array<{ percent: number; tokenAddress: string | null }>;
@@ -111,6 +115,8 @@ beforeEach(() => {
   held = new Map();
   balance = 100_000;
   placed = [];
+  recentMap = new Map();
+  marketReply = { price: 188.5, changePercent: 4.7, asOf: "2026-11-25" };
   targets = [];
   planReply = { status: 'no_target' };
   sweeps = [];
@@ -178,6 +184,7 @@ describe("looking", () => {
   });
 
   it("says so, rather than inventing a price, when it cannot get one", async () => {
+    marketReply = null; // no market quote either
     const b = createStockBot(depsWith({ indicativePrice: async () => null }));
     await b.tryHandle(PHONE, KE, "price of tesla");
     expect(last()).toContain("not available right now");
@@ -754,6 +761,8 @@ function depsWith(ordersOver: Partial<StockBotDeps["orders"]>, stocks?: StockTok
     positions: { list: async () => [], get: async () => 0n },
     schedules: { ...fakeSchedules(), ...schedulesOver },
     alerts: { optOut: async (u) => void optedOut.push(u), optIn: async (u) => void optedIn.push(u) },
+    recent: { get: (u) => recentMap.get(u) ?? null, set: (u, a) => void recentMap.set(u, a) },
+    market: { quote: async () => (typeof marketReply === "function" ? marketReply() : marketReply) },
     research: { ask: async (p) => (asked.push(p), typeof researchReply === "function" ? researchReply(p) : researchReply) },
     newId: () => `id${++nextId}`,
     now: () => now,
@@ -983,3 +992,75 @@ describe("everyday wording, understood locally", () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe("answers that read well", () => {
+  it("a price question shows the market price and the move, even with no trading venue", async () => {
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    expect(last()).toContain("Price: $188.50 per share, up 4.7% since the previous close (as of 2026-11-25).");
+    expect(last()).toContain("why is TSLA up?");
+  });
+
+  it("says down, unchanged, and when there is no market price at all", async () => {
+    marketReply = { price: 100, changePercent: -5.9, asOf: "2026-11-25" };
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    expect(last()).toContain("down 5.9% since the previous close");
+    marketReply = { price: 100, changePercent: 0, asOf: "2026-11-25" };
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    expect(last()).toContain("unchanged since the previous close");
+    marketReply = null;
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    expect(last()).toContain("what you'd actually pay right now"); // falls back to the venue's price
+  });
+
+  it("when the market quote fails, the price card still comes (never an error)", async () => {
+    marketReply = () => { throw new Error("finnhub down"); };
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    expect(last()).toContain("*Tesla, Inc. (TSLA)*");
+  });
+
+  it("an exact ticker inside a longer sentence is NOT reported as a guess", async () => {
+    await bot.tryHandle(PHONE, KE, "How about TSLA stocks what's the current price");
+    expect(sent.some((m) => m.includes("Assuming you mean"))).toBe(false);
+    expect(sent).toHaveLength(1);
+    expect(last()).toContain("*Tesla, Inc. (TSLA)*");
+  });
+
+  it("a real misspelling still says what it assumed", async () => {
+    await bot.tryHandle(PHONE, KE, "price of nvdia");
+    expect(sent.some((m) => m.includes("Assuming you mean NVIDIA Corporation (NVDA)"))).toBe(true);
+  });
+
+  it("'why is it up?' is about the stock they were just talking about", async () => {
+    await bot.tryHandle(PHONE, KE, "how about tsla what's the current price");
+    await bot.tryHandle(PHONE, KE, "why is it up");
+    expect(asked).toHaveLength(1);
+    expect(asked[0].stocks.map((s: StockToken) => s.ticker)).toEqual(["TSLA"]);
+    expect(sent.some((m) => m.includes("Which stock do you mean?"))).toBe(false);
+  });
+
+  it("the stock they just named beats what they hold", async () => {
+    held.set(NVDA.address, ONE);
+    await bot.tryHandle(PHONE, KE, "price of tesla");
+    await bot.tryHandle(PHONE, KE, "should i sell");
+    expect(asked[0].stocks.map((s: StockToken) => s.ticker)).toEqual(["TSLA"]);
+  });
+
+  it("with nothing recent it falls back to holdings, and with neither it asks which stock", async () => {
+    held.set(NVDA.address, ONE);
+    await bot.tryHandle(PHONE, KE, "why is it up");
+    expect(asked[0].stocks.map((s: StockToken) => s.ticker)).toEqual(["NVDA"]);
+    held.clear();
+    recentMap.clear();
+    asked.length = 0;
+    await bot.tryHandle(PHONE, KE, "why is it up");
+    expect(asked).toEqual([]);
+    expect(last()).toContain("Which stock do you mean?");
+  });
+
+  it("each person has their own 'last stock'", async () => {
+    await bot.tryHandle(PHONE, { ...KE, id: "u1" }, "price of tesla");
+    await bot.tryHandle(PHONE, { ...KE, id: "u2" }, "why is it up");
+    expect(asked).toEqual([]); // u2 never mentioned a stock
+  });
+});
+

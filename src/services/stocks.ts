@@ -283,7 +283,8 @@ export function findStock(stocks: StockToken[], query: string): Lookup {
     }
     const min = Math.min(...scored.map((x) => x.distance));
     const nearest = scored.filter((x) => x.distance === min);
-    if (nearest.length === 1) return { kind: "found", stock: nearest[0].stock, fuzzy: true };
+    // Distance 0 means a word of the query IS a ticker or a company word: that is a match, not a guess.
+    if (nearest.length === 1) return min === 0 ? { kind: "found", stock: nearest[0].stock } : { kind: "found", stock: nearest[0].stock, fuzzy: true };
     if (nearest.length > 1) return { kind: "ambiguous", matches: nearest.map((x) => x.stock) };
   }
   return { kind: "none" };

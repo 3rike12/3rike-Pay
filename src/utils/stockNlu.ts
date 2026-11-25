@@ -70,6 +70,7 @@ export const FILLER = new Set([
   "of", "in", "into", "on", "to", "for", "with", "from", "at", "the", "a", "an", "some", "my", "me", "i", "please", "pls",
   "stock", "stocks", "share", "shares", "worth", "now", "today", "balance", "using", "use", "it", "and", "then", "just",
   "can", "you", "could", "would", "want", "wanna", "need", "like", "lets", "let's", "us", "tokenized", "token",
+  "current", "currently", "latest", "price", "prices", "quote", "about", "how",
 ]);
 
 const NUMBER_WORDS = new Set([

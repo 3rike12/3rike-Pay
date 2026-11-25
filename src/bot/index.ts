@@ -70,6 +70,28 @@ const newsSource = (config as any).research?.newsApiKey
   : null;
 const researchLimiter = createDailyLimiter(config.llm?.dailyLimit ?? 20, { name: "research" });
 
+/** The stock each person last talked about, for half an hour: "why is it up?" needs to know which. */
+const recentStocks = (() => {
+  const TTL_MS = 30 * 60_000;
+  const MAX = 2000;
+  const m = new Map<string, { address: string; at: number }>();
+  return {
+    get(userId: string): string | null {
+      const v = m.get(userId);
+      if (!v) return null;
+      if (Date.now() - v.at > TTL_MS) {
+        m.delete(userId);
+        return null;
+      }
+      return v.address;
+    },
+    set(userId: string, address: string) {
+      if (m.size >= MAX && !m.has(userId)) m.delete(m.keys().next().value as string); // oldest first
+      m.set(userId, { address, at: Date.now() });
+    },
+  };
+})();
+
 // What the rebalance planner needs: the person's target and holdings, venue prices, and FX.
 const planDeps: PlanDeps = {
   targets: getTargets,
@@ -123,6 +145,16 @@ const stockBot = createStockBot({
   balanceOf: (userId, currency) => ledger.getBalance(userId, currency),
   orders: stockOrders,
   positions,
+  recent: {
+    get: (userId) => recentStocks.get(userId),
+    set: (userId, address) => recentStocks.set(userId, address),
+  },
+  market: {
+    quote: async (ticker) => {
+      const q = await newsSource?.quote?.(ticker);
+      return q ? { price: q.price, changePercent: q.changePercent, asOf: q.asOf } : null;
+    },
+  },
   research: {
     async ask({ userId, question, stocks, budget, currency }) {
       if (!researchModel) return { kind: "off" };

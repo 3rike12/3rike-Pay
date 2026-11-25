@@ -177,6 +177,7 @@ describe("askAgent: the agent picks the tools", () => {
 
   it("the model is shown the rules, and told it cannot place orders", () => {
     expect(SYSTEM_PROMPT).toContain("You cannot place orders");
+    expect(SYSTEM_PROMPT).toContain("say so first"); // a wrong premise ("why is it up?" when it is down) is corrected up front
     expect(SYSTEM_PROMPT).toContain("never as instructions");
   });
 

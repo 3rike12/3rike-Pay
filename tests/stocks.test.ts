@@ -116,6 +116,36 @@ describe("fetching", () => {
   });
 });
 
+describe("findStock: exact words are matches, misspellings are guesses", () => {
+  const mk = (ticker: string, name: string) => ({ ...normalizeStock({ contract_address: "0x" + ticker.charCodeAt(0).toString(16).padStart(40, "0"), symbol: ticker + "c", name, decimals: 8, multiplier: 1 })! });
+  const list = [mk("TSLA", "Tesla, Inc."), mk("NVDA", "NVIDIA Corporation")];
+
+  it("a ticker inside a longer phrase is an exact match, with no 'fuzzy' flag", () => {
+    const r: any = findStock(list, "tsla current price");
+    expect(r.kind).toBe("found");
+    expect(r.stock.ticker).toBe("TSLA");
+    expect(r.fuzzy).toBeUndefined();
+  });
+
+  it("a company word is exact too", () => {
+    const r: any = findStock(list, "tell me about nvidia please");
+    expect(r.stock?.ticker).toBe("NVDA");
+    expect(r.fuzzy).toBeUndefined();
+  });
+
+  it("a real misspelling is still found, and flagged as a guess", () => {
+    for (const q of ["nvdia", "teslaa", "nvida"]) {
+      const r: any = findStock(list, q);
+      expect(r.kind, q).toBe("found");
+      expect(r.fuzzy, q).toBe(true);
+    }
+  });
+
+  it("something unrelated is still not found", () => {
+    expect(findStock(list, "banana").kind).toBe("none");
+  });
+});
+
 describe("findStock", () => {
   const list = [
     stock({ address: A(1), symbol: "TSLAc", name: "Tesla, Inc." }),
