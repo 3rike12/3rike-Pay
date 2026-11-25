@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import { config } from "@/config";
 import { createLogger } from "@/utils/logger";
-import { toWhatsAppPhone } from "@/utils/helpers";
+import { redactPhone, toWhatsAppPhone } from "@/utils/helpers";
 
 const logger = createLogger("whatsapp");
 
@@ -55,11 +55,11 @@ class WhatsAppService {
         text: { preview_url: false, body: text },
       };
       const { data } = await this.client.post("/messages", payload);
-      logger.info(`Message sent to ${to}`, { messageId: data.messages?.[0]?.id });
+      logger.info(`Message sent to ${redactPhone(to)}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
       logger.error("Failed to send WhatsApp message", {
-        to,
+        to: redactPhone(to),
         error: error.response?.data || error.message,
       });
       return false;
@@ -89,11 +89,11 @@ class WhatsAppService {
         },
       };
       const { data } = await this.client.post("/messages", payload);
-      logger.info(`Buttons sent to ${to}`, { messageId: data.messages?.[0]?.id });
+      logger.info(`Buttons sent to ${redactPhone(to)}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
       logger.error("Failed to send buttons", {
-        to,
+        to: redactPhone(to),
         error: error.response?.data || error.message,
       });
       return false;
@@ -134,11 +134,11 @@ class WhatsAppService {
         image: caption ? { id: mediaId, caption } : { id: mediaId },
       };
       const { data } = await this.client.post("/messages", payload);
-      logger.info(`Image sent to ${to}`, { messageId: data.messages?.[0]?.id });
+      logger.info(`Image sent to ${redactPhone(to)}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
       logger.error("Failed to send image", {
-        to,
+        to: redactPhone(to),
         error: error.response?.data || error.message,
       });
       return false;
@@ -167,11 +167,11 @@ class WhatsAppService {
         },
       };
       const { data } = await this.client.post("/messages", payload);
-      logger.info(`List sent to ${to}`, { messageId: data.messages?.[0]?.id });
+      logger.info(`List sent to ${redactPhone(to)}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
       logger.error("Failed to send list", {
-        to,
+        to: redactPhone(to),
         error: error.response?.data || error.message,
       });
       return false;
@@ -217,11 +217,11 @@ class WhatsAppService {
         },
       };
       const { data } = await this.client.post("/messages", payload);
-      logger.info(`Flow message sent to ${to}`, { messageId: data.messages?.[0]?.id });
+      logger.info(`Flow message sent to ${redactPhone(to)}`, { messageId: data.messages?.[0]?.id });
       return true;
     } catch (error: any) {
       logger.error("Failed to send flow message", {
-        to,
+        to: redactPhone(to),
         error: error.response?.data || error.message,
       });
       return false;
@@ -287,14 +287,14 @@ class WhatsAppService {
         },
       };
       const { data } = await this.client.post("/messages", payload);
-      logger.info(`Template sent to ${to}`, {
+      logger.info(`Template sent to ${redactPhone(to)}`, {
         template: templateName,
         messageId: data.messages?.[0]?.id,
       });
       return true;
     } catch (error: any) {
       logger.error("Failed to send template", {
-        to,
+        to: redactPhone(to),
         template: templateName,
         error: error.response?.data || error.message,
       });
@@ -321,7 +321,7 @@ class WhatsAppService {
     if (sent) return true;
 
     logger.warn("Template failed, falling back to text message", {
-      to,
+      to: redactPhone(to),
       template: templateName,
     });
     return this.sendTextMessage(to, fallbackText);

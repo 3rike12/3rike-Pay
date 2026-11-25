@@ -2,7 +2,7 @@ import Flutterwave, { FlutterwaveInstance } from "flutterwave-node-v3";
 import crypto from "crypto";
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
-import { toRwandaPhone } from "@/utils/helpers";
+import { redactPhone, toRwandaPhone } from "@/utils/helpers";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("flutterwave");
@@ -153,7 +153,7 @@ class FlutterwaveService {
       logger.info("Rwanda mobile money charge initiated", {
         txRef: params.txRef,
         amount,
-        phone,
+        phone: redactPhone(phone),
         paymentUrl: response?.meta?.authorization?.redirect || null,
       });
       return response;
@@ -513,7 +513,7 @@ class FlutterwaveService {
       txRef: params.reference,
       chargeId: charge?.id,
       amount: params.amount,
-      phone,
+      phone: redactPhone(phone),
       nextAction: charge?.next_action?.type ?? null,
     });
 

@@ -9,7 +9,7 @@ import { prisma, logWebhookEvent } from "@/services/database";
 import { autoramp } from "@/services/autoramp";
 import { flutterwave } from "@/services/flutterwave";
 import { ledger } from "@/services/ledger";
-import { cleanPhone, formatAmount, formatCurrency, redactSensitiveText } from "@/utils/helpers";
+import { cleanPhone, formatAmount, formatCurrency, redactPhone, redactSensitiveText } from "@/utils/helpers";
 import { applyOfframpEvent } from "@/services/cashout";
 import { verifyTodenWebhook } from "@/services/toden";
 import { processTodenEvent } from "@/services/kyc";
@@ -137,7 +137,7 @@ router.post("/whatsapp", async (req: Request, res: Response) => {
             logger.info("WhatsApp status update", {
               messageId: status.id,
               status: status.status,
-              recipientId: status.recipient_id,
+              recipientId: redactPhone(String(status.recipient_id ?? "")),
               errorCode: error?.code,
               errorTitle: error?.title,
               errorMessage: error?.message,
