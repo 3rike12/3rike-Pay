@@ -83,3 +83,51 @@ describe("nearIntents", () => {
     await expect(nearIntents.getStatus("0xdep")).rejects.toThrow(/401/);
   });
 });
+
+describe("the default payment token", () => {
+  let clock = Date.now();
+  /** The token list 1Click returns, as a list of [symbol, chain]. The service caches it for 10 minutes, so each test moves the clock past that. */
+  const offer = (...pairs: Array<[string, string]>) => {
+    clock += 11 * 60_000;
+    vi.spyOn(Date, "now").mockReturnValue(clock);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => pairs.map(([symbol, blockchain]) => ({ assetId: `${symbol}-${blockchain}`, symbol, blockchain, decimals: 6, price: 1 })),
+    }));
+  };
+  const pick = async () => {
+    const t = await nearIntents.resolveDefaultOrigin();
+    return t ? `${t.symbol}/${t.blockchain}` : null;
+  };
+
+  // The 15 tokens 1Click offered on mainnet when this was written (USDT/USDC on Base are absent, ETH on Base is there).
+  const MAINNET: Array<[string, string]> = [
+    ["USDT", "eth"], ["USDC", "eth"], ["ETH", "eth"], ["ETH", "arb"], ["USDC", "arb"], ["ETH", "base"], ["USDC", "gnosis"], ["USDT", "gnosis"],
+    ["USDC", "pol"], ["USDT", "pol"], ["ETH", "op"], ["USDT", "op"], ["USDC", "op"], ["USDT", "avax"], ["USDC", "avax"],
+  ];
+
+  it("on the real mainnet list it is ETH on Base, since a Base stablecoin is not offered", async () => {
+    offer(...MAINNET);
+    expect(await pick()).toBe("ETH/base");
+  });
+
+  it("is a stablecoin on Base when one is offered (as on the testnet)", async () => {
+    offer(["ETH", "base"], ["USDT", "base"], ["USDC", "arb"]);
+    expect(await pick()).toBe("USDT/base");
+  });
+
+  it("falls back down the list when Base has nothing", async () => {
+    offer(["USDT", "eth"], ["USDC", "arb"], ["ETH", "eth"]);
+    expect(await pick()).toBe("USDC/arb");
+    offer(["USDT", "eth"], ["ETH", "eth"]);
+    expect(await pick()).toBe("USDT/eth");
+  });
+
+  it("with none of the preferences on offer it takes whatever is, and with nothing at all it says so", async () => {
+    offer(["USDC", "avax"], ["USDT", "gnosis"]);
+    expect(await pick()).toBe("USDC/avax");
+    offer();
+    expect(await pick()).toBeNull();
+  });
+});
+

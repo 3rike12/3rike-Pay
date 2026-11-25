@@ -12,6 +12,7 @@ vi.mock("@/config", () => ({
 }));
 
 const getStatus = vi.fn();
+const resolveDefaultOrigin = vi.fn();
 const requestQuote = vi.fn();
 vi.mock("@/services/nearIntents", () => ({
   EVM_CHAIN_IDS: { base: 8453 },
@@ -20,10 +21,12 @@ vi.mock("@/services/nearIntents", () => ({
     const [t, c] = l.split(" on ");
     return c ? `${t} on ${({ arb: "Arbitrum", base: "Base" } as Record<string, string>)[c] ?? c}` : l;
   },
+  evmChainIdFor: (chain: string) => ({ base: 8453, arb: 42161, eth: 1 } as Record<string, number>)[chain],
   nearIntents: {
     getStatus: (...a: any[]) => getStatus(...a),
     requestQuote: (...a: any[]) => requestQuote(...a),
     isNearIntentsEnabled: () => true,
+    resolveDefaultOrigin: (...a: any[]) => resolveDefaultOrigin(...a),
     // The real conversion, at the test config's rate of 1,450 RWF to the dollar, in 6-decimal USDC units.
     fiatToDestinationUnits: (amount: number) => String(Math.round((amount / 1450) * 1e6)),
   },
@@ -59,7 +62,7 @@ vi.mock("@/db/prisma", () => ({
 const recordRailEvent = vi.fn(async () => null);
 vi.mock("@/rails/settlement", () => ({ recordRailEvent: (...a: any[]) => (recordRailEvent as any)(...a) }));
 
-import { getCryptoPaymentState, createCryptoPayment, scheduleCryptoVerification, setVerificationScheduler } from "@/services/cryptoInvoice";
+import { getCryptoPaymentState, createCryptoPayment, createDefaultCryptoPayment, scheduleCryptoVerification, setVerificationScheduler } from "@/services/cryptoInvoice";
 
 const openInvoice = (over: Record<string, unknown> = {}) => ({ id: "inv1", status: "pending_payment", expiresAt: new Date(Date.now() + 600_000), ...over });
 const twoQuotes = { nearQuotes: [{ depositAddress: "0xA" }, { depositAddress: "0xB" }] };
@@ -364,3 +367,28 @@ describe("scheduleCryptoVerification", () => {
     setVerificationScheduler(null);
   });
 });
+
+describe("the default payment a top-up is prepared in", () => {
+  it("uses whichever token 1Click offers first of its preferences, not a hard-wired one", async () => {
+    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 10000, currency: "RWF", items: [{ name: "Wallet top-up", qty: 1, unitPrice: 10000 }] });
+    txFind.mockResolvedValue({ id: "tx1", metadata: {} });
+    requestQuote.mockResolvedValue({ quote: { depositAddress: "0xDEP", amountIn: "100", amountOut: "1" } });
+    requestQuote.mockClear();
+    resolveDefaultOrigin.mockResolvedValue({ assetId: "nep141:base.omft.near", symbol: "ETH", blockchain: "base", decimals: 18 });
+
+    await createDefaultCryptoPayment("m1", "inv1");
+
+    expect(requestQuote).toHaveBeenCalledOnce();
+    expect(requestQuote.mock.calls[0][0]).toMatchObject({ originAsset: "nep141:base.omft.near" });
+    const saved = txUpdate.mock.calls.at(-1)![0].data.metadata;
+    expect(saved.nearIntents.originLabel).toBe("ETH on base");
+  });
+
+  it("says plainly when 1Click offers nothing to pay in, instead of quoting something wrong", async () => {
+    resolveDefaultOrigin.mockResolvedValue(null);
+    requestQuote.mockClear();
+    await expect(createDefaultCryptoPayment("m1", "inv1")).rejects.toThrow("default payment token is unavailable");
+    expect(requestQuote).not.toHaveBeenCalled();
+  });
+});
+

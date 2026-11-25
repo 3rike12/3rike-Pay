@@ -187,6 +187,31 @@ export async function resolveOriginAsset(symbol: string, chain?: string): Promis
 }
 
 /**
+ * What a payment is pre-prepared in when the payer has not chosen yet, best first. A stablecoin on Base is preferred
+ * (USDT on Base exists on the testnet and may appear on mainnet), then ETH on Base (on mainnet it is the only thing a
+ * Base payer can use: USDC on Base is the treasury's own asset, which 1Click refuses, and USDT on Base is not offered),
+ * then stablecoins on other chains. Whatever 1Click offers first in this list is used.
+ */
+export const DEFAULT_ORIGIN_PREFERENCE: ReadonlyArray<readonly [symbol: string, chain: string]> = [
+  ["USDT", "base"],
+  ["ETH", "base"],
+  ["USDC", "arb"],
+  ["USDC", "op"],
+  ["USDC", "eth"],
+  ["USDT", "eth"],
+];
+
+/** The token to pre-prepare a payment in: the first of the preferences that is on offer, else anything that is, else none. */
+export async function resolveDefaultOrigin(): Promise<PayableToken | null> {
+  const tokens = await listPayableTokens();
+  for (const [symbol, chain] of DEFAULT_ORIGIN_PREFERENCE) {
+    const hit = tokens.find((t) => t.symbol.toUpperCase() === symbol && t.blockchain === chain);
+    if (hit) return hit;
+  }
+  return tokens[0] ?? null;
+}
+
+/**
  * Request a quote.
  *
  * Default (inbound invoice payment): EXACT_OUTPUT into the platform
@@ -246,4 +271,4 @@ export async function submitDepositTx(params: {
   return call("/v0/deposit/submit", { method: "POST", body: JSON.stringify(params) });
 }
 
-export const nearIntents = { isNearIntentsEnabled, requestQuote, getStatus, submitDepositTx, fiatToDestinationUnits, listPayableTokens, resolveOriginAsset };
+export const nearIntents = { isNearIntentsEnabled, requestQuote, getStatus, submitDepositTx, fiatToDestinationUnits, listPayableTokens, resolveOriginAsset, resolveDefaultOrigin };

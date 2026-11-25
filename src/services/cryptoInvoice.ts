@@ -52,14 +52,14 @@ export function originMetaFor(token: PayableToken) {
   };
 }
 
-/** Default payment (USDT on Base) differs from the configured USDC destination asset. */
+/** The default payment is whatever 1Click offers first of its preferences (see DEFAULT_ORIGIN_PREFERENCE); it differs from the USDC destination asset. */
 export async function createDefaultCryptoPayment(merchantId: string, invoiceId: string) {
   if (config.nearIntents.network === "tidepool") {
     // A Tidepool quote needs the payer's wallet as refundTo. The pay page
     // creates it after the buyer connects, rather than pre-quoting here.
     throw new Error("Tidepool quotes are created after the buyer connects a wallet.");
   }
-  const token = await nearIntents.resolveOriginAsset("USDT", "base");
+  const token = await nearIntents.resolveDefaultOrigin();
   if (!token) throw new Error("The default payment token is unavailable.");
   return createCryptoPayment({
     merchantId,
