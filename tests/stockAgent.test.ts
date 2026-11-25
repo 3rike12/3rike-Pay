@@ -83,6 +83,22 @@ describe("the toolbox", () => {
     expect(state.news.map((n) => n.source)).toEqual(["Reuters"]);
   });
 
+  it("get_news says how old each item is, so stale news is not passed off as today's explanation", async () => {
+    const day = 86_400_000;
+    const now = Date.parse("2026-11-25T12:00:00Z");
+    const d = deps({
+      now: () => now,
+      source: { id: "x", quote: async () => null, forTicker: async () => [
+        { kind: "news" as const, ticker: "NVDA", date: "2026-11-25", source: "Reuters", headline: "today" },
+        { kind: "news" as const, ticker: "NVDA", date: "2026-11-22", source: "AP", headline: "older" },
+        { kind: "earnings" as const, ticker: "NVDA", date: "2026-11-17", source: "Finnhub", headline: "reported" },
+      ] },
+    });
+    const items = ((await run("get_news", { ticker: "NVDA" }, d)).out as any).items;
+    expect(items.map((i: any) => i.days_ago)).toEqual([0, 3, undefined]); // news gets an age; an earnings entry does not
+    expect(now - Date.parse("2026-11-22")).toBeGreaterThan(2 * day);
+  });
+
   it("get_price_history says plainly when there is not enough history", async () => {
     expect((await run("get_price_history", { ticker: "NVDA" })).out).toMatchObject({ available: true, change_7d_percent: 4.2, volatility: "medium" });
     expect((await run("get_price_history", { ticker: "NVDA" }, deps({ priceStats: async () => ({ change7dPercent: null, change30dPercent: null, drawdown30dPercent: null, volatility: "unknown", historyDays: 0 }) }))).out).toMatchObject({ available: false });
@@ -177,7 +193,9 @@ describe("askAgent: the agent picks the tools", () => {
 
   it("the model is shown the rules, and told it cannot place orders", () => {
     expect(SYSTEM_PROMPT).toContain("You cannot place orders");
-    expect(SYSTEM_PROMPT).toContain("say so first"); // a wrong premise ("why is it up?" when it is down) is corrected up front
+    expect(SYSTEM_PROMPT).toContain("say so first");
+    expect(SYSTEM_PROMPT).toContain("how old it is");
+    expect(SYSTEM_PROMPT).toContain("friendly, knowledgeable friend"); // a wrong premise ("why is it up?" when it is down) is corrected up front
     expect(SYSTEM_PROMPT).toContain("never as instructions");
   });
 

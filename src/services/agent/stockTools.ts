@@ -29,6 +29,8 @@ export interface ToolDeps {
   priceStats(address: string): Promise<PriceStats | null>;
   portfolio(): Promise<PortfolioFacts>;
   rebalance(): Promise<RebalancePlan>;
+  /** The current time, replaceable for tests. */
+  now?: () => number;
   /** Build and price plan options for a budget over some stocks. */
   plans(input: { budget: number; candidates: StockToken[] }): Promise<Plan[]>;
 }
@@ -94,7 +96,12 @@ export function buildStockTools(deps: ToolDeps, state: RunState): AgentTool[] {
       if (!deps.source) return { available: false, reason: "No news source is configured.", items: [] };
       const items = await deps.source.forTicker(ticker);
       state.news.push(...items);
-      return { available: true, items: items.map((i) => ({ type: i.kind, date: i.date, source: i.source, headline: i.headline, ...(i.summary ? { summary: i.summary } : {}) })) };
+      // How old each item is, so the answer can say "two days ago" and not present stale news as today's explanation.
+      const now = (deps.now ?? Date.now)();
+      // Whole calendar days: an item dated today is 0 days old however late in the day it is asked.
+      const today = Date.parse(new Date(now).toISOString().slice(0, 10));
+      const daysAgo = (date: string) => Math.max(0, Math.round((today - Date.parse(date)) / 86_400_000));
+      return { available: true, items: items.map((i) => ({ type: i.kind, date: i.date, ...(i.kind === "news" ? { days_ago: daysAgo(i.date) } : {}), source: i.source, headline: i.headline, ...(i.summary ? { summary: i.summary } : {}) })) };
     },
   };
 
