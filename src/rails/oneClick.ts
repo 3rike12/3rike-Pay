@@ -84,7 +84,7 @@ export function oneClickEvent(status: NearIntentsStatusResponse, dedupeKey?: str
   };
 }
 
-const ORIGIN_CHAINS = ["eth", "base", "arb", "op", "pol", "avax", "gnosis"];
+const ORIGIN_CHAINS = ["eth", "base", "arb", "op", "pol", "avax", "gnosis", "stellar"];
 
 function asSwap(req: RailRequest): SwapRequest {
   if (req.kind !== "swap") throw new Error("1Click swaps crypto; it cannot make a bank payout.");
@@ -111,6 +111,7 @@ function swapBody(req: SwapRequest, dry: boolean) {
     recipient: req.recipient,
     recipientType: req.recipientType,
     refundTo: req.refundTo,
+    depositMode: req.depositMode,
     deadline: req.deadline,
   };
 }

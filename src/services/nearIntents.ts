@@ -136,6 +136,7 @@ export const CHAIN_NAMES: Record<string, string> = {
   pol: "Polygon",
   avax: "Avalanche",
   gnosis: "Gnosis",
+  stellar: "Stellar",
 };
 
 /** "USDC on base" -> "USDC on Base". */
@@ -156,7 +157,14 @@ export const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 // bsc is excluded: 1Click enforces a $1,000 minimum on BNB Chain swaps (and a
 // live $2 BSC quote returned "No liquidity"), far above typical invoices.
 export const EVM_ORIGIN_CHAINS = ["eth", "base", "arb", "op", "pol", "avax", "gnosis"];
+/** Stellar: no per-payment address. The payer sends to one address with a memo (1Click "MEMO" deposit mode). */
+export const STELLAR_CHAIN = "stellar";
+export const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
+export const isStellarAddress = (value: string) => STELLAR_ADDRESS_RE.test(value);
+/** How a payer on this chain deposits. Undefined leaves 1Click's default (a fresh address per payment). */
+export const depositModeFor = (blockchain?: string | null): "MEMO" | undefined => (blockchain === STELLAR_CHAIN ? "MEMO" : undefined);
 const PAYABLE_SYMBOLS = ["USDC", "USDT", "ETH"];
+const STELLAR_SYMBOLS = ["USDC", "XLM"];
 
 let tokenCache: { at: number; tokens: PayableToken[] } | null = null;
 
@@ -167,8 +175,8 @@ export async function listPayableTokens(): Promise<PayableToken[]> {
   const all = (await res.json()) as PayableToken[];
   const tokens = all.filter(
     (t) =>
-      EVM_ORIGIN_CHAINS.includes(t.blockchain) &&
-      PAYABLE_SYMBOLS.includes(t.symbol.toUpperCase()) &&
+      ((EVM_ORIGIN_CHAINS.includes(t.blockchain) && PAYABLE_SYMBOLS.includes(t.symbol.toUpperCase())) ||
+        (t.blockchain === STELLAR_CHAIN && STELLAR_SYMBOLS.includes(t.symbol.toUpperCase()))) &&
       // NEAR Intents rejects same-asset swaps. Don't offer an input token
       // that is also configured as the destination asset.
       t.assetId !== config.nearIntents.destinationAsset
@@ -232,6 +240,8 @@ export async function requestQuote(params: {
   /** Defaults to config.nearIntents.recipientType for the platform recipient; payouts pass DESTINATION_CHAIN. */
   recipientType?: "INTENTS" | "DESTINATION_CHAIN";
   refundTo?: string;
+  /** Chains such as Stellar have no per-payment address: the payer sends to one address with a memo. */
+  depositMode?: "SIMPLE" | "MEMO";
   deadline: Date;
   dry?: boolean;
 }): Promise<NearIntentsQuoteResponse> {
@@ -244,6 +254,7 @@ export async function requestQuote(params: {
       slippageTolerance: c.slippageBps,
       originAsset: params.originAsset || c.originAsset,
       depositType: "ORIGIN_CHAIN",
+      ...(params.depositMode ? { depositMode: params.depositMode } : {}),
       destinationAsset: params.destinationAsset || c.destinationAsset,
       amount: params.amount ?? params.amountOut,
       refundTo: params.refundTo || c.refundTo,

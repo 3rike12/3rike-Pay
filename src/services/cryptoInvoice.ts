@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { config } from "@/config";
 import { prisma } from "@/db/prisma";
-import { nearIntents, evmChainIdFor, prettyOrigin, type PayableToken } from "@/services/nearIntents";
+import { nearIntents, evmChainIdFor, prettyOrigin, depositModeFor, isStellarAddress, STELLAR_CHAIN, type PayableToken } from "@/services/nearIntents";
 import { oneClickEvent, summariseQuoteStatuses } from "@/rails/oneClick";
 import { initiateOn, pickRail } from "@/rails/router";
 import { checkLimits } from "@/rails/limits";
@@ -167,13 +167,22 @@ export async function createCryptoPayment(params: {
   if (!limits.ok && limits.reason === "above_max") {
     throw new Error(`Crypto payments are limited to ${inLocal(limits.maxUsd)} each. This one is ${formatCurrency(invoice.amount, invoice.currency)}.`);
   }
+  // A failed Stellar payment is refunded on Stellar, so the refund address must be a Stellar one: the payer's own, else the
+  // platform's. (The treasury's 0x address is not valid there.)
+  const onStellar = params.originMeta?.chain === STELLAR_CHAIN;
+  const refundTo = onStellar ? params.refundTo || config.nearIntents.refundToStellar || undefined : params.refundTo;
+  if (onStellar && (!refundTo || !isStellarAddress(refundTo))) {
+    throw new Error("Add your Stellar address so a failed payment can be refunded to you.");
+  }
+
   // The rail mints the deposit address; this flow does not know which provider it is.
   const instruction = await initiateOn(pickRail("in", { kind: "swap" }), {
     kind: "swap",
     swapType: "EXACT_OUTPUT",
     amount: amountOut,
     originAsset: params.originAsset,
-    refundTo: params.refundTo,
+    refundTo,
+    depositMode: depositModeFor(params.originMeta?.chain as string | undefined),
     deadline,
   });
 
@@ -186,7 +195,7 @@ export async function createCryptoPayment(params: {
     amountOut: instruction.amountOut,
     originAsset: params.originAsset ?? config.nearIntents.originAsset,
     originLabel: params.originLabel ?? null,
-    refundTo: params.refundTo ?? null,
+    refundTo: refundTo ?? null,
     origin: params.originMeta ?? null,
     // The invoice's own TTL, not 1Click's quote lifetime (which can be days).
     deadline: deadline.toISOString(),

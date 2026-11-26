@@ -3,7 +3,7 @@ import { Router, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import { prisma } from "@/db/prisma";
 import { config } from "@/config";
-import { nearIntents, EVM_ADDRESS_RE, walletChainIds } from "@/services/nearIntents";
+import { nearIntents, EVM_ADDRESS_RE, STELLAR_CHAIN, isStellarAddress, walletChainIds } from "@/services/nearIntents";
 import {
   createCryptoPayment,
   originMetaFor,
@@ -176,7 +176,11 @@ payApiRouter.post("/:reference/quote", limiter, async (req: Request, res: Respon
     if (config.nearIntents.network === "tidepool" && !refundTo) {
       return res.status(400).json({ error: "Connect your wallet before preparing this payment." });
     }
-    if (refundTo && !EVM_ADDRESS_RE.test(refundTo)) {
+    if (token.blockchain === STELLAR_CHAIN) {
+      if (refundTo && !isStellarAddress(refundTo)) {
+        return res.status(400).json({ error: "That isn't a valid Stellar address (it starts with G and is 56 characters)." });
+      }
+    } else if (refundTo && !EVM_ADDRESS_RE.test(refundTo)) {
       return res.status(400).json({ error: "That refund address isn't a valid 0x address." });
     }
 

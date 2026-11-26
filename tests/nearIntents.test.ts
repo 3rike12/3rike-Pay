@@ -131,3 +131,47 @@ describe("the default payment token", () => {
   });
 });
 
+describe("Stellar", () => {
+  it("is offered for USDC and XLM only, alongside the EVM tokens", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60 * 60_000);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        { assetId: "eth", symbol: "ETH", blockchain: "base", decimals: 18, price: 3000 },
+        { assetId: "xlm", symbol: "XLM", blockchain: "stellar", decimals: 7, price: 0.13 },
+        { assetId: "usdc-xlm", symbol: "USDC", blockchain: "stellar", decimals: 7, price: 1 },
+        { assetId: "yxlm", symbol: "YXLM", blockchain: "stellar", decimals: 7, price: 1 },
+        { assetId: "sol", symbol: "SOL", blockchain: "sol", decimals: 9, price: 150 },
+      ],
+    }));
+    const offered = (await nearIntents.listPayableTokens()).map((t) => `${t.symbol}/${t.blockchain}`);
+    expect(offered).toEqual(expect.arrayContaining(["ETH/base", "XLM/stellar", "USDC/stellar"]));
+    expect(offered).not.toContain("YXLM/stellar");
+    expect(offered).not.toContain("SOL/sol");
+  });
+
+  it("deposits with a memo on Stellar and by default address everywhere else", async () => {
+    const { depositModeFor } = await import("@/services/nearIntents");
+    expect(depositModeFor("stellar")).toBe("MEMO");
+    expect(depositModeFor("base")).toBeUndefined();
+    expect(depositModeFor(undefined)).toBeUndefined();
+  });
+
+  it("recognises Stellar account addresses", async () => {
+    const { isStellarAddress } = await import("@/services/nearIntents");
+    expect(isStellarAddress("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7")).toBe(true);
+    expect(isStellarAddress("0x2527D02599Ba641c19FEa793cD0F167589a0f10D")).toBe(false);
+    expect(isStellarAddress("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")).toBe(false);
+    expect(isStellarAddress("")).toBe(false);
+  });
+
+  it("sends the deposit mode to 1Click only when one is set", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ quote: {} }), text: async () => "" });
+    vi.stubGlobal("fetch", fetchMock);
+    await nearIntents.requestQuote({ amount: "1", deadline: new Date(), depositMode: "MEMO" });
+    await nearIntents.requestQuote({ amount: "1", deadline: new Date() });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).depositMode).toBe("MEMO");
+    expect("depositMode" in JSON.parse(fetchMock.mock.calls[1][1].body)).toBe(false);
+  });
+});
+

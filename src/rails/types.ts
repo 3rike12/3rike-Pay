@@ -74,6 +74,8 @@ export interface SwapRequest {
   recipient?: string;
   recipientType?: "INTENTS" | "DESTINATION_CHAIN";
   refundTo?: string;
+  /** Stellar and similar chains deposit to a shared address with a memo. */
+  depositMode?: "SIMPLE" | "MEMO";
   deadline: Date;
 }
 

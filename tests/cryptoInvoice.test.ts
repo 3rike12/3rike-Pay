@@ -21,6 +21,9 @@ vi.mock("@/services/nearIntents", () => ({
     const [t, c] = l.split(" on ");
     return c ? `${t} on ${({ arb: "Arbitrum", base: "Base" } as Record<string, string>)[c] ?? c}` : l;
   },
+  STELLAR_CHAIN: "stellar",
+  isStellarAddress: (v: string) => /^G[A-Z2-7]{55}$/.test(v),
+  depositModeFor: (chain?: string | null) => (chain === "stellar" ? "MEMO" : undefined),
   evmChainIdFor: (chain: string) => ({ base: 8453, arb: 42161, eth: 1 } as Record<string, number>)[chain],
   nearIntents: {
     getStatus: (...a: any[]) => getStatus(...a),
@@ -389,6 +392,54 @@ describe("the default payment a top-up is prepared in", () => {
     requestQuote.mockClear();
     await expect(createDefaultCryptoPayment("m1", "inv1")).rejects.toThrow("default payment token is unavailable");
     expect(requestQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("paying from Stellar", () => {
+  const STELLAR_ME = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7";
+  const stellarMeta = { symbol: "USDC", chain: "stellar", chainId: null, tokenAddress: null, decimals: 7 };
+  const pay = (extra: Record<string, unknown> = {}) =>
+    createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep245:stellar-usdc", originLabel: "USDC on stellar", originMeta: stellarMeta, ...extra } as any);
+
+  beforeEach(async () => {
+    getInvoiceById.mockResolvedValue({ id: "inv1", merchantId: "m1", status: "pending_payment", reference: "ref", amount: 10000, currency: "RWF", items: [{ name: "Wallet top-up", qty: 1, unitPrice: 10000 }] });
+    txFind.mockResolvedValue({ id: "tx1", metadata: {} });
+    requestQuote.mockReset();
+    requestQuote.mockResolvedValue({ quote: { depositAddress: "GDEPOSIT", depositMemo: "257123970", amountIn: "39", amountOut: "6900000" } });
+    const { config } = await import("@/config");
+    (config as any).nearIntents.refundToStellar = "";
+  });
+
+  it("asks 1Click for memo mode and refunds to the payer's own Stellar address", async () => {
+    await pay({ refundTo: STELLAR_ME });
+    expect(requestQuote).toHaveBeenCalledOnce();
+    expect(requestQuote.mock.calls[0][0]).toMatchObject({ depositMode: "MEMO", refundTo: STELLAR_ME });
+    const saved = txUpdate.mock.calls.at(-1)![0].data.metadata.nearIntents;
+    expect(saved.depositMemo).toBe("257123970");
+    expect(saved.refundTo).toBe(STELLAR_ME);
+  });
+
+  it("without the payer's address it uses the platform's Stellar refund account", async () => {
+    const { config } = await import("@/config");
+    (config as any).nearIntents.refundToStellar = "GBPLATFORMREFUNDACCOUNTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".slice(0, 56).replace(/[^A-Z2-7]/g, "A");
+    await pay();
+    expect(requestQuote.mock.calls[0][0].refundTo).toBe((config as any).nearIntents.refundToStellar);
+  });
+
+  it("with neither, it refuses and asks for the address, rather than quoting a refund that cannot work", async () => {
+    await expect(pay()).rejects.toThrow("Add your Stellar address");
+    expect(requestQuote).not.toHaveBeenCalled();
+  });
+
+  it("never sends the treasury's 0x address, or any non-Stellar address, as a Stellar refund", async () => {
+    await expect(pay({ refundTo: "0x2527D02599Ba641c19FEa793cD0F167589a0f10D" })).rejects.toThrow("Add your Stellar address");
+    expect(requestQuote).not.toHaveBeenCalled();
+  });
+
+  it("leaves other chains alone: no memo mode, the refund as given", async () => {
+    await createCryptoPayment({ merchantId: "m1", invoiceId: "inv1", originAsset: "nep141:base", originLabel: "ETH on base", originMeta: { symbol: "ETH", chain: "base" }, refundTo: "0xabc" } as any);
+    expect(requestQuote.mock.calls[0][0].depositMode).toBeUndefined();
+    expect(requestQuote.mock.calls[0][0].refundTo).toBe("0xabc");
   });
 });
 

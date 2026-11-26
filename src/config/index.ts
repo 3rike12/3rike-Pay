@@ -130,6 +130,12 @@ export const config = {
       (/^0x/i.test(nearRecipient) || !nearRecipient
         ? "DESTINATION_CHAIN"
         : "INTENTS")) as "INTENTS" | "DESTINATION_CHAIN",
+    /**
+     * Where a failed Stellar payment is refunded when the payer gives no Stellar address of their own. Stellar
+     * addresses are not EVM addresses, so the treasury's 0x address cannot be used. Must be a funded Stellar
+     * account (with a USDC trustline to refund USDC). Optional: without it the payer must supply their address.
+     */
+    refundToStellar: process.env.NEAR_INTENTS_REFUND_STELLAR || "",
     /** Where refunds go if a swap fails (defaults to the recipient). */
     // Testnet quotes are requested only after the buyer connects their wallet;
     // the page supplies that wallet as refundTo for each quote.

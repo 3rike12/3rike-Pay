@@ -14,6 +14,8 @@ const resolveOriginAsset = vi.fn();
 const submitDepositTx = vi.fn();
 vi.mock("@/services/nearIntents", () => ({
   EVM_ADDRESS_RE: /^0x[a-fA-F0-9]{40}$/,
+  STELLAR_CHAIN: "stellar",
+  isStellarAddress: (v: string) => /^G[A-Z2-7]{55}$/.test(v),
   walletChainIds: () => [8453],
   nearIntents: {
     isNearIntentsEnabled: () => true,
@@ -177,4 +179,38 @@ describe("pay API: payment options", () => {
     await request(app()).post("/api/pay/3RIKE-TEST-1/submit").send({ txHash: "0x" + "a".repeat(64) });
     expect(submitDepositTx).toHaveBeenCalled();
   });
+
+  describe("a Stellar payment", () => {
+    const STELLAR_ME = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7";
+    beforeEach(() => {
+      createCryptoPayment.mockClear();
+      resolveOriginAsset.mockResolvedValue({ assetId: "nep245:xlm", symbol: "XLM", blockchain: "stellar", decimals: 7 });
+    });
+
+    it("takes a Stellar address for refunds and passes it on", async () => {
+      const res = await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "XLM", chain: "stellar", refundTo: STELLAR_ME });
+      expect(res.status).not.toBe(400);
+      expect(createCryptoPayment).toHaveBeenCalledWith(expect.objectContaining({ refundTo: STELLAR_ME }));
+    });
+
+    it("rejects an Ethereum address as a Stellar refund address", async () => {
+      const res = await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "XLM", chain: "stellar", refundTo: "0x2527D02599Ba641c19FEa793cD0F167589a0f10D" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Stellar address/);
+      expect(createCryptoPayment).not.toHaveBeenCalled();
+    });
+
+    it("still rejects a Stellar address as an EVM refund address", async () => {
+      resolveOriginAsset.mockResolvedValue({ assetId: "nep141:base", symbol: "ETH", blockchain: "base", decimals: 18 });
+      const res = await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "ETH", chain: "base", refundTo: STELLAR_ME });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/0x/);
+    });
+
+    it("lets the payment code decide when there is no refund address at all", async () => {
+      await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "XLM", chain: "stellar" });
+      expect(createCryptoPayment).toHaveBeenCalledWith(expect.objectContaining({ refundTo: undefined }));
+    });
+  });
 });
+
