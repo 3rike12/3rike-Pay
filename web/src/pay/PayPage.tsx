@@ -105,14 +105,14 @@ export default function PayPage({ initial }: { initial: PayData }) {
 
   useEffect(() => {
     if (!invoice.enabled || !selected.chain || !selected.symbol || !active) return;
-    if (stellarInvalid) { setQuote(null); return; }
+    if (isStellar && (!stellarAddr.trim() || stellarInvalid)) { setQuote(null); return; }
     if (invoice.network === "tidepool" && !isStellar && !address) { setQuote(null); return; }
-    if (quote && quote.origin?.chain === selected.chain && quote.origin?.symbol === selected.symbol && (isStellar ? !refundFor || quote.refundTo === refundFor : (quote.refundTo || undefined) === (refundFor || undefined))) return;
+    if (quote && quote.origin?.chain === selected.chain && quote.origin?.symbol === selected.symbol && (isStellar ? quote.refundTo === refundFor : (quote.refundTo || undefined) === (refundFor || undefined))) return;
     const timer = window.setTimeout(() => {
       void refreshQuote(selected.symbol, selected.chain, refundFor);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [selected.chain, selected.symbol, refundFor, isStellar, stellarInvalid, address, invoice.enabled, invoice.network, active, quote, refreshQuote]);
+  }, [selected.chain, selected.symbol, refundFor, isStellar, stellarAddr, stellarInvalid, address, invoice.enabled, invoice.network, active, quote, refreshQuote]);
 
   useEffect(() => {
     if (!invoice.expiresAt || !active) return;
@@ -188,8 +188,8 @@ export default function PayPage({ initial }: { initial: PayData }) {
     {active && <section className="card">
       {!invoice.enabled ? <div className="hint">Crypto payments are not enabled on this server.</div> : !tokens.length ? <div className="hint">Payment options are unavailable right now. Please try again shortly.</div> : <>
         <div className="field-label">Pay with</div><button className="select" onClick={() => setModal("paywith")}><span className="ico">{selected.symbol?.slice(0, 1)}</span><span className="sel-text"><b>{selected.symbol}</b><small>on {displayChain(selected.chain)}</small></span><span className="chev">▼</span></button>
-        <div className="you-pay" aria-live="polite">{busy ? <><div className="lbl">Preparing your payment…</div><div className="skeleton w1" /></> : quote ? <><div className="lbl">You pay</div><div className="big">{amountLabel}</div><div className="lbl">on {displayChain(quote.origin?.chain)} · invoice total {money(invoice.amount, invoice.currency)}</div></> : isTidepoolNeedsWallet ? <div className="lbl">Connect your wallet to prepare this payment.</div> : error ? <div className="lbl">We couldn’t prepare this payment.</div> : <div className="lbl">Preparing your payment…</div>}</div>
-        {isStellar && <div className="field"><div className="field-label">Your Stellar address, for refunds</div><input className="select" style={{ width: "100%", fontFamily: "monospace" }} placeholder="G…" value={stellarAddr} onChange={(event) => setStellarAddr(event.target.value)} spellCheck={false} autoComplete="off" />{stellarInvalid && <div className="hint">That isn’t a valid Stellar address. It starts with G and is 56 characters.</div>}<div className="hint">Send from this same account. Include the memo shown below, or the payment cannot be matched.</div></div>}
+        <div className="you-pay" aria-live="polite">{busy ? <><div className="lbl">Preparing your payment…</div><div className="skeleton w1" /></> : quote ? <><div className="lbl">You pay</div><div className="big">{amountLabel}</div><div className="lbl">on {displayChain(quote.origin?.chain)} · invoice total {money(invoice.amount, invoice.currency)}</div></> : isTidepoolNeedsWallet ? <div className="lbl">Connect your wallet to prepare this payment.</div> : isStellar && !stellarAddr.trim() ? <div className="lbl">Enter your Stellar address below to get the deposit details.</div> : error ? <div className="lbl">We couldn’t prepare this payment.</div> : <div className="lbl">Preparing your payment…</div>}</div>
+        {isStellar && <div className="field"><div className="field-label">Your Stellar address (required, a failed payment is refunded here)</div><input className="select" style={{ width: "100%", fontFamily: "monospace" }} placeholder="G…" value={stellarAddr} onChange={(event) => setStellarAddr(event.target.value)} spellCheck={false} autoComplete="off" />{stellarInvalid && <div className="hint">That isn’t a valid Stellar address. It starts with G and is 56 characters.</div>}<div className="hint">Send from this same account. Include the memo shown below, or the payment cannot be matched.</div></div>}
         {error && <div id="error" role="alert">{error}</div>}
         {message && <div className="msg" role="status">{message}</div>}
         {isTidepoolNeedsWallet ? <button className="cta" onClick={() => setModal("wallet")} disabled={!availableConnectors.length}>Connect wallet</button> : quote && !locked && !isStellar && <button className="cta" onClick={() => address ? void pay() : setModal("wallet")} disabled={busy}>{busy ? "Confirm in your wallet…" : address ? `Pay ${amountLabel}` : "Connect wallet"}</button>}

@@ -167,10 +167,10 @@ export async function createCryptoPayment(params: {
   if (!limits.ok && limits.reason === "above_max") {
     throw new Error(`Crypto payments are limited to ${inLocal(limits.maxUsd)} each. This one is ${formatCurrency(invoice.amount, invoice.currency)}.`);
   }
-  // A failed Stellar payment is refunded on Stellar, so the refund address must be a Stellar one: the payer's own, else the
-  // platform's. (The treasury's 0x address is not valid there.)
+  // A failed Stellar payment is refunded on Stellar, so the payer must give their own Stellar address. (The treasury's 0x
+  // address is not valid there, and there is no platform Stellar account to fall back on.)
   const onStellar = params.originMeta?.chain === STELLAR_CHAIN;
-  const refundTo = onStellar ? params.refundTo || config.nearIntents.refundToStellar || undefined : params.refundTo;
+  const refundTo = params.refundTo;
   if (onStellar && (!refundTo || !isStellarAddress(refundTo))) {
     throw new Error("Add your Stellar address so a failed payment can be refunded to you.");
   }

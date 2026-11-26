@@ -207,7 +207,7 @@ describe("pay API: payment options", () => {
       expect(res.body.error).toMatch(/0x/);
     });
 
-    it("lets the payment code decide when there is no refund address at all", async () => {
+    it("passes a missing address on, for the payment code to refuse", async () => {
       await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "XLM", chain: "stellar" });
       expect(createCryptoPayment).toHaveBeenCalledWith(expect.objectContaining({ refundTo: undefined }));
     });

@@ -406,8 +406,6 @@ describe("paying from Stellar", () => {
     txFind.mockResolvedValue({ id: "tx1", metadata: {} });
     requestQuote.mockReset();
     requestQuote.mockResolvedValue({ quote: { depositAddress: "GDEPOSIT", depositMemo: "257123970", amountIn: "39", amountOut: "6900000" } });
-    const { config } = await import("@/config");
-    (config as any).nearIntents.refundToStellar = "";
   });
 
   it("asks 1Click for memo mode and refunds to the payer's own Stellar address", async () => {
@@ -419,14 +417,7 @@ describe("paying from Stellar", () => {
     expect(saved.refundTo).toBe(STELLAR_ME);
   });
 
-  it("without the payer's address it uses the platform's Stellar refund account", async () => {
-    const { config } = await import("@/config");
-    (config as any).nearIntents.refundToStellar = "GBPLATFORMREFUNDACCOUNTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".slice(0, 56).replace(/[^A-Z2-7]/g, "A");
-    await pay();
-    expect(requestQuote.mock.calls[0][0].refundTo).toBe((config as any).nearIntents.refundToStellar);
-  });
-
-  it("with neither, it refuses and asks for the address, rather than quoting a refund that cannot work", async () => {
+  it("without the payer's own address it refuses and asks for it, rather than quoting a refund that cannot work", async () => {
     await expect(pay()).rejects.toThrow("Add your Stellar address");
     expect(requestQuote).not.toHaveBeenCalled();
   });
