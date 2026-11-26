@@ -13,10 +13,11 @@ const chainIds: Record<string, number> = {
   eth: 1, base: 8453, op: 10, pol: 137, arb: 42161, avax: 43114, gnosis: 100,
   "base-sepolia": 84532, "arb-sepolia": 421614, "ethereum-sepolia": 11155111, bsc: 97, aurora: 1313161555,
 };
-const chainNames: Record<string, string> = { eth: "Ethereum", base: "Base", op: "Optimism", pol: "Polygon", arb: "Arbitrum", avax: "Avalanche", gnosis: "Gnosis" };
+const chainNames: Record<string, string> = { eth: "Ethereum", base: "Base", op: "Optimism", pol: "Polygon", arb: "Arbitrum", avax: "Avalanche", gnosis: "Gnosis", stellar: "Stellar" };
+const stellarAddress = /^G[A-Z2-7]{55}$/;
 const tidepoolChainIds: Record<string, number> = { eth: 11155111, base: 84532, arb: 421614, bsc: 97, aurora: 1313161555 };
-const tokenNames: Record<string, string> = { USDC: "USD Coin", USDT: "Tether USD", ETH: "Ether" };
-const priorities = ["base", "arb", "op", "eth", "pol", "avax", "gnosis"];
+const tokenNames: Record<string, string> = { USDC: "USD Coin", USDT: "Tether USD", ETH: "Ether", XLM: "Stellar Lumens" };
+const priorities = ["base", "arb", "op", "eth", "pol", "avax", "gnosis", "stellar"];
 const api = (ref: string) => `${(window as any).PAY_CONFIG?.apiBase || ""}/api/pay/${encodeURIComponent(ref)}`;
 const money = (amount: number, currency: string) => {
   try { return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(amount); }
@@ -38,6 +39,7 @@ export default function PayPage({ initial }: { initial: PayData }) {
   const [showMerchant, setShowMerchant] = useState(false);
   const [left, setLeft] = useState(0);
   const [copyLabel, setCopyLabel] = useState("Copy address");
+  const [stellarAddr, setStellarAddr] = useState("");
   const [status, setStatus] = useState(initial.status);
   const { address, connector } = useConnection();
   const { connectAsync, connectors, error: connectError } = useConnect();
@@ -59,6 +61,11 @@ export default function PayPage({ initial }: { initial: PayData }) {
     return { chain, symbol };
   })();
   const availableConnectors = connectors;
+  // Stellar has no browser-wallet flow here: the payer sends from any Stellar wallet or exchange using the address and memo,
+  // and gives a Stellar address for refunds. Everyone else uses the connected EVM wallet's address.
+  const isStellar = selected.chain === "stellar";
+  const refundFor = isStellar ? stellarAddr.trim() || undefined : address;
+  const stellarInvalid = isStellar && !!stellarAddr.trim() && !stellarAddress.test(stellarAddr.trim());
 
   const connectWallet = async (item: (typeof connectors)[number]) => {
     setError("");
@@ -98,13 +105,14 @@ export default function PayPage({ initial }: { initial: PayData }) {
 
   useEffect(() => {
     if (!invoice.enabled || !selected.chain || !selected.symbol || !active) return;
-    if (invoice.network === "tidepool" && !address) { setQuote(null); return; }
-    if (quote && quote.origin?.chain === selected.chain && quote.origin?.symbol === selected.symbol && (quote.refundTo || undefined) === (address || undefined)) return;
+    if (stellarInvalid) { setQuote(null); return; }
+    if (invoice.network === "tidepool" && !isStellar && !address) { setQuote(null); return; }
+    if (quote && quote.origin?.chain === selected.chain && quote.origin?.symbol === selected.symbol && (isStellar ? !refundFor || quote.refundTo === refundFor : (quote.refundTo || undefined) === (refundFor || undefined))) return;
     const timer = window.setTimeout(() => {
-      void refreshQuote(selected.symbol, selected.chain, address);
+      void refreshQuote(selected.symbol, selected.chain, refundFor);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [selected.chain, selected.symbol, address, invoice.enabled, invoice.network, active, quote, refreshQuote]);
+  }, [selected.chain, selected.symbol, refundFor, isStellar, stellarInvalid, address, invoice.enabled, invoice.network, active, quote, refreshQuote]);
 
   useEffect(() => {
     if (!invoice.expiresAt || !active) return;
@@ -158,7 +166,7 @@ export default function PayPage({ initial }: { initial: PayData }) {
 
   const statusStep = status === "paid" ? 3 : status === "processing" ? 2 : 1;
   const displayChain = (chain: string) => invoice.network === "tidepool" && chain === "eth" ? "Ethereum Sepolia" : invoice.network === "tidepool" && chain === "base" ? "Base Sepolia" : invoice.network === "tidepool" && chain === "arb" ? "Arbitrum Sepolia" : chainNames[chain] || chain;
-  const isTidepoolNeedsWallet = invoice.network === "tidepool" && !address;
+  const isTidepoolNeedsWallet = invoice.network === "tidepool" && !isStellar && !address;
   const amountLabel = quote ? `${quote.amountInFormatted || quote.amountIn} ${quote.origin?.symbol}` : "";
   const merchantInfo = invoice.merchantInfo || {};
   const countryName = merchantInfo.country ? (() => { try { return new Intl.DisplayNames(undefined, { type: "region" }).of(merchantInfo.country.toUpperCase()) || merchantInfo.country; } catch { return merchantInfo.country; } })() : "";
@@ -181,12 +189,13 @@ export default function PayPage({ initial }: { initial: PayData }) {
       {!invoice.enabled ? <div className="hint">Crypto payments are not enabled on this server.</div> : !tokens.length ? <div className="hint">Payment options are unavailable right now. Please try again shortly.</div> : <>
         <div className="field-label">Pay with</div><button className="select" onClick={() => setModal("paywith")}><span className="ico">{selected.symbol?.slice(0, 1)}</span><span className="sel-text"><b>{selected.symbol}</b><small>on {displayChain(selected.chain)}</small></span><span className="chev">▼</span></button>
         <div className="you-pay" aria-live="polite">{busy ? <><div className="lbl">Preparing your payment…</div><div className="skeleton w1" /></> : quote ? <><div className="lbl">You pay</div><div className="big">{amountLabel}</div><div className="lbl">on {displayChain(quote.origin?.chain)} · invoice total {money(invoice.amount, invoice.currency)}</div></> : isTidepoolNeedsWallet ? <div className="lbl">Connect your wallet to prepare this payment.</div> : error ? <div className="lbl">We couldn’t prepare this payment.</div> : <div className="lbl">Preparing your payment…</div>}</div>
+        {isStellar && <div className="field"><div className="field-label">Your Stellar address, for refunds</div><input className="select" style={{ width: "100%", fontFamily: "monospace" }} placeholder="G…" value={stellarAddr} onChange={(event) => setStellarAddr(event.target.value)} spellCheck={false} autoComplete="off" />{stellarInvalid && <div className="hint">That isn’t a valid Stellar address. It starts with G and is 56 characters.</div>}<div className="hint">Send from this same account. Include the memo shown below, or the payment cannot be matched.</div></div>}
         {error && <div id="error" role="alert">{error}</div>}
         {message && <div className="msg" role="status">{message}</div>}
-        {isTidepoolNeedsWallet ? <button className="cta" onClick={() => setModal("wallet")} disabled={!availableConnectors.length}>Connect wallet</button> : quote && !locked && <button className="cta" onClick={() => address ? void pay() : setModal("wallet")} disabled={busy}>{busy ? "Confirm in your wallet…" : address ? `Pay ${amountLabel}` : "Connect wallet"}</button>}
+        {isTidepoolNeedsWallet ? <button className="cta" onClick={() => setModal("wallet")} disabled={!availableConnectors.length}>Connect wallet</button> : quote && !locked && !isStellar && <button className="cta" onClick={() => address ? void pay() : setModal("wallet")} disabled={busy}>{busy ? "Confirm in your wallet…" : address ? `Pay ${amountLabel}` : "Connect wallet"}</button>}
         {address && <div className="wallet-line"><span className="live" />{connector?.name} · {short(address)}<button className="link" onClick={() => void disconnectAsync()}>Disconnect</button></div>}
         {!availableConnectors.length && <div className="hint">No wallet detected. Open this page inside your wallet app or use the deposit details below.</div>}
-        {quote && <><ol className="stepper">{["Waiting for payment", "Converting", "Paid"].map((step, i) => <li className={statusStep > i + 1 ? "on" : statusStep === i + 1 ? "now" : ""} key={step}><span className="sdot" />{step}</li>)}</ol><details><summary>Pay from an exchange or another wallet</summary>{quote.qr && <img className="qr" src={quote.qr} alt="Deposit address QR code" />}<span className="lbl2">Send exactly <b>{amountLabel} on {displayChain(quote.origin?.chain)}</b> to</span><div className="addr">{quote.depositAddress}</div><button className="small-btn" onClick={() => navigator.clipboard.writeText(quote.depositAddress).then(() => { setCopyLabel("Copied"); window.setTimeout(() => setCopyLabel("Copy address"), 1500); })}>{copyLabel}</button>{quote.depositMemo && <div><span className="lbl2">Memo (required)</span><div className="addr">{quote.depositMemo}</div></div>}<div className="warn">Only send on the {displayChain(quote.origin?.chain)} network. Sending on another network can lose your funds.</div><div className="muted">{quote.refundTo ? `If the swap fails, your funds return to ${short(quote.refundTo)}.` : "If the swap fails, contact the merchant to arrange a refund."}</div></details></>}
+        {quote && <><ol className="stepper">{["Waiting for payment", "Converting", "Paid"].map((step, i) => <li className={statusStep > i + 1 ? "on" : statusStep === i + 1 ? "now" : ""} key={step}><span className="sdot" />{step}</li>)}</ol><details open={isStellar}><summary>{isStellar ? "Send from your Stellar wallet or an exchange" : "Pay from an exchange or another wallet"}</summary>{quote.qr && <img className="qr" src={quote.qr} alt="Deposit address QR code" />}<span className="lbl2">Send exactly <b>{amountLabel} on {displayChain(quote.origin?.chain)}</b> to</span><div className="addr">{quote.depositAddress}</div><button className="small-btn" onClick={() => navigator.clipboard.writeText(quote.depositAddress).then(() => { setCopyLabel("Copied"); window.setTimeout(() => setCopyLabel("Copy address"), 1500); })}>{copyLabel}</button>{quote.depositMemo && <div><span className="lbl2">Memo (required)</span><div className="addr">{quote.depositMemo}</div></div>}<div className="warn">Only send on the {displayChain(quote.origin?.chain)} network. Sending on another network can lose your funds.</div><div className="muted">{quote.refundTo ? `If the swap fails, your funds return to ${short(quote.refundTo)}.` : "If the swap fails, contact the merchant to arrange a refund."}</div></details></>}
       </>}
     </section>}
 
