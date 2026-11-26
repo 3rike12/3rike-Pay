@@ -54,11 +54,11 @@ COPY --from=api /app/dist ./dist
 COPY --from=web /app/web/dist ./web/dist
 COPY --from=api /app/prisma ./prisma
 COPY public ./public
+COPY docker-start.sh ./docker-start.sh
 # Prisma client generated files
 COPY --from=api /app/node_modules/.prisma ./node_modules/.prisma
 
 EXPOSE 3000
 
-# prisma/schema.prisma is postgres, so `db push` creates tables
-# in the compose postgres on first boot. Existing DBs are untouched.
-CMD ["sh", "-c", "npx prisma db push && node dist/index.js"]
+# docker-start.sh updates the schema (direct connection, 60s limit, never blocks startup), then starts the app.
+CMD ["sh", "docker-start.sh"]
