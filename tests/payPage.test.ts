@@ -24,6 +24,8 @@ vi.mock("@/services/nearIntents", () => ({
     submitDepositTx: (...a: any[]) => submitDepositTx(...a),
   },
 }));
+const checkStellarRefund = vi.fn();
+vi.mock("@/services/stellarAccount", () => ({ checkStellarRefund: (...a: any[]) => checkStellarRefund(...a) }));
 const createCryptoPayment = vi.fn();
 vi.mock("@/services/cryptoInvoice", () => ({
   originMetaFor: (t: any) => ({ symbol: t.symbol, chain: t.blockchain, tokenAddress: t.contractAddress ?? null, decimals: t.decimals }),
@@ -184,6 +186,8 @@ describe("pay API: payment options", () => {
     const STELLAR_ME = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7";
     beforeEach(() => {
       createCryptoPayment.mockClear();
+      checkStellarRefund.mockReset();
+      checkStellarRefund.mockResolvedValue({ ok: true });
       resolveOriginAsset.mockResolvedValue({ assetId: "nep245:xlm", symbol: "XLM", blockchain: "stellar", decimals: 7 });
     });
 
@@ -207,9 +211,31 @@ describe("pay API: payment options", () => {
       expect(res.body.error).toMatch(/0x/);
     });
 
-    it("passes a missing address on, for the payment code to refuse", async () => {
-      await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "XLM", chain: "stellar" });
-      expect(createCryptoPayment).toHaveBeenCalledWith(expect.objectContaining({ refundTo: undefined }));
+    it("requires the payer's Stellar address", async () => {
+      const res = await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "XLM", chain: "stellar" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Enter a valid Stellar address/);
+      expect(createCryptoPayment).not.toHaveBeenCalled();
+    });
+
+    it("checks the account on Stellar for the token being paid with", async () => {
+      resolveOriginAsset.mockResolvedValue({ assetId: "nep245:usdc", symbol: "USDC", blockchain: "stellar", decimals: 7, contractAddress: "GISSUER" });
+      await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDC", chain: "stellar", refundTo: STELLAR_ME });
+      expect(checkStellarRefund).toHaveBeenCalledWith(STELLAR_ME, expect.objectContaining({ symbol: "USDC", contractAddress: "GISSUER" }));
+    });
+
+    it("refuses, with the reason, an account that is not activated or has no trustline, and prepares nothing", async () => {
+      checkStellarRefund.mockResolvedValue({ ok: false, error: "That account can't receive USDC yet: it has no USDC trustline." });
+      const res = await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "USDC", chain: "stellar", refundTo: STELLAR_ME });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/no USDC trustline/);
+      expect(createCryptoPayment).not.toHaveBeenCalled();
+    });
+
+    it("does not ask Stellar about payments on other chains", async () => {
+      resolveOriginAsset.mockResolvedValue({ assetId: "nep141:base", symbol: "ETH", blockchain: "base", decimals: 18 });
+      await request(app()).post("/api/pay/3RIKE-TEST-1/quote").send({ symbol: "ETH", chain: "base", refundTo: "0x2527D02599Ba641c19FEa793cD0F167589a0f10D" });
+      expect(checkStellarRefund).not.toHaveBeenCalled();
     });
   });
 });

@@ -11,6 +11,7 @@ import {
   scheduleCryptoVerification,
 } from "@/services/cryptoInvoice";
 import { getInvoiceByReference } from "@/services/invoice";
+import { checkStellarRefund } from "@/services/stellarAccount";
 import { paymentQrPng } from "@/utils/qr";
 import { createLogger } from "@/utils/logger";
 
@@ -177,9 +178,12 @@ payApiRouter.post("/:reference/quote", limiter, async (req: Request, res: Respon
       return res.status(400).json({ error: "Connect your wallet before preparing this payment." });
     }
     if (token.blockchain === STELLAR_CHAIN) {
-      if (refundTo && !isStellarAddress(refundTo)) {
-        return res.status(400).json({ error: "That isn't a valid Stellar address (it starts with G and is 56 characters)." });
+      if (!refundTo || !isStellarAddress(refundTo)) {
+        return res.status(400).json({ error: "Enter a valid Stellar address (it starts with G and is 56 characters). A failed payment is refunded there." });
       }
+      // The refund can only land if the account is activated and, for USDC, has opted in to it. Check now, not after the money is sent.
+      const refundCheck = await checkStellarRefund(refundTo, token);
+      if (!refundCheck.ok) return res.status(400).json({ error: refundCheck.error });
     } else if (refundTo && !EVM_ADDRESS_RE.test(refundTo)) {
       return res.status(400).json({ error: "That refund address isn't a valid 0x address." });
     }
